@@ -1,0 +1,24 @@
+{
+  "name": "@custos/vitest-config",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "lint": "echo 'no lint target'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vitest/coverage-v8": "^2.1.8"
+  },
+  "devDependencies": {
+    "@custos/tsconfig": "workspace:*",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

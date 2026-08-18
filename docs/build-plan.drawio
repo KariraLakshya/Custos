@@ -1,0 +1,146 @@
+<mxfile host="app.diagrams.net" agent="AgentID" version="24.0.0">
+  <diagram id="agentid-plan" name="AgentID Build Plan">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- TITLE -->
+        <mxCell id="title" value="AgentID — Build Plan  (single-agent handshake = MVP · cross-org handshake = the &quot;it's big&quot; extension)" style="text;html=1;fontSize=18;fontStyle=1;fontColor=#14263F;align=center;" vertex="1" parent="1">
+          <mxGeometry x="250" y="16" width="1200" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Build order left → right. Each phase ends with something you can RUN. Green band = MVP. Purple = post-MVP (built on top, not instead)." style="text;html=1;fontSize=12;fontColor=#5A6B82;align=center;" vertex="1" parent="1">
+          <mxGeometry x="250" y="46" width="1200" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ============ MVP BAND ============ -->
+        <mxCell id="mvpBand" value="" style="rounded=1;html=1;fillColor=#EAF7F0;strokeColor=#1D9E75;strokeWidth=2;dashed=1;opacity=60;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="1230" height="470" as="geometry" />
+        </mxCell>
+        <mxCell id="mvpLabel" value="MVP  —  the single-agent trust handshake (deep, real, showable)" style="text;html=1;fontSize=14;fontStyle=1;fontColor=#085041;align=left;" vertex="1" parent="1">
+          <mxGeometry x="80" y="98" width="700" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- ============ POST-MVP BAND ============ -->
+        <mxCell id="postBand" value="" style="rounded=1;html=1;fillColor=#F3E8FF;strokeColor=#7A3CC9;strokeWidth=2;dashed=1;opacity=60;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="90" width="340" height="470" as="geometry" />
+        </mxCell>
+        <mxCell id="postLabel" value="POST-MVP" style="text;html=1;fontSize=14;fontStyle=1;fontColor=#3C1E63;align=left;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="98" width="300" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- ============ PHASE 0 ============ -->
+        <mxCell id="p0" value="PHASE 0&#10;Foundations &amp; skeleton" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6F5EC;strokeColor=#1D9E75;strokeWidth=2;fontSize=13;fontStyle=1;fontColor=#085041;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="90" y="140" width="190" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="p0d" value="• Ed25519 sign / verify by hand&#10;• Build 1 DID doc&#10;• Issue + verify 1 VC&#10;• Repo skeleton, dev env, CI&#10;&#10;DONE = sign a msg, verify it,&#10;tamper → verify fails;&#10;`make dev` brings up skeleton" style="text;html=1;fontSize=10;fontColor=#0a5a49;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="98" y="172" width="176" height="142" as="geometry" />
+        </mxCell>
+
+        <!-- ============ PHASE 1 ============ -->
+        <mxCell id="p1" value="PHASE 1&#10;Identity core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6F5EC;strokeColor=#1D9E75;strokeWidth=2;fontSize=13;fontStyle=1;fontColor=#085041;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="310" y="140" width="190" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="p1d" value="• Identity service&#10;• Keypair → DID → signed VC&#10;• Verifier checks authenticity&#10;&#10;DONE = register an agent,&#10;independently verify its&#10;credential; tampered&#10;credential is rejected" style="text;html=1;fontSize=10;fontColor=#0a5a49;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="318" y="172" width="176" height="142" as="geometry" />
+        </mxCell>
+
+        <!-- ============ PHASE 2 ============ -->
+        <mxCell id="p2" value="PHASE 2&#10;Credentials &amp; vault&#10;(dispossession)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6F5EC;strokeColor=#1D9E75;strokeWidth=2;fontSize=13;fontStyle=1;fontColor=#085041;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="530" y="140" width="190" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="p2d" value="• Vault holds real tool keys&#10;• Issue short-lived scoped tokens&#10;• 2-3 tool connectors (1 real)&#10;• Agent never holds raw key&#10;&#10;DONE = agent requests access,&#10;gets 60s token, calls tool,&#10;token expires → must re-request" style="text;html=1;fontSize=10;fontColor=#0a5a49;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="538" y="172" width="176" height="142" as="geometry" />
+        </mxCell>
+
+        <!-- ============ PHASE 3 ============ -->
+        <mxCell id="p3" value="PHASE 3&#10;Revocation engine&#10;★ THE DEMO MOMENT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#B8EDDA;strokeColor=#1D9E75;strokeWidth=3;fontSize=13;fontStyle=1;fontColor=#085041;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="750" y="140" width="190" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="p3d" value="• Flip credential status&#10;• Broadcast tombstone to tools&#10;• Tools respect revocation fast&#10;&#10;DONE = agent calling 3 tools,&#10;one `revoke` command,&#10;all 3 calls fail within ~1s.&#10;This is the 'it's REAL' demo." style="text;html=1;fontSize=10;fontColor=#0a5a49;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="758" y="172" width="176" height="142" as="geometry" />
+        </mxCell>
+
+        <!-- ============ PHASE 4 ============ -->
+        <mxCell id="p4" value="PHASE 4&#10;Authorization &amp; audit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6F5EC;strokeColor=#1D9E75;strokeWidth=2;fontSize=13;fontStyle=1;fontColor=#085041;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="970" y="140" width="190" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="p4d" value="• Policy engine (simple allowlists&#10;  per agent × tool, not full OPA yet)&#10;• Signed audit record per action&#10;&#10;DONE = agent A may call Stripe&#10;not GitHub, enforced; pull a&#10;verifiable log of all agent actions" style="text;html=1;fontSize=10;fontColor=#0a5a49;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="978" y="172" width="176" height="142" as="geometry" />
+        </mxCell>
+
+        <!-- ============ PHASE 5 ============ -->
+        <mxCell id="p5" value="PHASE 5&#10;Dev surface &amp; clean demo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6F5EC;strokeColor=#1D9E75;strokeWidth=2;fontSize=13;fontStyle=1;fontColor=#085041;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="360" width="190" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="p5d" value="• Minimal SDK (register/connect/&#10;  deprovision)&#10;• Clean CLI&#10;• Minimal dashboard OR strong&#10;  terminal visual for revoke&#10;&#10;DONE = someone who isn't you&#10;runs the full flow from the README.&#10;★ MVP COMPLETE — meetup ready" style="text;html=1;fontSize=10;fontColor=#0a5a49;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1088" y="392" width="176" height="142" as="geometry" />
+        </mxCell>
+
+        <!-- ============ PHASE 6 (POST-MVP) ============ -->
+        <mxCell id="p6" value="PHASE 6&#10;Cross-org federation&#10;(two-laptop demo)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAD9FF;strokeColor=#7A3CC9;strokeWidth=3;fontSize=13;fontStyle=1;fontColor=#3C1E63;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="140" width="200" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="p6d" value="= single-agent core, built TWICE,&#10;+ a trust bridge between them.&#10;&#10;• Laptop A + Laptop B, real network&#10;• B verifies A from signed VC + DID&#10;• Cross-org revocation both trust&#10;&#10;★ THE 'IT'S BIG' MONEY MOMENT:&#10;turn OFF laptop A's server →&#10;B still verifies A from credential&#10;alone → revoke A → B rejects it.&#10;&#10;(Only meaningful once MVP core&#10;works — it's built ON it.)" style="text;html=1;fontSize=10;fontColor=#3C1E63;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1348" y="176" width="184" height="188" as="geometry" />
+        </mxCell>
+
+        <!-- ============ LATER POST-MVP ============ -->
+        <mxCell id="later" value="LATER (demand-pulled)&#10;&#10;• Sidecar + hot/cold split&#10;• Data proxy (structured)&#10;• Content inspection&#10;• Egress / eBPF&#10;• Hosted / TEE modes&#10;• Open-source + protocol" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7EEFF;strokeColor=#7A3CC9;strokeWidth=1;dashed=1;fontSize=11;fontColor=#3C1E63;verticalAlign=top;spacingTop=6;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="400" width="200" height="150" as="geometry" />
+        </mxCell>
+
+        <!-- ============ ARROWS (build order) ============ -->
+        <mxCell id="a01" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1D9E75;strokeWidth=2.5;endArrow=classic;" edge="1" parent="1" source="p0" target="p1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a12" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1D9E75;strokeWidth=2.5;endArrow=classic;" edge="1" parent="1" source="p1" target="p2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a23" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1D9E75;strokeWidth=2.5;endArrow=classic;" edge="1" parent="1" source="p2" target="p3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a34" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1D9E75;strokeWidth=2.5;endArrow=classic;" edge="1" parent="1" source="p3" target="p4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a45" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1D9E75;strokeWidth=2.5;endArrow=classic;" edge="1" parent="1" source="p4" target="p5"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1175" y="410" /></Array></mxGeometry></mxCell>
+        <mxCell id="a56" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#7A3CC9;strokeWidth=2.5;endArrow=classic;dashed=1;" edge="1" parent="1" source="p5" target="p6"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1300" y="450" /><mxPoint x="1300" y="255" /></Array></mxGeometry></mxCell>
+        <mxCell id="a6later" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#7A3CC9;strokeWidth=1.5;endArrow=classic;dashed=1;" edge="1" parent="1" source="p6" target="later"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ============ MILESTONE MARKERS ============ -->
+        <mxCell id="ms1" value="MILESTONE: crypto works" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4D6;strokeColor=#D9A400;fontSize=9;fontColor=#6B5200;" vertex="1" parent="1">
+          <mxGeometry x="310" y="330" width="190" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="ms2" value="MILESTONE: 'it's REAL' demo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE9C7;strokeColor=#D9A400;strokeWidth=2;fontSize=9;fontStyle=1;fontColor=#6B5200;" vertex="1" parent="1">
+          <mxGeometry x="750" y="330" width="190" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="ms3" value="MILESTONE: MVP complete (meetup-ready)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE9C7;strokeColor=#D9A400;strokeWidth=2;fontSize=9;fontStyle=1;fontColor=#6B5200;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="546" width="190" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="ms4" value="MILESTONE: 'it's BIG' cross-org demo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAD9FF;strokeColor=#7A3CC9;strokeWidth=2;fontSize=9;fontStyle=1;fontColor=#3C1E63;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="378" width="200" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- ============ LEGEND ============ -->
+        <mxCell id="legendBox" value="How to read this" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F9FC;strokeColor=#5A6B82;fontSize=11;fontStyle=1;fontColor=#14263F;verticalAlign=top;spacingTop=6;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="600" width="620" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="legendTxt" value="• Build strictly left → right. Do NOT start a phase until the previous one's DONE criteria pass.&#10;• Every phase ends with something you can RUN and watch work — never 'in progress with nothing to show'.&#10;• Phases 0–5 (green) = the MVP: one agent's complete, safe lifecycle. This is your 'it's real' demo.&#10;• Phase 3 (★) is the visceral moment; Phase 5 (★) is where a stranger can run it — MVP ends here.&#10;• Phase 6 (purple) = cross-org federation on two laptops. It is the MVP core built TWICE + a bridge,&#10;  so it can ONLY come after the core works. Its money moment = offline verification (laptop A off).&#10;• 'Later' = everything from the architecture (sidecar, data proxy, TEE, open-source) — demand-pulled." style="text;html=1;fontSize=10;fontColor=#333333;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="68" y="628" width="604" height="118" as="geometry" />
+        </mxCell>
+
+        <!-- color key -->
+        <mxCell id="k1" value="MVP phase" style="rounded=1;html=1;fillColor=#D6F5EC;strokeColor=#1D9E75;fontSize=10;fontColor=#085041;" vertex="1" parent="1">
+          <mxGeometry x="700" y="600" width="110" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="k2" value="★ Demo moment" style="rounded=1;html=1;fillColor=#B8EDDA;strokeColor=#1D9E75;strokeWidth=2;fontSize=10;fontColor=#085041;" vertex="1" parent="1">
+          <mxGeometry x="700" y="632" width="110" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="k3" value="Post-MVP" style="rounded=1;html=1;fillColor=#EAD9FF;strokeColor=#7A3CC9;fontSize=10;fontColor=#3C1E63;" vertex="1" parent="1">
+          <mxGeometry x="820" y="600" width="110" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="k4" value="Milestone" style="rounded=1;html=1;fillColor=#FFE9C7;strokeColor=#D9A400;fontSize=10;fontColor=#6B5200;" vertex="1" parent="1">
+          <mxGeometry x="820" y="632" width="110" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- linear note -->
+        <mxCell id="linearNote" value="Map to personal Linear: each PHASE = a Milestone/Project. Each bullet under a phase = an Issue with the DONE line as its acceptance criteria." style="text;html=1;fontSize=11;fontColor=#5A6B82;align=left;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="960" y="600" width="500" height="40" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
