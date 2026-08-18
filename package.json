@@ -1,0 +1,47 @@
+{
+  "name": "custos",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Custos — a trust layer for AI agents",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "docker compose -f infra/docker/docker-compose.yml up -d",
+    "dev:down": "docker compose -f infra/docker/docker-compose.yml down",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "migrate": "drizzle-kit migrate --config=infra/migrations/drizzle.config.ts",
+    "migrate:generate": "drizzle-kit generate --config=infra/migrations/drizzle.config.ts",
+    "changeset": "changeset",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.11",
+    "@custos/eslint-config": "workspace:*",
+    "@types/node": "^22.10.5",
+    "@vitest/coverage-v8": "^2.1.8",
+    "drizzle-kit": "^0.30.1",
+    "drizzle-orm": "^0.38.3",
+    "eslint": "^9.17.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "pg": "^8.13.1",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,cjs,mjs}": [
+      "eslint --fix"
+    ],
+    "*.{ts,tsx,js,cjs,mjs,json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

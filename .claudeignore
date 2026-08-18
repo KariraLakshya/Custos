@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+pnpm-lock.yaml
+
+# Build output
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+
+# Turborepo
+.turbo/
+
+# Test output
+coverage/
+.vitest/
+test-results/
+playwright-report/
+
+# Generated
+*.generated.ts
+packages/contracts/generated/
+docs/api/*.json
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Claude local
+.claude/settings.local.json
+
+# Reference documents — read only when explicitly needed, not during search.
+# Condensed markdown equivalents live in docs/ and should be used instead.
+docs/*.pdf
+docs/*.drawio
+
+# Large fixtures
+**/fixtures/**/*.large.*
+**/__snapshots__/

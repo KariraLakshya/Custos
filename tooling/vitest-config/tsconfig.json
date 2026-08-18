@@ -1,0 +1,7 @@
+{
+  "extends": "@custos/tsconfig/base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["*.ts"]
+}

@@ -1,0 +1,159 @@
+<mxfile host="app.diagrams.net" agent="AgentID">
+  <diagram id="agentid-arch" name="AgentID Architecture">
+    <mxGraphModel dx="708" dy="461" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;fontSize=20;fontStyle=1;fontColor=#14263F;align=center;verticalAlign=middle;" value="AgentID — Trust Layer for Agent-to-Agent Communication  (TLS for agentic services)" vertex="1">
+          <mxGeometry height="36" width="1120" x="240" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;fontSize=12;fontColor=#5A6B82;align=center;verticalAlign=middle;" value="Hot path (per request, &lt;10ms, in the sidecar)  ·  Cold path (setup / management, Kubernetes control plane)  ·  push, don&#39;t pull" vertex="1">
+          <mxGeometry height="24" width="1120" x="240" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="podContainer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF2FF;strokeColor=#2D6CDF;strokeWidth=2;verticalAlign=top;fontSize=13;fontStyle=1;fontColor=#14263F;dashed=1;" value="AGENT POD  (customer side — hot path)" vertex="1">
+          <mxGeometry height="360" width="440" x="80" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="agent" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#2D6CDF;fontSize=12;fontColor=#14263F;verticalAlign=middle;" value="Agent container&#xa;(your AI agent code)&#xa;&#xa;holds NO raw API keys" vertex="1">
+          <mxGeometry height="110" width="180" x="110" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="sidecar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6F5EC;strokeColor=#1D9E75;strokeWidth=2;fontSize=11;fontColor=#085041;verticalAlign=top;align=left;spacingLeft=8;" value="AgentID sidecar&#xa;(lean, Rust/Go, distroless)&#xa;&#xa;• verify VC (local)&#xa;• policy eval (in-proc OPA)&#xa;• revocation check (cache)&#xa;• strip data fields&#xa;• emit audit (async)" vertex="1">
+          <mxGeometry height="180" width="180" x="320" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="redisLocal" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4D6;strokeColor=#D9A400;fontSize=10;fontColor=#6B5200;verticalAlign=middle;" value="Local Redis cache&#xa;(policy bundle · revocation snapshot)" vertex="1">
+          <mxGeometry height="70" width="180" x="320" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="e_agent_sidecar" edge="1" parent="1" source="agent" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#1D9E75;strokeWidth=2;endArrow=classic;startArrow=classic;fontSize=10;fontColor=#085041;" target="sidecar">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lbl_localhost" parent="1" style="text;html=1;fontSize=10;fontColor=#085041;align=center;" value="localhost &lt;1ms" vertex="1">
+          <mxGeometry height="18" width="120" x="292" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="e_sidecar_redis" edge="1" parent="1" source="sidecar" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#D9A400;strokeWidth=1.5;endArrow=classic;startArrow=classic;" target="redisLocal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E8FF;strokeColor=#7A3Cc9;strokeWidth=2;fontSize=11;fontColor=#3C1E63;verticalAlign=top;align=left;spacingLeft=8;" value="Edge verifier&#xa;(Cloudflare Worker)&#xa;&#xa;for browser / serverless /&#xa;edge agents with no pod&#xa;— verification ~5-15ms" vertex="1">
+          <mxGeometry height="130" width="230" x="80" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="toolsContainer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#888888;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#333333;dashed=1;" value="TOOLS / APIs / OTHER AGENTS" vertex="1">
+          <mxGeometry height="360" width="340" x="1180" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="tool1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#888888;fontSize=11;" value="Stripe" vertex="1">
+          <mxGeometry height="50" width="130" x="1210" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="tool2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#888888;fontSize=11;" value="GitHub" vertex="1">
+          <mxGeometry height="50" width="130" x="1360" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="tool3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#888888;fontSize=11;" value="Slack" vertex="1">
+          <mxGeometry height="50" width="130" x="1210" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="tool4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#1D9E75;strokeWidth=2;fontSize=10;fontColor=#085041;" value="MCP server&#xa;(+ agentid-verify)" vertex="1">
+          <mxGeometry height="50" width="130" x="1360" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="tool5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7A3Cc9;strokeWidth=2;fontSize=10;fontColor=#3C1E63;" value="Company B agent&#xa;(cross-org)" vertex="1">
+          <mxGeometry height="50" width="180" x="1285" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="toolNote" parent="1" style="text;html=1;fontSize=10;fontColor=#666666;align=center;" value="Egress gateway (NetworkPolicy) + optional eBPF ensure the sidecar&lt;div&gt;&amp;nbsp;can&#39;t be bypassed&lt;/div&gt;" vertex="1">
+          <mxGeometry height="40" width="285" x="1207.5" y="400" as="geometry" />
+        </mxCell>
+        <mxCell id="e_sidecar_tools" edge="1" parent="1" source="sidecar" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2D6CDF;strokeWidth=2.5;endArrow=classic;fontSize=10;fontColor=#14263F;" target="toolsContainer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="850" y="260" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lbl_minimised" parent="1" style="text;html=1;fontSize=10;fontColor=#14263F;align=center;" value="scoped short-lived token + minimised payload (denied fields already stripped)" vertex="1">
+          <mxGeometry height="18" width="560" x="560" y="228" as="geometry" />
+        </mxCell>
+        <mxCell id="e_edge_tools" edge="1" parent="1" source="edge" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7A3Cc9;strokeWidth=1.5;endArrow=classic;dashed=1;" target="tool5">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="850" y="580" />
+              <mxPoint x="850" y="335" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="cpContainer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FBEEE6;strokeColor=#C0561F;strokeWidth=2;verticalAlign=top;fontSize=13;fontStyle=1;fontColor=#7A3510;dashed=1;" value="CONTROL PLANE  (cold path — Kubernetes, 3 replicas/AZ)" vertex="1">
+          <mxGeometry height="330" width="960" x="560" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_identity" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C0561F;fontSize=11;fontColor=#7A3510;verticalAlign=middle;" value="identity-svc&#xa;DID issuance · VC signing&#xa;(keys in AWS KMS)" vertex="1">
+          <mxGeometry height="70" width="200" x="590" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_cred" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C0561F;fontSize=11;fontColor=#7A3510;verticalAlign=middle;" value="credential-svc&#xa;vault · short-lived&#xa;scoped token issuance" vertex="1">
+          <mxGeometry height="70" width="200" x="810" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_policy" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C0561F;fontSize=11;fontColor=#7A3510;verticalAlign=middle;" value="policy-svc&#xa;OPA compile · push&#xa;bundles to hot path" vertex="1">
+          <mxGeometry height="70" width="200" x="1030" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_revoke" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C0561F;fontSize=11;fontColor=#7A3510;verticalAlign=middle;" value="revocation-svc&#xa;tombstone · webhook fanout&#xa;Status List · autoscaled" vertex="1">
+          <mxGeometry height="70" width="240" x="1250" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_audit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C0561F;fontSize=11;fontColor=#7A3510;verticalAlign=middle;" value="audit-svc&#xa;append-only + hash chain&#xa;signed records" vertex="1">
+          <mxGeometry height="70" width="200" x="590" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_fed" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7A3Cc9;strokeWidth=2;fontSize=11;fontColor=#3C1E63;verticalAlign=middle;" value="federation-svc&#xa;cross-org DID resolution&#xa;trust anchors · grants" vertex="1">
+          <mxGeometry height="70" width="200" x="810" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_inspect" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D9A400;strokeWidth=2;fontSize=11;fontColor=#6B5200;verticalAlign=middle;" value="content-inspection-svc&#xa;(opt-in, off hot path)&#xa;Presidio · doc-AI · best-effort" vertex="1">
+          <mxGeometry height="70" width="200" x="1030" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_kms" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEE9FF;strokeColor=#7A3Cc9;fontSize=11;fontColor=#3C1E63;verticalAlign=middle;" value="AWS KMS / HSM&#xa;private keys never leave" vertex="1">
+          <mxGeometry height="70" width="240" x="1250" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="cpNote" parent="1" style="text;html=1;fontSize=10;fontColor=#7A3510;align=center;" value="Dashboard · one-click revoke · agent inventory  |  Postgres per service  |  cosign/Sigstore signed images + admission control" vertex="1">
+          <mxGeometry height="40" width="900" x="590" y="760" as="geometry" />
+        </mxCell>
+        <mxCell id="e_push" edge="1" parent="1" source="cpContainer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#C0561F;strokeWidth=2;endArrow=classic;dashed=1;fontSize=10;fontColor=#7A3510;" target="redisLocal">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="540" y="405" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lbl_push" parent="1" style="text;html=1;fontSize=10;fontColor=#7A3510;align=center;" value="PUSH policy bundles + revocation status&#xa;(hot path never waits on cold path)" vertex="1">
+          <mxGeometry height="30" width="260" x="510" y="405" as="geometry" />
+        </mxCell>
+        <mxCell id="e_sidecar_cred" edge="1" parent="1" source="sidecar" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#999999;strokeWidth=1.5;endArrow=classic;startArrow=classic;dashed=1;fontSize=9;fontColor=#666666;" target="svc_cred">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="620" y="260" />
+              <mxPoint x="620" y="540" />
+              <mxPoint x="910" y="540" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lbl_coldcall" parent="1" style="text;html=1;fontSize=9;fontColor=#666666;align=center;" value="only on cache miss / token issuance" vertex="1">
+          <mxGeometry height="16" width="200" x="600" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="e_revoke_tools" edge="1" parent="1" source="svc_revoke" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#C0561F;strokeWidth=2;endArrow=classic;fontSize=9;fontColor=#7A3510;" target="toolsContainer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1370" y="500" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lbl_tombstone" parent="1" style="text;html=1;fontSize=9;fontColor=#7A3510;align=center;" value="signed revocation tombstone (0.3s target)" vertex="1">
+          <mxGeometry height="16" width="270" x="1230" y="495" as="geometry" />
+        </mxCell>
+        <mxCell id="sixQ" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F9FC;strokeColor=#2D6CDF;fontSize=11;fontColor=#14263F;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" value="Six questions on every request:&#xa;1. Who are you? (identity / DID+VC)&#xa;2. Can I trust you? (auth / signature + not revoked)&#xa;3. What can you do? (authorization / OPA)&#xa;4. What data can you get? (data policy / field strip)&#xa;5. Can I revoke you? (lifecycle / tombstone)&#xa;6. What happened? (audit / signed record)" vertex="1">
+          <mxGeometry height="170" width="360" x="80" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="modes" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F9FC;strokeColor=#1D9E75;fontSize=11;fontColor=#085041;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" value="Deployment modes (trust ladder):&#xa;• Self-host — data never reaches AgentID&#xa;• Hosted (metadata-only) — labels, not content&#xa;• Edge — verification only (browser/serverless)&#xa;• Hosted + TEE — inspects, provably can&#39;t exfiltrate" vertex="1">
+          <mxGeometry height="120" width="700" x="80" y="860" as="geometry" />
+        </mxCell>
+        <mxCell id="key_hot" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6F5EC;strokeColor=#1D9E75;fontSize=10;fontColor=#085041;" value="Hot path (per request)" vertex="1">
+          <mxGeometry height="30" width="170" x="800" y="860" as="geometry" />
+        </mxCell>
+        <mxCell id="key_cold" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FBEEE6;strokeColor=#C0561F;fontSize=10;fontColor=#7A3510;" value="Cold path (management)" vertex="1">
+          <mxGeometry height="30" width="170" x="800" y="900" as="geometry" />
+        </mxCell>
+        <mxCell id="key_cross" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E8FF;strokeColor=#7A3Cc9;fontSize=10;fontColor=#3C1E63;" value="Cross-org / federation" vertex="1">
+          <mxGeometry height="30" width="170" x="990" y="860" as="geometry" />
+        </mxCell>
+        <mxCell id="key_optin" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4D6;strokeColor=#D9A400;fontSize=10;fontColor=#6B5200;" value="Opt-in / heavy / off hot path" vertex="1">
+          <mxGeometry height="30" width="190" x="990" y="900" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
