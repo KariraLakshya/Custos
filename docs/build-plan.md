@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 0 — Foundations & skeleton**
+> **CURRENT: Phase 1 — Identity core**
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 

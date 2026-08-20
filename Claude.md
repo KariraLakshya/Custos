@@ -22,39 +22,51 @@ Consult the build plan for the current phase before starting any task.
 
 ## 0. Project state — keep this current
 
-_This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase._
+_This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 0 — Foundations & skeleton (see `docs/build-plan.md`)
-**Last updated:** _not yet started_
+**Current phase:** Phase 1 — Identity core (see `docs/build-plan.md`) — Phase 0 complete
+**Last updated:** 2026-08-21
 
 ### Implemented
 
-_Nothing yet — greenfield._
-
-<!-- As work lands, record it here by package/service. One line each. Example:
-- `packages/core` — Ed25519 keypair generation, sign/verify, DID document construction. Unit tested, 96% coverage.
-- `services/identity` — VC issuance via KeyProvider interface. Local dev key provider only; KMS not wired.
--->
+- Full monorepo scaffold: pnpm workspaces + Turborepo, `tooling/{tsconfig,eslint-config,vitest-config}`, `packages/{core,contracts,sdk,connectors,observability,config,testing}`, `apps/cli`, `services/{identity,vault,revocation,audit}` — each with its own `package.json`/`tsconfig.json`/`vitest.config.ts` and at least one passing test.
+- `packages/observability` — Pino logger with redaction enforced in the logger (caller-supplied `redact` cannot disable it).
+- `packages/config` — Zod env schema + `loadEnv()` that throws (refuses to boot) on invalid environment; each service extends the base schema with its own `PORT`.
+- `infra/docker/docker-compose.yml` — Postgres + Redis for local dev (`pnpm dev`).
+- `infra/migrations` — Drizzle wired, one empty custom initial migration (`0000_initial.sql`); verified with `pnpm migrate` against the live container.
+- Husky + lint-staged pre-commit (lint + format staged files) — verified it blocks a deliberate lint violation.
+- Changesets initialized. GitHub Actions: `ci.yml`, `security.yml`, `release.yml`.
+- Standard repo files: README, SECURITY, CONTRIBUTING, CODEOWNERS, dependabot.yml, issue/PR templates, `.env.example`, `.gitignore`, `.nvmrc`.
+- Coverage thresholds enforced via `tooling/vitest-config` (80% default, 95% for `packages/core`) — confirmed both failing and passing correctly.
+- `pnpm install && pnpm dev && pnpm test` (and `lint`/`typecheck`/`build`) all pass from this state.
+- `packages/core` — Phase 0's knowledge-gap work, all pure/no-I/O, 100% test coverage:
+  - `crypto/ed25519.ts` — keypair gen/sign/verify on `@noble/ed25519`; `verify()` fails closed (never throws) on malformed input.
+  - `did/did-web.ts` — builds a `did:web` document from a domain + public key only (no secret key needed, ready for a future KMS-shaped key provider).
+  - `vc/document-loader.ts` + `vc/credential.ts` — issues/verifies one W3C VC 2.0 credential using the `Ed25519Signature2020` JSON-LD Data Integrity suite (Digital Bazaar libraries, not hand-rolled canonicalization — see `docs/adr/0001-vc-proof-format.md`). The document loader only ever resolves bundled contexts, never the network.
+  - `types/vc-libs.d.ts` — ambient TS declarations for the several dependencies here that ship no types.
+- `services/identity` — serves the Phase 0 demo `did:web` document at `GET /.well-known/did.json`, backed by one in-memory keypair generated at process start (never persisted). Domain configurable via `IDENTITY_DID_DOMAIN` env var.
 
 ### In progress
 
-_Nothing yet._
+Nothing — Phase 0 is done and verified locally (lint/typecheck/test/build all green across the repo). **Not yet committed or pushed** — awaiting go-ahead.
 
 ### Next up
 
-Scaffold the monorepo per section 2, then Phase 0 criteria in `docs/build-plan.md`.
+Phase 1 — Identity core: a real identity service (keypair → DID → signed VC per agent, replacing Phase 0's one-off in-memory demo key with a KMS-shaped key provider), an independent verifier, and a minimal agent registry with versioned migrations.
 
 ### Known issues, debt, and deviations
 
-_None yet._
-
-<!-- Record anything a future session would be surprised by: shortcuts taken with a reason, places the code deviates from this file or the build plan, flaky tests, TODOs that matter, decisions deferred. -->
+- Reconciled doc filenames to match this file's structure: `BuildPlan.md` → `docs/build-plan.md`, `AgentID_Product_PRD.pdf` → `docs/prd.pdf`, `AgentID_BRD.pdf` → `docs/brd.pdf`, `AgentID_Project_Plan.drawio` → `docs/build-plan.drawio`, `AgentID_Architecture.drawio` → `docs/architecture.drawio`.
+- LICENSE deliberately not added — open-source-vs-proprietary decision explicitly deferred by the user.
+- `drizzle-orm`/`drizzle-kit`/`pg` live in the root `package.json` devDependencies for now since no service owns a DB connection yet — move them to `services/identity` (first real consumer) in Phase 1.
+- `release.yml` runs `changeset version`/`changeset tag` only, no `npm publish` — no publish target exists yet (all packages private, no license chosen).
+- `services/identity`'s DID key is regenerated on every process restart (in-memory, not persisted) — expected for Phase 0's one-off demo; Phase 1's KMS-shaped key provider replaces this.
 
 ### Gotchas for a new session
 
-_None yet._
-
-<!-- Environment quirks, non-obvious setup steps, commands that must run in a particular order, external accounts or credentials needed. -->
+- This machine has a native Windows PostgreSQL 18 service already bound to port 5432. The Compose Postgres is mapped to host port **5433** instead (`infra/docker/docker-compose.yml`, `.env.example`, `infra/migrations/drizzle.config.ts`). Don't "fix" this back to 5432.
+- Docker Desktop isn't started automatically by `pnpm dev` — start it first if the daemon isn't running.
+- pnpm wasn't preinstalled; `corepack enable` failed with `EPERM` in this environment (needs elevated Windows permissions) — installed instead via `npm install -g pnpm@9.15.0`.
 
 ---
 
@@ -185,6 +197,7 @@ custos/
 ├── docs/
 │   ├── build-plan.md         # phase order + DONE criteria (scope authority, editable)
 │   ├── build-plan.drawio     # same, visual
+│   ├── progress.md           # plain-language progress log for the founder — updated every phase/push
 │   ├── prd.pdf               # features, requirements, rationale (reference)
 │   ├── brd.pdf               # business context (rarely needed)
 │   ├── architecture.drawio   # target architecture (reference)
@@ -339,3 +352,11 @@ Write it for someone with no memory of the work. Be specific and brief — one l
 Keep section 0 short. It is a handover note, not a changelog — git history is the changelog. If it grows past roughly a page, compress the _Implemented_ list into per-package summaries.
 
 Write it for a future Claude reading cold, not for a human enjoying prose. Do not wait for a session to become unwieldy — update at each natural checkpoint (feature done, bug closed, phase complete), the same way you would commit at a logical stopping point.
+
+### Progress log — required
+
+`docs/progress.md` is a **separate, mandatory** update from section 0 above — it is written for the founder tracking Custos as a business, not for a future Claude session, and section 0 being updated does not satisfy this.
+
+Update it after **every phase completion and every push to `origin`**, no exceptions. Each entry needs: date, phase/milestone name, commit hash(es) and push status, what shipped, how it works explained in plain language (no unexplained jargon), and why it matters or what it unblocks. Newest entry on top.
+
+Write for someone who wants to understand how the project — the startup — is progressing, not someone reading code. Explain consequences and capabilities gained, not just facts about files changed.
