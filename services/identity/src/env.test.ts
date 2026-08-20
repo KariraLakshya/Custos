@@ -9,4 +9,14 @@ describe("identity env", () => {
   it("coerces PORT from a string", () => {
     expect(loadIdentityEnv({ PORT: "5000" }).PORT).toBe(5000);
   });
+
+  it("defaults IDENTITY_DID_DOMAIN to localhost:4001", () => {
+    expect(loadIdentityEnv({}).IDENTITY_DID_DOMAIN).toBe("localhost:4001");
+  });
+
+  it("accepts a configured IDENTITY_DID_DOMAIN", () => {
+    expect(
+      loadIdentityEnv({ IDENTITY_DID_DOMAIN: "identity.custos.example" }).IDENTITY_DID_DOMAIN,
+    ).toBe("identity.custos.example");
+  });
 });
