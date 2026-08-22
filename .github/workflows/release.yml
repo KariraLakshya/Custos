@@ -24,7 +24,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Generate SBOM
-        run: pnpm dlx @cyclonedx/cyclonedx-npm --output-file sbom.json
+        # @cyclonedx/cyclonedx-npm shells out to `npm ls`, which doesn't
+        # understand pnpm's node_modules layout and fails the build; cdxgen
+        # reads the pnpm lockfile directly.
+        run: pnpm dlx @cyclonedx/cdxgen -o sbom.json --type npm
       - uses: changesets/action@v1
         with:
           # No packages are published externally yet (all private, license
