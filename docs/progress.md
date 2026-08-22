@@ -6,9 +6,9 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
-## 2026-08-21 — Phase 0: Cryptographic identity primitives
+## 2026-08-22 — Phase 0: Cryptographic identity primitives
 
-**Commit:** not yet committed or pushed — this work is done and verified locally, awaiting go-ahead to commit.
+**Commits:** `480a97f` — "feat: close Phase 0 knowledge gap - Ed25519, did:web, and one signed VC"; `056fc67` — "fix: use pnpm-compatible SBOM generator in release.yml". Both pushed to `origin/main`.
 
 **What shipped:** The three pieces of cryptography Phase 0 exists to prove out: an agent can generate a digital identity, present it in a standard, machine-readable format, and have a document cryptographically signed and independently checked for authenticity — with a working demonstration of what happens when someone tampers with a signed document (it's caught).
 
@@ -18,10 +18,11 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 - That public half gets published as a small standard document (a "DID document," did:web being one of the W3C's standard identity formats) at a well-known web address — `/.well-known/did.json` — the same pattern browsers use for TLS certificate validation. The `identity` service now serves one of these.
 - On top of that, we can now issue a "Verifiable Credential" — a signed, standardized digital document (think: a digitally-signed ID card) — and hand it to anyone who can independently check, using only the published public key, that it's genuine and untampered. We deliberately used an existing, spec-conformant library for the underlying data-normalization step (the part of the W3C credential spec that's genuinely easy to get subtly wrong in a way that wouldn't show up until much later — see the architecture decision recorded in `docs/adr/0001-vc-proof-format.md`) rather than writing that piece from scratch.
 - Every one of these checks is proven with an automated test that tries to break it: tamper with a signed credential and confirm it's rejected, sign with the wrong key and confirm it's rejected, feed in malformed data and confirm the system fails safely instead of crashing.
+- Along the way, pushing this was also the first time the automated release pipeline actually ran (nothing had triggered it before). It failed — a tool it used to generate a security/compliance manifest didn't understand how this project manages its packages — and that's now fixed too, so the full pipeline runs clean end to end, not just the parts we'd tested before.
 
 **Why it matters:** This is the actual cryptographic foundation the whole "cryptographic identity for agents" claim rests on — everything in Custos's pitch (revocation, scoped access, audit trails) depends on this working correctly first. It's now proven working end-to-end in code, not just designed on paper. What it unblocks: Phase 1, where this becomes a real per-agent identity service instead of a one-off demonstration.
 
-**Status:** Done and verified locally (all tests, type-checking, linting, and builds pass across the whole repository). Not yet committed to git or pushed.
+**Status:** Done, verified locally, pushed, and confirmed green on GitHub's automated checks (lint, type-check, test, build, and release pipeline all passed).
 
 **Next up:** Phase 1 — turn this from "the primitive works" into "every agent gets one": a real identity service that generates a keypair, DID, and signed credential per agent, backed by a proper key vault instead of an in-memory demo key, plus a registry to track which agents exist.
 

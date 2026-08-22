@@ -25,7 +25,7 @@ Consult the build plan for the current phase before starting any task.
 _This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
 
 **Current phase:** Phase 1 — Identity core (see `docs/build-plan.md`) — Phase 0 complete
-**Last updated:** 2026-08-21
+**Last updated:** 2026-08-22
 
 ### Implemented
 
@@ -45,10 +45,12 @@ _This section is the handover between sessions. Read it first. Update it before 
   - `vc/document-loader.ts` + `vc/credential.ts` — issues/verifies one W3C VC 2.0 credential using the `Ed25519Signature2020` JSON-LD Data Integrity suite (Digital Bazaar libraries, not hand-rolled canonicalization — see `docs/adr/0001-vc-proof-format.md`). The document loader only ever resolves bundled contexts, never the network.
   - `types/vc-libs.d.ts` — ambient TS declarations for the several dependencies here that ship no types.
 - `services/identity` — serves the Phase 0 demo `did:web` document at `GET /.well-known/did.json`, backed by one in-memory keypair generated at process start (never persisted). Domain configurable via `IDENTITY_DID_DOMAIN` env var.
+- Pushed to `origin/main` (`480a97f`, `056fc67`) and confirmed green on GitHub Actions — `lint-typecheck`, `test`, `build`, and `version-or-release` all passed, not just the local run.
+- `release.yml`'s SBOM step now uses `@cyclonedx/cdxgen` instead of `@cyclonedx/cyclonedx-npm` — the latter shells out to `npm ls`, which doesn't understand pnpm's `node_modules` layout and failed on the first real push to actually exercise `release.yml`.
 
 ### In progress
 
-Nothing — Phase 0 is done and verified locally (lint/typecheck/test/build all green across the repo). **Not yet committed or pushed** — awaiting go-ahead.
+Nothing — Phase 0 is done, verified locally and in CI, committed and pushed.
 
 ### Next up
 
