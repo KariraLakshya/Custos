@@ -28,7 +28,7 @@ jobs:
         # understand pnpm's node_modules layout and fails the build; cdxgen
         # reads the pnpm lockfile directly.
         run: pnpm dlx @cyclonedx/cdxgen -o sbom.json --type npm
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
           # No packages are published externally yet (all private, license
           # undecided) — this opens/updates a "Version Packages" PR only.
