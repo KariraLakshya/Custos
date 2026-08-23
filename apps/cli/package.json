@@ -11,13 +11,16 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@custos/core": "workspace:*",
     "commander": "^12.1.0"
   },
   "devDependencies": {
+    "@custos/identity": "workspace:*",
     "@custos/tsconfig": "workspace:*",
     "@custos/vitest-config": "workspace:*",
     "typescript": "^5.7.2",

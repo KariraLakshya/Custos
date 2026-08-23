@@ -31,6 +31,16 @@ export interface SignedCredential extends UnsignedCredential {
 
 export type IssueCredentialError = { readonly code: "SIGNING_FAILED"; readonly reason: string };
 
+/**
+ * KMS-shaped signing callback (CLAUDE.md section 4): `id` is the DID
+ * document's verification method id this signature will be checked
+ * against; `sign` never exposes the private key, only a signature.
+ */
+export interface CredentialSigner {
+  readonly id: string;
+  readonly sign: (input: { readonly data: Uint8Array }) => Promise<Uint8Array>;
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -40,21 +50,15 @@ export function verificationFailureReason(error: { readonly message: string } | 
 }
 
 /**
- * Signs `unsignedCredential` as `unsignedCredential.issuer` (a did:web DID).
- * The signing key is re-derived from `secretKey` for this one call and never
- * returned or retained — Phase 1 replaces this with a KMS-shaped signer that
- * never exposes `secretKey` to this function at all.
+ * Signs `unsignedCredential` as `unsignedCredential.issuer` (a did:web DID),
+ * via an injected `signer` — this function never sees private key material.
  */
 export async function issueCredential(params: {
   readonly unsignedCredential: UnsignedCredential;
-  readonly secretKey: Uint8Array;
+  readonly signer: CredentialSigner;
 }): Promise<Result<SignedCredential, IssueCredentialError>> {
   try {
-    const keyPair = await Ed25519VerificationKey2020.generate({
-      seed: params.secretKey,
-      controller: params.unsignedCredential.issuer,
-    });
-    const suite = new Ed25519Signature2020({ key: keyPair });
+    const suite = new Ed25519Signature2020({ signer: params.signer });
     const signed = await jsigs.sign(params.unsignedCredential as unknown as object, {
       suite,
       purpose: new AssertionProofPurpose(),

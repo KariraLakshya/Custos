@@ -1,4 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { createServer, type Server } from "node:http";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  buildDidWebDocument,
+  didWebFromDomain,
+  generateKeyPair,
+  issueCredential,
+  sign,
+  type UnsignedCredential,
+} from "@custos/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCli } from "./cli.js";
 
 describe("custos CLI", () => {
@@ -15,5 +27,123 @@ describe("custos CLI", () => {
     expect(() => program.parse(["--version"], { from: "user" })).toThrow();
     expect(output.trim()).toBe("0.0.0");
     expect(program.name()).toBe("custos");
+  });
+
+  describe("register", () => {
+    let server: Server | undefined;
+
+    afterEach(async () => {
+      if (server) await new Promise((resolve) => server?.close(resolve));
+      server = undefined;
+      vi.restoreAllMocks();
+    });
+
+    it("registers against the identity service and prints the result", async () => {
+      server = createServer((_req, res) => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ id: "abc", did: "did:web:example:agents:abc", credential: {} }));
+      });
+      await new Promise<void>((resolve) => server?.listen(4303, "127.0.0.1", resolve));
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      await createCli().parseAsync(["register", "--identity-url", "http://127.0.0.1:4303"], {
+        from: "user",
+      });
+
+      expect(stdout.mock.calls.join("")).toContain('"id": "abc"');
+    });
+
+    it("writes the credential to --out when given", async () => {
+      server = createServer((_req, res) => {
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            id: "abc",
+            did: "did:web:example:agents:abc",
+            credential: { issuer: "did:web:example" },
+          }),
+        );
+      });
+      await new Promise<void>((resolve) => server?.listen(4304, "127.0.0.1", resolve));
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const dir = await mkdtemp(join(tmpdir(), "custos-cli-out-"));
+      const outPath = join(dir, "credential.json");
+
+      await createCli().parseAsync(
+        ["register", "--identity-url", "http://127.0.0.1:4304", "--out", outPath],
+        { from: "user" },
+      );
+
+      const written = JSON.parse(await readFile(outPath, "utf8"));
+      expect(written).toEqual({ issuer: "did:web:example" });
+    });
+  });
+
+  describe("verify", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("prints a success message for a credential that verifies against its served DID document", async () => {
+      const port = 4305;
+      const domain = `localhost:${port}`;
+      const { publicKey, secretKey } = generateKeyPair();
+      const didDocument = buildDidWebDocument({ domain, publicKey });
+      const verificationMethodId = didDocument.verificationMethod[0].id;
+
+      const server = createServer((_req, res) => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(didDocument));
+      });
+      await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
+
+      const unsignedCredential: UnsignedCredential = {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        id: "urn:uuid:33333333-3333-3333-3333-333333333333",
+        type: ["VerifiableCredential"],
+        issuer: didWebFromDomain(domain),
+        validFrom: "2026-08-19T00:00:00Z",
+        credentialSubject: { id: didWebFromDomain(domain) },
+      };
+      const issued = await issueCredential({
+        unsignedCredential,
+        signer: {
+          id: verificationMethodId,
+          sign: ({ data }) => Promise.resolve(sign(data, secretKey)),
+        },
+      });
+      if (!issued.ok) throw new Error("test setup: issuance failed");
+
+      const dir = await mkdtemp(join(tmpdir(), "custos-cli-verify-"));
+      const path = join(dir, "credential.json");
+      await writeFile(path, JSON.stringify(issued.value));
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      const previousExitCode = process.exitCode;
+      process.exitCode = undefined;
+      try {
+        await createCli().parseAsync(["verify", path], { from: "user" });
+        expect(process.exitCode).toBeUndefined();
+        expect(stdout.mock.calls.join("")).toContain("verified: credential is authentic");
+      } finally {
+        process.exitCode = previousExitCode;
+        await new Promise((resolve) => server.close(resolve));
+      }
+    });
+
+    it("prints a rejection and sets exit code 1 for an unverifiable credential", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "custos-cli-verify-"));
+      const path = join(dir, "credential.json");
+      await writeFile(path, JSON.stringify({ issuer: "did:web:localhost%3A4399" }));
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      const previousExitCode = process.exitCode;
+      process.exitCode = undefined;
+      await createCli().parseAsync(["verify", path], { from: "user" });
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.mock.calls.join("")).toContain("rejected:");
+      process.exitCode = previousExitCode;
+    });
   });
 });

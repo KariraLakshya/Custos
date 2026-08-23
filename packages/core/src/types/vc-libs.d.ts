@@ -86,8 +86,13 @@ declare module "@digitalbazaar/ed25519-verification-key-2020" {
 declare module "@digitalbazaar/ed25519-signature-2020" {
   import type { Ed25519VerificationKey2020 } from "@digitalbazaar/ed25519-verification-key-2020";
 
+  interface Ed25519Signer {
+    id: string;
+    sign(input: { data: Uint8Array }): Promise<Uint8Array>;
+  }
+
   export class Ed25519Signature2020 {
-    constructor(options?: { key?: Ed25519VerificationKey2020 });
+    constructor(options?: { key?: Ed25519VerificationKey2020; signer?: Ed25519Signer });
   }
 }
 

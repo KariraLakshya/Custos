@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Ed25519VerificationKey2020 } from "@digitalbazaar/ed25519-verification-key-2020";
 import { generateKeyPair } from "../crypto/ed25519.js";
-import { buildDidWebDocument, didWebFromDomain, publicKeyToMultibase } from "./did-web.js";
+import {
+  buildDidWebDocument,
+  didWebFromDomain,
+  didWebToResolutionUrl,
+  publicKeyToMultibase,
+} from "./did-web.js";
 
 describe("didWebFromDomain", () => {
   it("builds a did:web identifier from a bare domain", () => {
@@ -10,6 +15,36 @@ describe("didWebFromDomain", () => {
 
   it("percent-encodes a port's colon", () => {
     expect(didWebFromDomain("localhost:3000")).toBe("did:web:localhost%3A3000");
+  });
+
+  it("appends path segments for a per-agent identifier", () => {
+    expect(didWebFromDomain("issuer.example", ["agents", "42"])).toBe(
+      "did:web:issuer.example:agents:42",
+    );
+  });
+});
+
+describe("didWebToResolutionUrl", () => {
+  it("resolves a bare-domain DID to its .well-known document over https", () => {
+    expect(didWebToResolutionUrl("did:web:issuer.example")).toBe(
+      "https://issuer.example/.well-known/did.json",
+    );
+  });
+
+  it("resolves a path-segmented DID to a path-based document url", () => {
+    expect(didWebToResolutionUrl("did:web:issuer.example:agents:42")).toBe(
+      "https://issuer.example/agents/42/did.json",
+    );
+  });
+
+  it("decodes a percent-encoded port and resolves localhost over http", () => {
+    expect(didWebToResolutionUrl("did:web:localhost%3A4001:agents:42")).toBe(
+      "http://localhost:4001/agents/42/did.json",
+    );
+  });
+
+  it("rejects a non-did:web identifier", () => {
+    expect(() => didWebToResolutionUrl("did:key:abc")).toThrow(/not a did:web DID/);
   });
 });
 

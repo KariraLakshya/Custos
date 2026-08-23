@@ -1,58 +1,79 @@
-import {
-  generateKeyPair,
-  issueCredential,
-  verifyCredential,
-  type SignedCredential,
-} from "@custos/core";
-import { describe, expect, it } from "vitest";
+import { verifyCredential, type SignedCredential } from "@custos/core";
+import { afterAll, describe, expect, it } from "vitest";
+import { createDb } from "./db/client.js";
 import { buildServer } from "./server.js";
+
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
+const db = createDb(databaseUrl);
+
+afterAll(async () => {
+  await db.$client.end();
+});
 
 describe("identity service", () => {
   it("responds to /health", async () => {
-    const app = buildServer();
+    const app = buildServer({ db });
     const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok", service: "identity" });
   });
 
-  it("serves a did:web document at /.well-known/did.json using the configured domain", async () => {
-    const app = buildServer({ didDomain: "identity.custos.example" });
-    const response = await app.inject({ method: "GET", url: "/.well-known/did.json" });
+  it("registers an agent and independently verifies its issued credential", async () => {
+    const app = buildServer({ db, didDomain: "identity.custos.example" });
 
-    expect(response.statusCode).toBe(200);
-    const didDocument = response.json();
-    expect(didDocument.id).toBe("did:web:identity.custos.example");
-    expect(didDocument.verificationMethod).toHaveLength(1);
-    expect(didDocument.verificationMethod[0].type).toBe("Ed25519VerificationKey2020");
-  });
+    const registerResponse = await app.inject({ method: "POST", url: "/agents" });
+    expect(registerResponse.statusCode).toBe(201);
+    const registered = registerResponse.json();
+    expect(registered.did).toBe(`did:web:identity.custos.example:agents:${registered.id}`);
 
-  it("serves a did:web document that a credential signed by the same key independently verifies against", async () => {
-    // Regression guard: proves the served document is the real, working
-    // primitive from @custos/core, not just JSON that looks right.
-    const keyPair = generateKeyPair();
-    const app = buildServer({ didDomain: "identity.custos.example", keyPair });
-    const response = await app.inject({ method: "GET", url: "/.well-known/did.json" });
-    const didDocument = response.json();
-
-    const issued = await issueCredential({
-      secretKey: keyPair.secretKey,
-      unsignedCredential: {
-        "@context": ["https://www.w3.org/ns/credentials/v2"],
-        id: "urn:uuid:22222222-2222-2222-2222-222222222222",
-        type: ["VerifiableCredential"],
-        issuer: didDocument.id,
-        validFrom: "2026-08-19T00:00:00Z",
-        credentialSubject: { id: "urn:agent:demo-agent-1" },
-      },
+    const didDocResponse = await app.inject({
+      method: "GET",
+      url: `/agents/${registered.id}/did.json`,
     });
-    expect(issued.ok).toBe(true);
-    if (!issued.ok) return;
+    expect(didDocResponse.statusCode).toBe(200);
+    const didDocument = didDocResponse.json();
+    expect(didDocument).toEqual(registered.didDocument);
 
     const verified = await verifyCredential({
-      credential: issued.value as SignedCredential,
+      credential: registered.credential as SignedCredential,
       didDocument,
     });
-    expect(verified).toEqual({ ok: true, value: issued.value });
+    expect(verified.ok).toBe(true);
+  });
+
+  it("rejects a tampered credential on independent verification", async () => {
+    const app = buildServer({ db, didDomain: "identity.custos.example" });
+
+    const registerResponse = await app.inject({ method: "POST", url: "/agents" });
+    const registered = registerResponse.json();
+
+    const tamperedCredential = structuredClone(registered.credential) as SignedCredential & {
+      credentialSubject: { id: string };
+    };
+    tamperedCredential.credentialSubject.id = "did:web:attacker.example";
+
+    const verified = await verifyCredential({
+      credential: tamperedCredential,
+      didDocument: registered.didDocument,
+    });
+    expect(verified.ok).toBe(false);
+    if (verified.ok) return;
+    expect(verified.error.code).toBe("SIGNATURE_INVALID");
+  });
+
+  it("404s a did.json request for an unknown agent id", async () => {
+    const app = buildServer({ db });
+    const response = await app.inject({
+      method: "GET",
+      url: "/agents/00000000-0000-0000-0000-000000000000/did.json",
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("400s a did.json request for a malformed agent id", async () => {
+    const app = buildServer({ db });
+    const response = await app.inject({ method: "GET", url: "/agents/not-a-uuid/did.json" });
+    expect(response.statusCode).toBe(400);
   });
 });
