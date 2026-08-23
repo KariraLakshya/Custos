@@ -24,6 +24,17 @@ export interface Ed25519VerificationMethod2020 {
   readonly publicKeyMultibase: string;
 }
 
+/**
+ * `assertionMethod` only — this key signs/verifies VCs, nothing else. If a
+ * later phase needs `keyAgreement` (e.g. an encrypted channel for vault
+ * token handoff, or the Phase 6 cross-org handshake), that is a separate
+ * X25519 keypair with its own verification method, never this Ed25519 key
+ * reused or converted: EdDSA and X25519 share a curve family but signing
+ * and Diffie-Hellman are different algorithms, and reusing key material
+ * across them is a known source of cross-protocol attacks, not just a
+ * DID-spec labelling convention (the same reasoning behind X.509 Key Usage
+ * extensions restricting a cert to one purpose).
+ */
 export interface DidWebDocument {
   readonly "@context": readonly [string, string];
   readonly id: string;
@@ -31,16 +42,39 @@ export interface DidWebDocument {
   readonly assertionMethod: readonly [string];
 }
 
-/** did:web only supports a bare domain here; per-agent path segments are Phase 1 (agent registry) work. */
-export function didWebFromDomain(domain: string): string {
-  return `did:web:${domain.replace(":", "%3A")}`;
+export function didWebFromDomain(domain: string, path: readonly string[] = []): string {
+  const encodedDomain = domain.replace(":", "%3A");
+  return path.length === 0
+    ? `did:web:${encodedDomain}`
+    : `did:web:${encodedDomain}:${path.join(":")}`;
+}
+
+/**
+ * Reverses `didWebFromDomain`: the URL a resolver must fetch to get this
+ * DID's document, per the did:web method spec. `localhost`/`127.0.0.1` are
+ * resolved over `http` (the spec's carve-out for local development); every
+ * other domain resolves over `https`.
+ */
+export function didWebToResolutionUrl(did: string): string {
+  const DID_WEB_PREFIX = "did:web:";
+  if (!did.startsWith(DID_WEB_PREFIX)) {
+    throw new Error(`not a did:web DID: ${did}`);
+  }
+  const segments = did.slice(DID_WEB_PREFIX.length).split(":");
+  const domain = (segments[0] ?? "").replace("%3A", ":");
+  const path = segments.slice(1);
+  const hostname = domain.split(":")[0];
+  const scheme = hostname === "localhost" || hostname === "127.0.0.1" ? "http" : "https";
+  const pathSuffix = path.length === 0 ? "/.well-known" : `/${path.join("/")}`;
+  return `${scheme}://${domain}${pathSuffix}/did.json`;
 }
 
 export function buildDidWebDocument(params: {
   readonly domain: string;
+  readonly path?: readonly string[];
   readonly publicKey: Uint8Array;
 }): DidWebDocument {
-  const did = didWebFromDomain(params.domain);
+  const did = didWebFromDomain(params.domain, params.path);
   const publicKeyMultibase = publicKeyToMultibase(params.publicKey);
   const verificationMethodId = `${did}#${publicKeyMultibase}`;
   const verificationMethod: Ed25519VerificationMethod2020 = {

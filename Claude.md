@@ -24,8 +24,8 @@ Consult the build plan for the current phase before starting any task.
 
 _This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 1 — Identity core (see `docs/build-plan.md`) — Phase 0 complete
-**Last updated:** 2026-08-22
+**Current phase:** Phase 1 — Identity core (see `docs/build-plan.md`) — complete
+**Last updated:** 2026-08-24
 
 ### Implemented
 
@@ -44,25 +44,29 @@ _This section is the handover between sessions. Read it first. Update it before 
   - `did/did-web.ts` — builds a `did:web` document from a domain + public key only (no secret key needed, ready for a future KMS-shaped key provider).
   - `vc/document-loader.ts` + `vc/credential.ts` — issues/verifies one W3C VC 2.0 credential using the `Ed25519Signature2020` JSON-LD Data Integrity suite (Digital Bazaar libraries, not hand-rolled canonicalization — see `docs/adr/0001-vc-proof-format.md`). The document loader only ever resolves bundled contexts, never the network.
   - `types/vc-libs.d.ts` — ambient TS declarations for the several dependencies here that ship no types.
-- `services/identity` — serves the Phase 0 demo `did:web` document at `GET /.well-known/did.json`, backed by one in-memory keypair generated at process start (never persisted). Domain configurable via `IDENTITY_DID_DOMAIN` env var.
 - Pushed to `origin/main` (`e4d9c7b`, `5ffce60`) and confirmed green on GitHub Actions — `lint-typecheck`, `test`, `build`, and `version-or-release` all passed, not just the local run.
 - `release.yml`'s SBOM step now uses `@cyclonedx/cdxgen` instead of `@cyclonedx/cyclonedx-npm` — the latter shells out to `npm ls`, which doesn't understand pnpm's `node_modules` layout and failed on the first real push to actually exercise `release.yml`.
+- **Phase 1 — Identity core**, built on Phase 0's `packages/core` primitives:
+  - `packages/core`: `did-web.ts` now supports per-agent path segments (`did:web:{domain}:agents:{id}`) plus `didWebToResolutionUrl()` (reverses a DID to the URL a resolver fetches — `http` for `localhost`/`127.0.0.1`, `https` otherwise). New `keys/key-provider.ts` (`KeyProvider` interface — `createKeyPair()`/`sign(keyId, message)`, never returns private key material) and `keys/local-key-provider.ts` (in-memory dev implementation; secret keys live only in that process's memory). `vc/credential.ts`'s `issueCredential` now takes an injected `signer: { id, sign }` instead of a raw `secretKey` — closes the literal TODO left in Phase 0's code; core never sees private key material during issuance. `DidWebDocument` carries a doc comment recording that `assertionMethod` is signing-only and any future `keyAgreement` key must be a structurally separate X25519 keypair, never this Ed25519 key reused.
+  - `services/identity`: real Postgres-backed agent registry, replacing Phase 0's single in-memory demo key/route entirely. `POST /agents` generates a keypair via `KeyProvider`, builds a per-agent `did:web` document, self-issues a VC, and persists `{id, did, keyId, didDocument, credential}`. `GET /agents/:id/did.json` serves the stored document (400 on a malformed id, 404 on unknown). Schema lives at `services/identity/src/db/schema.ts` (the old placeholder `infra/migrations/schema.ts` is gone; `infra/migrations/drizzle.config.ts`'s `schema` path now points at the service). Migration `0001_narrow_sasquatch.sql` applied. `drizzle-orm`/`pg` added as `services/identity` dependencies (kept at root too, since drizzle-kit's config still resolves `drizzle-orm/pg-core` from the schema file's own location).
+  - `apps/cli`: `custos register [--identity-url] [--out]` and `custos verify <credentialFile>` (exit code 1 on rejection). Verification is genuinely independent — it resolves the issuer's DID document fresh over HTTP via `didWebToResolutionUrl` and calls `verifyCredential` from `@custos/core`, sharing no state with whatever issued the credential.
+  - Tests: unit (core primitives, CLI commands against a local `node:http` stand-in), integration (`services/identity` against the real Compose Postgres, including a tampered-credential rejection test), and a genuine end-to-end test (`apps/cli/src/cli.e2e.test.ts`, run via `pnpm test:e2e`) that boots the real identity service in-process and proves register → independently verify succeeds, and a post-issuance tampered credential is rejected — the literal Phase 1 DONE criterion.
 
 ### In progress
 
-Nothing — Phase 0 is done, verified locally and in CI, committed and pushed.
+Nothing — Phase 1 is done, verified locally (lint/typecheck/test/build/test:e2e all green). Not yet pushed.
 
 ### Next up
 
-Phase 1 — Identity core: a real identity service (keypair → DID → signed VC per agent, replacing Phase 0's one-off in-memory demo key with a KMS-shaped key provider), an independent verifier, and a minimal agent registry with versioned migrations.
+Phase 2 — Credentials & vault (dispossession): vault stores real tool credentials server-side, short-lived scoped token issuance (60s default) to verified agents, two or three tool connectors (at least one real).
 
 ### Known issues, debt, and deviations
 
 - Reconciled doc filenames to match this file's structure: `BuildPlan.md` → `docs/build-plan.md`, `AgentID_Product_PRD.pdf` → `docs/prd.pdf`, `AgentID_BRD.pdf` → `docs/brd.pdf`, `AgentID_Project_Plan.drawio` → `docs/build-plan.drawio`, `AgentID_Architecture.drawio` → `docs/architecture.drawio`.
 - LICENSE deliberately not added — open-source-vs-proprietary decision explicitly deferred by the user.
-- `drizzle-orm`/`drizzle-kit`/`pg` live in the root `package.json` devDependencies for now since no service owns a DB connection yet — move them to `services/identity` (first real consumer) in Phase 1.
 - `release.yml` runs `changeset version`/`changeset tag` only, no `npm publish` — no publish target exists yet (all packages private, no license chosen).
-- `services/identity`'s DID key is regenerated on every process restart (in-memory, not persisted) — expected for Phase 0's one-off demo; Phase 1's KMS-shaped key provider replaces this.
+- `services/identity`'s `KeyProvider` is still the in-memory local implementation — secret keys live only in that process's memory for its lifetime (never disk/logs), per CLAUDE.md section 4, but there's no real KMS integration yet. Swapping in an AWS KMS-backed `KeyProvider` is future work, not scoped to any phase yet.
+- No `keyAgreement` verification relationship exists anywhere (Custos's DID documents only sign/verify VCs today). If a later phase needs an encrypted channel (vault token handoff, Phase 6 cross-org handshake), that needs its own X25519 keypair under `keyAgreement` — never the Ed25519 identity key reused — see the doc comment on `DidWebDocument` in `packages/core/src/did/did-web.ts`.
 
 ### Gotchas for a new session
 

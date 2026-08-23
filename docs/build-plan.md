@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 1 — Identity core**
+> **CURRENT: Phase 2 — Credentials & vault (dispossession)**
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 

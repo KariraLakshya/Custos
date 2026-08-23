@@ -19,4 +19,14 @@ describe("identity env", () => {
       loadIdentityEnv({ IDENTITY_DID_DOMAIN: "identity.custos.example" }).IDENTITY_DID_DOMAIN,
     ).toBe("identity.custos.example");
   });
+
+  it("defaults DATABASE_URL to the local docker-compose Postgres", () => {
+    expect(loadIdentityEnv({}).DATABASE_URL).toBe("postgres://custos:custos@localhost:5433/custos");
+  });
+
+  it("accepts a configured DATABASE_URL", () => {
+    expect(loadIdentityEnv({ DATABASE_URL: "postgres://other/db" }).DATABASE_URL).toBe(
+      "postgres://other/db",
+    );
+  });
 });
