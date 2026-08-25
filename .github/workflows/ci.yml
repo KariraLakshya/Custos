@@ -68,6 +68,7 @@ jobs:
           path: .turbo
           key: turbo-${{ github.job }}-${{ github.sha }}
           restore-keys: turbo-${{ github.job }}-
+      - run: pnpm migrate
       - run: pnpm test
       - run: pnpm test:e2e
 
