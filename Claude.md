@@ -51,10 +51,11 @@ _This section is the handover between sessions. Read it first. Update it before 
   - `services/identity`: real Postgres-backed agent registry, replacing Phase 0's single in-memory demo key/route entirely. `POST /agents` generates a keypair via `KeyProvider`, builds a per-agent `did:web` document, self-issues a VC, and persists `{id, did, keyId, didDocument, credential}`. `GET /agents/:id/did.json` serves the stored document (400 on a malformed id, 404 on unknown). Schema lives at `services/identity/src/db/schema.ts` (the old placeholder `infra/migrations/schema.ts` is gone; `infra/migrations/drizzle.config.ts`'s `schema` path now points at the service). Migration `0001_narrow_sasquatch.sql` applied. `drizzle-orm`/`pg` added as `services/identity` dependencies (kept at root too, since drizzle-kit's config still resolves `drizzle-orm/pg-core` from the schema file's own location).
   - `apps/cli`: `custos register [--identity-url] [--out]` and `custos verify <credentialFile>` (exit code 1 on rejection). Verification is genuinely independent — it resolves the issuer's DID document fresh over HTTP via `didWebToResolutionUrl` and calls `verifyCredential` from `@custos/core`, sharing no state with whatever issued the credential.
   - Tests: unit (core primitives, CLI commands against a local `node:http` stand-in), integration (`services/identity` against the real Compose Postgres, including a tampered-credential rejection test), and a genuine end-to-end test (`apps/cli/src/cli.e2e.test.ts`, run via `pnpm test:e2e`) that boots the real identity service in-process and proves register → independently verify succeeds, and a post-issuance tampered credential is rejected — the literal Phase 1 DONE criterion.
+  - `.github/workflows/ci.yml`'s `test` job now runs `pnpm migrate` before `pnpm test` — the first push surfaced that the job's fresh Postgres service container had no schema applied, so every `services/identity` integration test hitting the `agents` table failed with `relation "agents" does not exist` (500s where 201/404 were expected). Fixed and reproduced locally against a genuinely fresh database before pushing (commit `adfd682`).
 
 ### In progress
 
-Nothing — Phase 1 is done, verified locally (lint/typecheck/test/build/test:e2e all green). Not yet pushed.
+Nothing — Phase 1 is done and pushed (`c3bb05e`, `adfd682`), confirmed green on GitHub Actions.
 
 ### Next up
 
