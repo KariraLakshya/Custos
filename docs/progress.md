@@ -6,6 +6,28 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-08-24 — Phase 1: Identity core
+
+**Commits:** `b8034fc` — "feat: Phase 1 identity core - per-agent registry, KMS-shaped signing, CLI"; `8097daf` — "fix: run pending migrations before the test job in CI". Both pushed to `origin/main`.
+
+**What shipped:** Phase 0 proved the cryptography worked for one demo agent. Phase 1 turns that into a real system: every agent now gets its own identity, generated and stored for real, and anyone can independently check that identity without trusting the system that issued it.
+
+**How it works:**
+
+- There's now a real database-backed registry of agents. Register a new agent through the command line and the identity service generates it a fresh cryptographic keypair, builds it a standard identity document (a "DID document," at its own web address), issues it a signed digital credential, and stores all of that — not in a temporary in-memory demo anymore, in Postgres.
+- The private half of that keypair — the part that must never leak — now goes through a small, swappable "key vault" interface rather than being passed around as a raw value in code. Today that interface is backed by an in-memory implementation (still never touches disk), but the interface itself is exactly what a real hardware/cloud key vault (AWS KMS) will plug into later without touching any of the surrounding code. This closes a shortcut that was explicitly flagged as temporary in Phase 0's code.
+- `custos verify` is now a real, independent check: given a credential, it fetches the issuer's identity document itself, over the network, and checks the signature — it shares no internal state with whatever service issued the credential in the first place. That's the property that makes a credential actually trustworthy rather than just self-reported.
+- Proven end-to-end with an automated test that does the whole thing for real: register an agent through the CLI, independently verify its credential (pass), then tamper with that credential after the fact and confirm verification now correctly rejects it.
+- The first real push of this phase's CI run caught a genuine gap: the automated test environment's database started completely empty, and nothing was telling it to set up its tables before the tests ran against it — so every test that touched the database failed. Fixed by adding the missing setup step, verified locally by deliberately recreating that broken condition and confirming the fix resolves it, then pushed as a follow-up commit.
+
+**Why it matters:** This is the difference between "the cryptography works in principle" and "every agent that shows up gets a real, durable, independently-checkable identity." Everything from here — issuing scoped access tokens (Phase 2), revoking a compromised agent in under a second (Phase 3), and proving what an agent did (Phase 4) — depends on agents having exactly this kind of real identity to hang off of.
+
+**Status:** Done, verified locally, pushed, and confirmed green on GitHub's automated checks after the CI fix.
+
+**Next up:** Phase 2 — credentials and the vault: agents stop existing only as identities and start being able to actually _do_ something, safely. The vault will hold real third-party tool credentials (GitHub, Stripe test mode) and hand agents short-lived, scoped access tokens instead of ever giving them the real keys.
+
+---
+
 ## 2026-08-22 — Phase 0: Cryptographic identity primitives
 
 **Commits:** `e4d9c7b` — "feat: close Phase 0 knowledge gap - Ed25519, did:web, and one signed VC"; `5ffce60` — "fix: use pnpm-compatible SBOM generator in release.yml". Both pushed to `origin/main`.
