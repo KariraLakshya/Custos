@@ -1,10 +1,11 @@
 import { sha512 } from "@noble/hashes/sha2.js";
 import * as ed25519 from "@noble/ed25519";
 
-// @noble/ed25519 v2 ships only the async API by default; wiring in a sync
-// sha512 lets us use the sync sign/verify/getPublicKey functions below.
-ed25519.etc.sha512Sync = (...messages: Uint8Array[]) =>
-  sha512(ed25519.etc.concatBytes(...messages));
+// @noble/ed25519 v3 leaves the synchronous API's hash slot unset; providing
+// sha512 enables the sync sign/verify/getPublicKey functions used below.
+// (v2 spelled this `etc.sha512Sync` and passed a variadic message list that
+// the caller had to concatenate; v3 takes a single already-joined message.)
+ed25519.hashes.sha512 = sha512;
 
 export interface Ed25519KeyPair {
   readonly publicKey: Uint8Array;
@@ -12,7 +13,8 @@ export interface Ed25519KeyPair {
 }
 
 export function generateKeyPair(): Ed25519KeyPair {
-  const secretKey = ed25519.utils.randomPrivateKey();
+  // v3 renamed `utils.randomPrivateKey` to `utils.randomSecretKey`.
+  const secretKey = ed25519.utils.randomSecretKey();
   const publicKey = ed25519.getPublicKey(secretKey);
   return { publicKey, secretKey };
 }
