@@ -13,11 +13,11 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -28,7 +28,7 @@ jobs:
         # understand pnpm's node_modules layout and fails the build; cdxgen
         # reads the pnpm lockfile directly.
         run: pnpm dlx @cyclonedx/cdxgen -o sbom.json --type npm
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
           # No packages are published externally yet (all private, license
           # undecided) — this opens/updates a "Version Packages" PR only.
@@ -36,7 +36,7 @@ jobs:
           publish: pnpm changeset tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: sbom.json
