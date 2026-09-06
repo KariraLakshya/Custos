@@ -7,10 +7,12 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      "env": ["DATABASE_URL", "REDIS_URL", "VAULT_MASTER_KEY"]
     },
     "test:e2e": {
-      "dependsOn": ["build"]
+      "dependsOn": ["build"],
+      "env": ["DATABASE_URL", "REDIS_URL", "VAULT_MASTER_KEY"]
     },
     "lint": {
       "outputs": []
