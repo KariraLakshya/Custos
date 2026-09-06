@@ -24,8 +24,8 @@ Consult the build plan for the current phase before starting any task.
 
 _This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 2 — Credentials & vault (see `docs/build-plan.md`) — complete and pushed; next is Phase 3
-**Last updated:** 2026-09-01
+**Current phase:** Phase 2 — Credentials & vault (see `docs/build-plan.md`) — complete, pushed, CI green; next is Phase 3
+**Last updated:** 2026-09-06
 
 ### Implemented
 
@@ -61,10 +61,11 @@ _This section is the handover between sessions. Read it first. Update it before 
   - Tests: unit (`scoped-token`, `local-secret-cipher`, all three connectors — tampered/expired/wrong-key/malformed-input/network-failure cases), integration (`services/vault` against real Postgres, including a real in-process `services/identity` boot for the token-issuance DID-verification path), and two genuine end-to-end additions to `apps/cli/src/cli.e2e.test.ts` (register → token → call succeeds; a token is rejected once expired and a fresh one is required) using `@custos/testing`'s new `mutableClock` to simulate the 60s expiry deterministically rather than sleeping in real time. Also manually smoke-tested against the real built services (`node services/{identity,vault}/dist/index.js` + the built CLI) end to end, including the fail-closed-on-invalid-env behavior for a bad `VAULT_MASTER_KEY`/`LOG_LEVEL`.
   - `packages/testing`: added `mutableClock` (advanceable sibling to `fixedClock`) for exactly this expiry-simulation need.
   - Coverage: `packages/core` 99.1%+ (still ≥95% threshold), `services/vault` ~99%, `packages/connectors` 100% stmts — all above the 80%/95% thresholds.
+  - CI fix (`20126a4`): the `test` job had been failing on every DB-backed identity test with a 500 while `pnpm migrate` in the same job succeeded. Cause was Turborepo strict env mode, not Phase 2 code — see the gotcha below. A prior commit (`83a5161`) raised vitest's timeouts to 30s and switched tests from `localhost` to `127.0.0.1`; both are genuine determinism improvements but neither was the actual fix.
 
 ### In progress
 
-Nothing — Phase 2 is committed and pushed (`91f45f5`). One loose end: **GitHub Actions has not been confirmed green on that push yet** (no API access from this environment — `gh` isn't installed and the GitHub MCP server rejects its token with a 401). Check it before starting Phase 3; Phase 1 is precedent that CI can fail on a push that passed locally.
+Nothing — Phase 2 is committed, pushed, and **confirmed green on GitHub Actions** (`20126a4`: lint-typecheck, test, build all pass). Getting there needed a real CI fix, see the turbo env gotcha below.
 
 Also open, and independent of Phase 2: **8 dependabot PRs** are outstanding against clean `main`, including three that need real care rather than a blind merge — `zod` 3→4 (breaking, used by `packages/{contracts,config}` and every service), and `@noble/ed25519` 2→3 plus `@noble/hashes` 1→2, which are the audited crypto dependencies underneath `packages/core` (note `crypto/ed25519.ts` uses the v2 `etc.sha512Sync` idiom, which v3 may have changed). The other five (typescript-eslint, the dev-dependencies group, and three GitHub Actions bumps) are low-risk.
 
@@ -90,6 +91,7 @@ Phase 3 — Revocation engine ★ (the "it's real" demo, the reason the project 
 - Docker Desktop isn't started automatically by `pnpm dev` — start it first if the daemon isn't running.
 - pnpm wasn't preinstalled; `corepack enable` failed with `EPERM` in this environment (needs elevated Windows permissions) — installed instead via `npm install -g pnpm@9.15.0`.
 - `services/vault` refuses to boot without `VAULT_MASTER_KEY` set (32-byte hex, no default — see `.env.example` for how to generate one). Running it standalone (outside `pnpm dev`/tests) needs this exported first.
+- **Turborepo 2.x runs tasks in strict env mode**: a task only sees env vars declared in `turbo.json` (`env`/`globalEnv`). `DATABASE_URL`, `REDIS_URL` and `VAULT_MASTER_KEY` are declared on the `test`/`test:e2e` tasks — **any new env var a test depends on must be added there too, or it silently will not reach the task**. This cost a red CI for several commits: `pnpm migrate` runs directly and saw `DATABASE_URL`, the tests ran under turbo and did not, so they fell back to the hardcoded `localhost:5433` default and threw on every query (surfacing as a 500, not the 502 the route returns for a failed `Result` — that gap is the tell for an unhandled throw). It passed locally only because the compose Postgres really is on 5433. To check this class of bug: point `DATABASE_URL` at a dead port and run `npx turbo run test --force --filter=@custos/identity` — the tests must **fail**; if they pass, the env var is not reaching the task.
 - `eslint.config.js` (root) has a small `**/*.mjs` override adding Node globals (`process`, `console`, `fetch`, `URL`) — needed for `services/vault/scripts/seed-credential.mjs`, a plain Node script outside the TypeScript project where `eslint:recommended`'s `no-undef` isn't otherwise suppressed the way it is for `.ts` files.
 
 ---

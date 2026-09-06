@@ -6,9 +6,9 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
-## 2026-09-01 — Phase 2: Credentials & vault (dispossession)
+## 2026-09-06 — Phase 2: Credentials & vault (dispossession)
 
-**Commits:** `91f45f5` — "feat: Phase 2 credentials and vault - scoped tokens, dispossessed agents". Pushed to `origin/main`.
+**Commits:** `91f45f5` — "feat: Phase 2 credentials and vault - scoped tokens, dispossessed agents"; `a298905` — handover docs; `83a5161` — test-suite hardening; `20126a4` — the CI fix described below. All pushed to `origin/main`, and CI is green.
 
 **What shipped:** Phase 1 gave every agent a real, checkable identity. Phase 2 is the step that makes Custos actually useful without being dangerous: agents can now ask to use a real third-party tool (Stripe, in test mode) and two stand-in tools, and get temporary, narrowly-scoped access — without the agent ever holding the real key to that tool. That's the core promise of the product: agents are dispossessed of the credentials they use.
 
@@ -20,10 +20,11 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 - After 60 seconds, that pass simply stops working — proven with an automated test that requests a pass, uses it successfully, lets it expire, confirms the same pass is now rejected, and shows a freshly-requested pass works again. No real-time waiting was needed to prove this: time is simulated in the test, the same way a stopwatch can be fast-forwarded.
 - Three tools are wired up: a real one (Stripe, test/sandbox mode — listing test customers) and two realistic stand-ins (a fake Slack and a fake internal database) that exist to prove the pattern isn't a one-off special case for Stripe.
 - Beyond the automated tests, this was also smoke-tested for real: the actual identity and vault services were started as real processes, a real agent was registered through the command line, a tool credential was seeded into the vault, and a tool call was made through the full real stack — not just inside the test runner.
+- Getting the automated build green again took a real fix, and the bug is worth recording because it was well disguised. The build had been failing for several commits — including one that changed nothing but documentation, which was the clue that the problem was not in the new code. Our build tool passes only an explicitly-approved list of settings down to the test step, and the database address was not on that list. So the step that prepares the database saw the correct address and worked, while the tests that follow silently fell back to a built-in default address. On a developer machine that default happens to be right, so everything passed locally; on the build server nothing is listening there, so every test that touched the database failed. The fix was to declare that setting explicitly. We confirmed it rather than assuming: pointing the tests at a deliberately dead address now fails exactly the tests that were failing on the server, where before the fix it wrongly passed.
 
 **Why it matters:** This is the first moment Custos does something a company would actually deploy for a reason beyond "prove the crypto works" — an AI agent can now be given narrow, temporary access to a real paid tool instead of a permanent API key that, if leaked or misused, keeps working forever. What it unblocks: Phase 3, revocation — the headline demo of the whole project, where a compromised agent's access to every tool it's touching gets cut within about a second.
 
-**Status:** Done, verified locally (automated tests, full lint/typecheck/build, and a manual live run), and pushed to `origin/main` as `91f45f5`. GitHub's automated checks still need to be confirmed green on this push.
+**Status:** Done. Verified locally (automated tests, full lint/typecheck/build, and a manual live run), pushed, and **confirmed green on GitHub's automated checks** as of `20126a4`.
 
 **Next up:** Phase 3 — the revocation engine, the reason this project exists. One `custos deprovision` command should cut an actively-misbehaving agent off from every tool it's using, visibly, in about a second.
 
