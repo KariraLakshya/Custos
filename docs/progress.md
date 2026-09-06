@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-09-01 — Phase 2: Credentials & vault (dispossession)
 
-**Commits:** not yet committed — this work is complete and fully verified locally (including a manual live run of the real services and CLI) but has not been committed or pushed to `origin/main` yet.
+**Commits:** `91f45f5` — "feat: Phase 2 credentials and vault - scoped tokens, dispossessed agents". Pushed to `origin/main`.
 
 **What shipped:** Phase 1 gave every agent a real, checkable identity. Phase 2 is the step that makes Custos actually useful without being dangerous: agents can now ask to use a real third-party tool (Stripe, in test mode) and two stand-in tools, and get temporary, narrowly-scoped access — without the agent ever holding the real key to that tool. That's the core promise of the product: agents are dispossessed of the credentials they use.
 
@@ -23,7 +23,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **Why it matters:** This is the first moment Custos does something a company would actually deploy for a reason beyond "prove the crypto works" — an AI agent can now be given narrow, temporary access to a real paid tool instead of a permanent API key that, if leaked or misused, keeps working forever. What it unblocks: Phase 3, revocation — the headline demo of the whole project, where a compromised agent's access to every tool it's touching gets cut within about a second.
 
-**Status:** Functionally complete and verified locally (automated tests, full lint/typecheck/build, and a manual live run). **Not yet pushed** — that's the next step before this phase counts as done by this project's own standard.
+**Status:** Done, verified locally (automated tests, full lint/typecheck/build, and a manual live run), and pushed to `origin/main` as `91f45f5`. GitHub's automated checks still need to be confirmed green on this push.
 
 **Next up:** Phase 3 — the revocation engine, the reason this project exists. One `custos deprovision` command should cut an actively-misbehaving agent off from every tool it's using, visibly, in about a second.
 

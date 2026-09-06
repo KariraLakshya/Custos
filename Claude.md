@@ -24,7 +24,7 @@ Consult the build plan for the current phase before starting any task.
 
 _This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 2 — Credentials & vault (see `docs/build-plan.md`) — complete, not yet committed/pushed
+**Current phase:** Phase 2 — Credentials & vault (see `docs/build-plan.md`) — complete and pushed; next is Phase 3
 **Last updated:** 2026-09-01
 
 ### Implemented
@@ -64,7 +64,9 @@ _This section is the handover between sessions. Read it first. Update it before 
 
 ### In progress
 
-Phase 2 is functionally complete and fully verified locally (typecheck, lint, full test suite including `test:e2e`, and a manual live smoke test all green) — **not yet committed or pushed**. A future session (or the user) should review the diff, commit, push, and confirm CI is green before treating Phase 2 as truly done per this file's own definition of done.
+Nothing — Phase 2 is committed and pushed (`91f45f5`). One loose end: **GitHub Actions has not been confirmed green on that push yet** (no API access from this environment — `gh` isn't installed and the GitHub MCP server rejects its token with a 401). Check it before starting Phase 3; Phase 1 is precedent that CI can fail on a push that passed locally.
+
+Also open, and independent of Phase 2: **8 dependabot PRs** are outstanding against clean `main`, including three that need real care rather than a blind merge — `zod` 3→4 (breaking, used by `packages/{contracts,config}` and every service), and `@noble/ed25519` 2→3 plus `@noble/hashes` 1→2, which are the audited crypto dependencies underneath `packages/core` (note `crypto/ed25519.ts` uses the v2 `etc.sha512Sync` idiom, which v3 may have changed). The other five (typescript-eslint, the dev-dependencies group, and three GitHub Actions bumps) are low-risk.
 
 ### Next up
 
