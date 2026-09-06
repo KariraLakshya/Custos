@@ -20,8 +20,11 @@
     "commander": "^12.1.0"
   },
   "devDependencies": {
+    "@custos/connectors": "workspace:*",
     "@custos/identity": "workspace:*",
+    "@custos/testing": "workspace:*",
     "@custos/tsconfig": "workspace:*",
+    "@custos/vault": "workspace:*",
     "@custos/vitest-config": "workspace:*",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

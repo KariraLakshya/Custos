@@ -24,8 +24,8 @@ Consult the build plan for the current phase before starting any task.
 
 _This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 1 — Identity core (see `docs/build-plan.md`) — complete
-**Last updated:** 2026-08-24
+**Current phase:** Phase 2 — Credentials & vault (see `docs/build-plan.md`) — complete, not yet committed/pushed
+**Last updated:** 2026-09-01
 
 ### Implemented
 
@@ -52,14 +52,23 @@ _This section is the handover between sessions. Read it first. Update it before 
   - `apps/cli`: `custos register [--identity-url] [--out]` and `custos verify <credentialFile>` (exit code 1 on rejection). Verification is genuinely independent — it resolves the issuer's DID document fresh over HTTP via `didWebToResolutionUrl` and calls `verifyCredential` from `@custos/core`, sharing no state with whatever issued the credential.
   - Tests: unit (core primitives, CLI commands against a local `node:http` stand-in), integration (`services/identity` against the real Compose Postgres, including a tampered-credential rejection test), and a genuine end-to-end test (`apps/cli/src/cli.e2e.test.ts`, run via `pnpm test:e2e`) that boots the real identity service in-process and proves register → independently verify succeeds, and a post-issuance tampered credential is rejected — the literal Phase 1 DONE criterion.
   - `.github/workflows/ci.yml`'s `test` job now runs `pnpm migrate` before `pnpm test` — the first push surfaced that the job's fresh Postgres service container had no schema applied, so every `services/identity` integration test hitting the `agents` table failed with `relation "agents" does not exist` (500s where 201/404 were expected). Fixed and reproduced locally against a genuinely fresh database before pushing (commit `8097daf`).
+- **Phase 2 — Credentials & vault (dispossession)**, built on Phase 1's identity primitives:
+  - `packages/core`: two new KMS-shaped primitives, same pattern as `KeyProvider`. `keys/secret-cipher.ts` (`SecretCipher` interface) + `keys/local-secret-cipher.ts` (dev implementation, XChaCha20-Poly1305 via the new `@noble/ciphers` dependency, keyed by a caller-supplied 32-byte key — never generates or persists the key itself; see `docs/adr/0004-vault-credential-encryption.md`). `token/scoped-token.ts` — `issueScopedToken`/`verifyScopedToken`, a compact custom Ed25519-signed token (`base64url(claims).base64url(signature)`, claims are `{sub, tool, action, iat, exp}`), not JWT (see `docs/adr/0003-scoped-token-format.md`); verification is entirely local (no network/DB), fails closed on malformed/tampered/expired input, and takes an injected `now: Date` rather than reading the clock.
+  - `packages/connectors`: `Connector` gained a `call({action, input, credential}) -> Result<unknown, ConnectorCallError>` method (`revoke()` unchanged, still Phase 3's). Three implementations: `stripe.ts` (real — Stripe test-mode `list-customers` via plain `fetch`, no `stripe` SDK dependency), `mock-slack.ts` and `mock-database.ts` (fully in-memory fakes, no network). `@custos/contracts`'s `Result`/`ok`/`err` now a `connectors` dependency.
+  - `services/vault`: replaces the Phase 0 health-check shell entirely. Postgres table `tool_credentials` (`services/vault/src/db/schema.ts`) stores `{tool, ciphertext, nonce}` — the plaintext credential is never persisted. `POST /credentials` seeds a tool's real credential (encrypted via `SecretCipher` before storage); `POST /tokens` independently verifies the requesting agent's VC (resolves its issuer DID fresh over HTTP, same pattern as `apps/cli`'s `verify`) and, if the tool is known, issues a 60s-default scoped token signed by the vault's own in-memory `KeyProvider` keypair (generated once per server build — not yet published as a DID document, since nothing outside this process verifies these tokens yet); `POST /call` verifies the token locally (hot path — no DB/network until after the token checks out), decrypts the tool's stored credential just-in-time, and calls the matching connector. `buildServer` is `async` (needs to generate its signing keypair before serving) and takes an injectable `clock` for deterministic expiry tests. `VAULT_MASTER_KEY` (32-byte hex) is required at boot with no default — refuses to boot rather than fall back to a known key. `scripts/seed-credential.mjs` is the operational path to store a real tool credential (`pnpm --filter @custos/vault run seed <tool> <secret>`).
+  - `apps/cli`: `custos use <tool> <action> --credential <path> [--vault-url] [--input <json>]` — requests a token then immediately spends it, in one call (`src/use.ts`).
+  - `infra/migrations`: `0002_watery_hammerhead.sql` adds `tool_credentials`; `drizzle.config.ts`'s `schema` is now an array covering both `services/identity` and `services/vault`.
+  - Tests: unit (`scoped-token`, `local-secret-cipher`, all three connectors — tampered/expired/wrong-key/malformed-input/network-failure cases), integration (`services/vault` against real Postgres, including a real in-process `services/identity` boot for the token-issuance DID-verification path), and two genuine end-to-end additions to `apps/cli/src/cli.e2e.test.ts` (register → token → call succeeds; a token is rejected once expired and a fresh one is required) using `@custos/testing`'s new `mutableClock` to simulate the 60s expiry deterministically rather than sleeping in real time. Also manually smoke-tested against the real built services (`node services/{identity,vault}/dist/index.js` + the built CLI) end to end, including the fail-closed-on-invalid-env behavior for a bad `VAULT_MASTER_KEY`/`LOG_LEVEL`.
+  - `packages/testing`: added `mutableClock` (advanceable sibling to `fixedClock`) for exactly this expiry-simulation need.
+  - Coverage: `packages/core` 99.1%+ (still ≥95% threshold), `services/vault` ~99%, `packages/connectors` 100% stmts — all above the 80%/95% thresholds.
 
 ### In progress
 
-Nothing — Phase 1 is done and pushed (`b8034fc`, `8097daf`), confirmed green on GitHub Actions.
+Phase 2 is functionally complete and fully verified locally (typecheck, lint, full test suite including `test:e2e`, and a manual live smoke test all green) — **not yet committed or pushed**. A future session (or the user) should review the diff, commit, push, and confirm CI is green before treating Phase 2 as truly done per this file's own definition of done.
 
 ### Next up
 
-Phase 2 — Credentials & vault (dispossession): vault stores real tool credentials server-side, short-lived scoped token issuance (60s default) to verified agents, two or three tool connectors (at least one real).
+Phase 3 — Revocation engine ★ (the "it's real" demo, the reason the project exists — give it the most attention): credential status flip (VC Status List 2021), signed revocation tombstone broadcast to registered tool adapters (the `revoke(agentId)` method already stubbed on every `Connector`), adapters honour revocation. DONE = an agent actively calling three tools, one `custos deprovision` command, all three calls fail within roughly one second.
 
 ### Known issues, debt, and deviations
 
@@ -68,12 +77,18 @@ Phase 2 — Credentials & vault (dispossession): vault stores real tool credenti
 - `release.yml` runs `changeset version`/`changeset tag` only, no `npm publish` — no publish target exists yet (all packages private, no license chosen).
 - `services/identity`'s `KeyProvider` is still the in-memory local implementation — secret keys live only in that process's memory for its lifetime (never disk/logs), per CLAUDE.md section 4, but there's no real KMS integration yet. Swapping in an AWS KMS-backed `KeyProvider` is future work, not scoped to any phase yet.
 - No `keyAgreement` verification relationship exists anywhere (Custos's DID documents only sign/verify VCs today). If a later phase needs an encrypted channel (vault token handoff, Phase 6 cross-org handshake), that needs its own X25519 keypair under `keyAgreement` — never the Ed25519 identity key reused — see the doc comment on `DidWebDocument` in `packages/core/src/did/did-web.ts`.
+- `services/vault`'s own token-signing keypair is ephemeral (generated fresh each server start, via the same in-memory `KeyProvider` pattern) and not published as a DID document — nothing outside the vault process verifies these tokens today, so this is fine, but a multi-instance or restarted-mid-flight vault would invalidate outstanding tokens. Not a Phase 2 gap (tokens are 60s-lived by design), but worth knowing.
+- `VAULT_MASTER_KEY` is one symmetric key for every stored tool credential — no per-tool keys, no envelope encryption, no rotation story. Deliberate for this phase's scale; see `docs/adr/0004-vault-credential-encryption.md` for the real-KMS migration path.
+- Phase 2 has no policy/allowlist enforcement — any agent that independently verifies can request a token for any tool the vault knows about. That's explicitly Phase 4 scope per `docs/build-plan.md`, not an oversight here.
+- The real Stripe connector implements exactly one action (`list-customers`, read-only) — enough to satisfy Phase 2's "at least one real connector" DONE criterion; broader Stripe coverage is future work if a later phase needs it.
 
 ### Gotchas for a new session
 
 - This machine has a native Windows PostgreSQL 18 service already bound to port 5432. The Compose Postgres is mapped to host port **5433** instead (`infra/docker/docker-compose.yml`, `.env.example`, `infra/migrations/drizzle.config.ts`). Don't "fix" this back to 5432.
 - Docker Desktop isn't started automatically by `pnpm dev` — start it first if the daemon isn't running.
 - pnpm wasn't preinstalled; `corepack enable` failed with `EPERM` in this environment (needs elevated Windows permissions) — installed instead via `npm install -g pnpm@9.15.0`.
+- `services/vault` refuses to boot without `VAULT_MASTER_KEY` set (32-byte hex, no default — see `.env.example` for how to generate one). Running it standalone (outside `pnpm dev`/tests) needs this exported first.
+- `eslint.config.js` (root) has a small `**/*.mjs` override adding Node globals (`process`, `console`, `fetch`, `URL`) — needed for `services/vault/scripts/seed-credential.mjs`, a plain Node script outside the TypeScript project where `eslint:recommended`'s `no-undef` isn't otherwise suppressed the way it is for `.ts` files.
 
 ---
 
@@ -150,7 +165,7 @@ Decisions recorded as ADRs in `docs/adr/`. Changeable with an ADR, not silently.
 | ---------------------- | ----------------------------------------------------- |
 | Language / runtime     | TypeScript (strict), Node 22 LTS                      |
 | Monorepo               | pnpm workspaces + Turborepo                           |
-| Crypto                 | `@noble/ed25519`, `@noble/hashes`                     |
+| Crypto                 | `@noble/ed25519`, `@noble/hashes`, `@noble/ciphers`   |
 | Identity               | `did:web`, W3C VC Data Model 2.0, VC Status List 2021 |
 | HTTP                   | Fastify                                               |
 | Validation / contracts | Zod, shared in `packages/contracts`                   |

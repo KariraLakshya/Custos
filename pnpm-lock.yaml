@@ -57,12 +57,21 @@ importers:
         specifier: ^12.1.0
         version: 12.1.0
     devDependencies:
+      '@custos/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
       '@custos/identity':
         specifier: workspace:*
         version: link:../../services/identity
+      '@custos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       '@custos/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
+      '@custos/vault':
+        specifier: workspace:*
+        version: link:../../services/vault
       '@custos/vitest-config':
         specifier: workspace:*
         version: link:../../tooling/vitest-config
@@ -93,6 +102,10 @@ importers:
         version: 2.1.9(@types/node@22.20.1)
 
   packages/connectors:
+    dependencies:
+      '@custos/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
       '@custos/tsconfig':
         specifier: workspace:*
@@ -140,6 +153,9 @@ importers:
       '@digitalcredentials/credentials-v2-context':
         specifier: ^1.0.0
         version: 1.0.0
+      '@noble/ciphers':
+        specifier: ^2.4.0
+        version: 2.4.0
       '@noble/ed25519':
         specifier: ^2
         version: 2.3.0
@@ -322,22 +338,46 @@ importers:
       '@custos/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@custos/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
+      '@custos/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@custos/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@custos/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@types/pg@8.23.1)(pg@8.23.0)
       fastify:
         specifier: ^5.2.0
         version: 5.12.1
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
       zod:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@custos/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@custos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       '@custos/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
       '@custos/vitest-config':
         specifier: workspace:*
         version: link:../../tooling/vitest-config
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.23.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -1030,6 +1070,10 @@ packages:
     engines: {node: ^22.20 || ^24.12 || >=25}
     cpu: [x64]
     os: [linux]
+
+  '@noble/ciphers@2.4.0':
+    resolution: {integrity: sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw==}
+    engines: {node: '>= 20.19.0'}
 
   '@noble/ed25519@1.7.5':
     resolution: {integrity: sha512-xuS0nwRMQBvSxDa7UxMb61xTiH3MxTgUfhyPUALVIe0FlOAz4sjELwyDRyUvqeEYfRSG9qNjFIycqLZppg4RSA==}
@@ -3276,6 +3320,8 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@noble/ciphers@2.4.0': {}
 
   '@noble/ed25519@1.7.5': {}
 

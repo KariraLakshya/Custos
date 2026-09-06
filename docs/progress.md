@@ -6,6 +6,29 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-09-01 — Phase 2: Credentials & vault (dispossession)
+
+**Commits:** not yet committed — this work is complete and fully verified locally (including a manual live run of the real services and CLI) but has not been committed or pushed to `origin/main` yet.
+
+**What shipped:** Phase 1 gave every agent a real, checkable identity. Phase 2 is the step that makes Custos actually useful without being dangerous: agents can now ask to use a real third-party tool (Stripe, in test mode) and two stand-in tools, and get temporary, narrowly-scoped access — without the agent ever holding the real key to that tool. That's the core promise of the product: agents are dispossessed of the credentials they use.
+
+**How it works:**
+
+- There's now a real vault service. An operator stores a tool's real credential with it once (say, a Stripe test-mode key) — the vault encrypts it before saving it to the database, so even someone with direct database access can't read it back out. The plaintext key exists only briefly, in memory, at the exact moment it's needed.
+- When a registered agent wants to use a tool, it doesn't get that stored key. Instead, it asks the vault for permission, presenting its own identity credential from Phase 1. The vault independently re-checks that credential is genuine (the same "don't trust, verify" pattern as Phase 1's `custos verify`), and if everything checks out, hands back a temporary access pass — good for 60 seconds, and usable for exactly one tool and one action, nothing broader.
+- The agent uses that temporary pass to actually make the call. The vault checks the pass is genuine and not expired (all of that happens instantly, without touching the database), then — and only then — decrypts the real credential, makes the call to the tool on the agent's behalf, and hands back the result. The agent still never sees the real key.
+- After 60 seconds, that pass simply stops working — proven with an automated test that requests a pass, uses it successfully, lets it expire, confirms the same pass is now rejected, and shows a freshly-requested pass works again. No real-time waiting was needed to prove this: time is simulated in the test, the same way a stopwatch can be fast-forwarded.
+- Three tools are wired up: a real one (Stripe, test/sandbox mode — listing test customers) and two realistic stand-ins (a fake Slack and a fake internal database) that exist to prove the pattern isn't a one-off special case for Stripe.
+- Beyond the automated tests, this was also smoke-tested for real: the actual identity and vault services were started as real processes, a real agent was registered through the command line, a tool credential was seeded into the vault, and a tool call was made through the full real stack — not just inside the test runner.
+
+**Why it matters:** This is the first moment Custos does something a company would actually deploy for a reason beyond "prove the crypto works" — an AI agent can now be given narrow, temporary access to a real paid tool instead of a permanent API key that, if leaked or misused, keeps working forever. What it unblocks: Phase 3, revocation — the headline demo of the whole project, where a compromised agent's access to every tool it's touching gets cut within about a second.
+
+**Status:** Functionally complete and verified locally (automated tests, full lint/typecheck/build, and a manual live run). **Not yet pushed** — that's the next step before this phase counts as done by this project's own standard.
+
+**Next up:** Phase 3 — the revocation engine, the reason this project exists. One `custos deprovision` command should cut an actively-misbehaving agent off from every tool it's using, visibly, in about a second.
+
+---
+
 ## 2026-08-24 — Phase 1: Identity core
 
 **Commits:** `b8034fc` — "feat: Phase 1 identity core - per-agent registry, KMS-shaped signing, CLI"; `8097daf` — "fix: run pending migrations before the test job in CI". Both pushed to `origin/main`.

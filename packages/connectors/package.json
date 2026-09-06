@@ -18,6 +18,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@custos/contracts": "workspace:*"
+  },
   "devDependencies": {
     "@custos/tsconfig": "workspace:*",
     "@custos/vitest-config": "workspace:*",

@@ -10,17 +10,26 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "seed": "node scripts/seed-credential.mjs"
   },
   "dependencies": {
     "@custos/config": "workspace:*",
+    "@custos/connectors": "workspace:*",
+    "@custos/contracts": "workspace:*",
+    "@custos/core": "workspace:*",
     "@custos/observability": "workspace:*",
+    "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.0",
+    "pg": "^8.13.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@custos/identity": "workspace:*",
+    "@custos/testing": "workspace:*",
     "@custos/tsconfig": "workspace:*",
     "@custos/vitest-config": "workspace:*",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

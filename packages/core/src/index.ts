@@ -4,5 +4,8 @@ export * from "./crypto/ed25519.js";
 export * from "./did/did-web.js";
 export * from "./keys/key-provider.js";
 export * from "./keys/local-key-provider.js";
+export * from "./keys/secret-cipher.js";
+export * from "./keys/local-secret-cipher.js";
 export * from "./vc/document-loader.js";
 export * from "./vc/credential.js";
+export * from "./token/scoped-token.js";

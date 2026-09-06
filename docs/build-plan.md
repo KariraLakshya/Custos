@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 2 — Credentials & vault (dispossession)**
+> **CURRENT: Phase 3 — Revocation engine ★**
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
