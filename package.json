@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Custos — a trust layer for AI agents",
+  "description": "Custos \u2014 a trust layer for AI agents",
   "engines": {
     "node": ">=22"
   },
@@ -25,16 +25,17 @@
     "@changesets/cli": "^2.27.11",
     "@custos/eslint-config": "workspace:*",
     "@types/node": "^22.10.5",
-    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/coverage-v8": "^4.1.11",
     "drizzle-kit": "^0.30.1",
-    "drizzle-orm": "^0.38.3",
+    "drizzle-orm": "^0.45.2",
     "eslint": "^9.17.0",
     "husky": "^9.1.7",
     "lint-staged": "^15.3.0",
     "pg": "^8.13.1",
     "prettier": "^3.4.2",
     "turbo": "^2.3.3",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vite": "^7.1.13"
   },
   "lint-staged": {
     "*.{ts,tsx,js,cjs,mjs}": [
@@ -43,5 +44,11 @@
     "*.{ts,tsx,js,cjs,mjs,json,md,yml,yaml}": [
       "prettier --write"
     ]
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri@<3.1.6": ">=3.1.6",
+      "fast-uri@>=4.0.0 <4.1.3": ">=4.1.3"
+    }
   }
 }

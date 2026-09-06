@@ -14,11 +14,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vitest/coverage-v8": "^2.1.8"
+    "@vitest/coverage-v8": "^4.1.11"
   },
   "devDependencies": {
     "@custos/tsconfig": "workspace:*",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
   }
 }

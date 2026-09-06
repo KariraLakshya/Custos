@@ -130,6 +130,35 @@ describe("issueScopedToken / verifyScopedToken", () => {
     if (!verified.ok) expect(verified.error.code).toBe("MALFORMED_TOKEN");
   });
 
+  it.each([
+    ["a JSON null payload", "null"],
+    ["a JSON primitive payload", '"just-a-string"'],
+    ["a JSON number payload", "42"],
+  ])("rejects %s as malformed rather than treating it as claims", (_label, json) => {
+    const { publicKey } = generateKeyPair();
+    const encoded = Buffer.from(json, "utf8").toString("base64url");
+    const token = `${encoded}.${Buffer.from("sig").toString("base64url")}`;
+
+    const verified = verifyScopedToken({ token, publicKey, now: new Date() });
+
+    expect(verified.ok).toBe(false);
+    if (!verified.ok) expect(verified.error.code).toBe("MALFORMED_TOKEN");
+  });
+
+  it("reports a non-Error signer rejection without crashing on it", async () => {
+    // A signer that rejects with a bare string rather than an Error: the
+    // failure still has to surface as a value, not an unhandled throw.
+    const issued = await issueScopedToken({
+      claims: claimsAt(new Date()),
+      signer: { sign: () => Promise.reject("kms exploded") },
+    });
+
+    expect(issued).toEqual({
+      ok: false,
+      error: { code: "SIGNING_FAILED", reason: "kms exploded" },
+    });
+  });
+
   it("surfaces a signing failure as an error value", async () => {
     const now = new Date();
     const failingSigner = { sign: () => Promise.reject(new Error("kms unreachable")) };

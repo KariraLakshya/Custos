@@ -1,4 +1,10 @@
-import { coverageConfigDefaults, defineConfig, mergeConfig, type UserConfig } from "vitest/config";
+// vitest 4 renamed the exported config type from `UserConfig` to `ViteUserConfig`.
+import {
+  coverageConfigDefaults,
+  defineConfig,
+  mergeConfig,
+  type ViteUserConfig,
+} from "vitest/config";
 
 export const defaultCoverageThresholds = {
   statements: 80,
@@ -17,6 +23,11 @@ export const coreCoverageThresholds = {
 export const baseVitestConfig = defineConfig({
   test: {
     environment: "node",
+    // `pnpm build` compiles src/**/*.test.ts into dist/, and vitest 4 no
+    // longer skips those by default — without this the same suite runs
+    // twice (once from src, once from dist) and the two copies collide on
+    // the fixed ports the integration tests bind.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/coverage/**", "**/.turbo/**"],
     // Vitest's 5s default is tuned for unit tests. The integration and e2e
     // suites talk to real Postgres, bind real ports, and run JSON-LD
     // canonicalization, and CI runners are markedly slower than a dev
@@ -35,6 +46,6 @@ export const baseVitestConfig = defineConfig({
   },
 });
 
-export function createVitestConfig(overrides: UserConfig = {}): UserConfig {
+export function createVitestConfig(overrides: ViteUserConfig = {}): ViteUserConfig {
   return mergeConfig(baseVitestConfig, overrides);
 }
