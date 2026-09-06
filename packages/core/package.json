@@ -31,7 +31,7 @@
     "@digitalcredentials/credentials-v2-context": "^1.0.0",
     "@noble/ciphers": "^2.4.0",
     "@noble/ed25519": "^2",
-    "@noble/hashes": "^1",
+    "@noble/hashes": "^2",
     "base58-universal": "^2.0.0",
     "ed25519-signature-2020-context": "^1.1.0",
     "jsonld": "^9.0.0",
