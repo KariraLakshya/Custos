@@ -40,6 +40,9 @@ jobs:
       # this private repo ("Repository not found").
       contents: read
       security-events: write
+      # codeql-action/analyze reads the workflow run via the REST API; without
+      # this it fails with "Resource not accessible by integration".
+      actions: read
     steps:
       - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v4
