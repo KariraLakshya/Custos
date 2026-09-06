@@ -86,7 +86,7 @@ describe("custos CLI", () => {
 
     it("prints a success message for a credential that verifies against its served DID document", async () => {
       const port = 4305;
-      const domain = `localhost:${port}`;
+      const domain = `127.0.0.1:${port}`;
       const { publicKey, secretKey } = generateKeyPair();
       const didDocument = buildDidWebDocument({ domain, publicKey });
       const verificationMethodId = didDocument.verificationMethod[0].id;

@@ -17,6 +17,12 @@ export const coreCoverageThresholds = {
 export const baseVitestConfig = defineConfig({
   test: {
     environment: "node",
+    // Vitest's 5s default is tuned for unit tests. The integration and e2e
+    // suites talk to real Postgres, bind real ports, and run JSON-LD
+    // canonicalization, and CI runners are markedly slower than a dev
+    // machine — a marginal timeout there is a flaky build, not a real defect.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     coverage: {
       provider: "v8",
       enabled: true,

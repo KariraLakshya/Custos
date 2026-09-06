@@ -27,11 +27,11 @@ async function withRegisteredAgent<T>(
 ): Promise<T> {
   const app: FastifyInstance = buildIdentityServer({
     db: identityDb,
-    didDomain: `localhost:${port}`,
+    didDomain: `127.0.0.1:${port}`,
   });
   await app.listen({ port, host: "127.0.0.1" });
   try {
-    const response = await fetch(`http://localhost:${port}/agents`, { method: "POST" });
+    const response = await fetch(`http://127.0.0.1:${port}/agents`, { method: "POST" });
     const { credential } = (await response.json()) as { credential: SignedCredential };
     return await run(credential);
   } finally {

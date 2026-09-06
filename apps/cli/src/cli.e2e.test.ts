@@ -22,10 +22,10 @@ async function withRunningIdentityService<T>(
   port: number,
   run: (identityUrl: string) => Promise<T>,
 ): Promise<T> {
-  const app = buildServer({ db, didDomain: `localhost:${port}` });
+  const app = buildServer({ db, didDomain: `127.0.0.1:${port}` });
   await app.listen({ port, host: "127.0.0.1" });
   try {
-    return await run(`http://localhost:${port}`);
+    return await run(`http://127.0.0.1:${port}`);
   } finally {
     await app.close();
   }
@@ -67,14 +67,14 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
       });
       await app.listen({ port: 4602, host: "127.0.0.1" });
       try {
-        await fetch("http://localhost:4602/credentials", {
+        await fetch("http://127.0.0.1:4602/credentials", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
         });
 
         const outcome = await useTool({
-          vaultUrl: "http://localhost:4602",
+          vaultUrl: "http://127.0.0.1:4602",
           credential: registered.credential as SignedCredential,
           tool: "mock-database",
           action: "query",
@@ -101,13 +101,13 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
       });
       await app.listen({ port: 4604, host: "127.0.0.1" });
       try {
-        await fetch("http://localhost:4604/credentials", {
+        await fetch("http://127.0.0.1:4604/credentials", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
         });
         const requestToken = () =>
-          fetch("http://localhost:4604/tokens", {
+          fetch("http://127.0.0.1:4604/tokens", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
@@ -117,7 +117,7 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
             }),
           }).then((response) => response.json() as Promise<{ token: string }>);
         const call = (token: string) =>
-          fetch("http://localhost:4604/call", {
+          fetch("http://127.0.0.1:4604/call", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ token, action: "query", input: { table: "customers" } }),

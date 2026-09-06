@@ -42,7 +42,7 @@ describe("verifyCredentialIndependently", () => {
 
   it("verifies a real credential against its issuer's served DID document", async () => {
     const port = 4201;
-    const domain = `localhost:${port}`;
+    const domain = `127.0.0.1:${port}`;
     const { publicKey, secretKey } = generateKeyPair();
     const didDocument = buildDidWebDocument({ domain, publicKey });
     const verificationMethodId = didDocument.verificationMethod[0].id;
@@ -76,7 +76,7 @@ describe("verifyCredentialIndependently", () => {
 
   it("fails closed when the issuer's DID document endpoint returns an error status", async () => {
     const port = 4202;
-    const domain = `localhost:${port}`;
+    const domain = `127.0.0.1:${port}`;
     server = createServer((_req, res) => {
       res.statusCode = 404;
       res.end();
@@ -96,7 +96,7 @@ describe("verifyCredentialIndependently", () => {
 
   it("rejects a credential tampered with after issuance", async () => {
     const port = 4203;
-    const domain = `localhost:${port}`;
+    const domain = `127.0.0.1:${port}`;
     const { publicKey, secretKey } = generateKeyPair();
     const didDocument = buildDidWebDocument({ domain, publicKey });
     const verificationMethodId = didDocument.verificationMethod[0].id;
