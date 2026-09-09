@@ -8,11 +8,17 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: "development"
+    cooldown:
+      default-days: 7
   - package-ecosystem: "docker"
     directory: "/infra/docker"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7

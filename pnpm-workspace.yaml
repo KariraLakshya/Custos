@@ -3,3 +3,10 @@ packages:
   - "packages/*"
   - "services/*"
   - "tooling/*"
+
+# Supply-chain hardening (CLAUDE.md section 4: "dependencies are attack
+# surface"). All three require pnpm >=10.16-10.26; this project runs 9.15.0
+# (see CLAUDE.md's gotchas), so they take effect once pnpm is upgraded.
+blockExoticSubdeps: true
+minimumReleaseAge: 10080 # 7 days, in minutes
+trustPolicy: no-downgrade
