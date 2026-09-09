@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import { z } from "zod";
 import { registerAgent } from "./agents/register.js";
 import { findAgentDidDocumentById } from "./agents/find.js";
+import { createHttpStatusAllocator, type StatusAllocator } from "./agents/status-allocator.js";
 import type { IdentityDb } from "./db/client.js";
 
 // Re-exported so other packages' e2e tests can boot a real instance of this
@@ -18,11 +19,16 @@ export function buildServer(options: {
   readonly db: IdentityDb;
   readonly didDomain?: string;
   readonly keyProvider?: KeyProvider;
+  readonly revocationUrl?: string;
+  readonly statusAllocator?: StatusAllocator;
 }): ReturnType<typeof Fastify> {
   const app = Fastify({ loggerInstance: createLogger({ level: "silent" }) });
   const { db } = options;
   const keyProvider = options.keyProvider ?? createLocalKeyProvider();
   const domain = options.didDomain ?? "localhost";
+  const statusAllocator =
+    options.statusAllocator ??
+    createHttpStatusAllocator({ revocationUrl: options.revocationUrl ?? "http://localhost:4003" });
 
   app.get("/health", async () => ({ status: "ok", service: "identity" }));
 
@@ -30,6 +36,7 @@ export function buildServer(options: {
     const result = await registerAgent({
       db,
       keyProvider,
+      statusAllocator,
       domain,
       agentId: randomUUID(),
       now: new Date(),

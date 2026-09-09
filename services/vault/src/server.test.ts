@@ -1,26 +1,61 @@
 import type { SignedCredential } from "@custos/core";
-import { createLocalSecretCipher } from "@custos/core";
+import { createLocalSecretCipher, ok } from "@custos/core";
 import {
   createMockDatabaseConnector,
   createMockSlackConnector,
   type Connector,
 } from "@custos/connectors";
 import { buildServer as buildIdentityServer, createDb as createIdentityDb } from "@custos/identity";
+import {
+  buildServer as buildRevocationServer,
+  createDb as createRevocationDb,
+} from "@custos/revocation";
 import { mutableClock } from "@custos/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, describe, expect, it } from "vitest";
 import { createDb } from "./db/client.js";
 import { buildServer } from "./server.js";
+import type { RevocationCache } from "./revocation/cache.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const vaultDb = createDb(databaseUrl);
 const identityDb = createIdentityDb(databaseUrl);
+const revocationDb = createRevocationDb(databaseUrl);
 const cipher = createLocalSecretCipher(new Uint8Array(32).fill(11));
 
 afterAll(async () => {
   await vaultDb.$client.end();
   await identityDb.$client.end();
+  await revocationDb.$client.end();
 });
+
+/**
+ * Stands in for the revocation service during registration, so vault tests
+ * need only identity in-process. Indexes are unique per call.
+ */
+let nextStatusListIndex = 100_000;
+const fakeStatusAllocator = {
+  allocate: async () =>
+    ok({
+      statusListIndex: nextStatusListIndex++,
+      statusListCredential: "http://127.0.0.1:4503/status/revocation",
+    }),
+};
+
+/**
+ * A revocation view that is fresh and empty — the Phase 2 baseline. The real
+ * cache starts stale and denies everything until its first resync, which is
+ * correct but is not what these tests are exercising.
+ */
+function freshEmptyRevocationCache(): RevocationCache {
+  return {
+    isRevoked: () => false,
+    isStale: () => false,
+    status: () => ({ revokedCount: 0, freshAsOf: new Date().toISOString(), stale: false }),
+    acceptTombstone: async () => ok("noop"),
+    resync: async () => ok(0),
+  };
+}
 
 async function withRegisteredAgent<T>(
   port: number,
@@ -29,6 +64,7 @@ async function withRegisteredAgent<T>(
   const app: FastifyInstance = buildIdentityServer({
     db: identityDb,
     didDomain: `127.0.0.1:${port}`,
+    statusAllocator: fakeStatusAllocator,
   });
   await app.listen({ port, host: "127.0.0.1" });
   try {
@@ -40,9 +76,80 @@ async function withRegisteredAgent<T>(
   }
 }
 
+/**
+ * Boots real identity, revocation, and vault instances in-process, wired
+ * together exactly as production is (revocation URLs, no injected fakes),
+ * so the vault's default `createRevocationCache` path and its `/revocations`
+ * routes run for real rather than through `freshEmptyRevocationCache()`.
+ */
+async function withPhase3Stack<T>(
+  ports: { readonly identity: number; readonly revocation: number; readonly vault: number },
+  connectors: readonly Connector[],
+  run: (stack: {
+    readonly identityApp: FastifyInstance;
+    readonly revocationApp: FastifyInstance;
+    readonly vaultApp: FastifyInstance;
+    readonly register: () => Promise<SignedCredential>;
+    readonly revoke: (agentId: string, reason?: string) => Promise<Response>;
+  }) => Promise<T>,
+): Promise<T> {
+  const revocationUrl = `http://127.0.0.1:${ports.revocation}`;
+  const revocationIssuerDid = `did:web:127.0.0.1%3A${ports.revocation}`;
+  const vaultUrl = `http://127.0.0.1:${ports.vault}`;
+
+  const revocationApp: FastifyInstance = await buildRevocationServer({
+    db: revocationDb,
+    didDomain: `127.0.0.1:${ports.revocation}`,
+    subscriberUrls: [vaultUrl],
+  });
+  await revocationApp.listen({ port: ports.revocation, host: "127.0.0.1" });
+
+  const identityApp: FastifyInstance = buildIdentityServer({
+    db: identityDb,
+    didDomain: `127.0.0.1:${ports.identity}`,
+    revocationUrl,
+  });
+  await identityApp.listen({ port: ports.identity, host: "127.0.0.1" });
+
+  const vaultApp = await buildServer({
+    db: vaultDb,
+    cipher,
+    connectors,
+    revocationUrl,
+    revocationIssuerDid,
+    revocationResyncIntervalMs: 5_000,
+  });
+  await vaultApp.listen({ port: ports.vault, host: "127.0.0.1" });
+
+  try {
+    return await run({
+      identityApp,
+      revocationApp,
+      vaultApp,
+      register: async () => {
+        const response = await fetch(`http://127.0.0.1:${ports.identity}/agents`, {
+          method: "POST",
+        });
+        const { credential } = (await response.json()) as { credential: SignedCredential };
+        return credential;
+      },
+      revoke: async (agentId, reason) =>
+        fetch(`${revocationUrl}/revocations`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(reason ? { agentId, reason } : { agentId }),
+        }),
+    });
+  } finally {
+    await vaultApp.close();
+    await identityApp.close();
+    await revocationApp.close();
+  }
+}
+
 describe("vault service", () => {
   it("responds to /health", async () => {
-    const app = await buildServer({ db: vaultDb, cipher });
+    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok", service: "vault" });
@@ -55,6 +162,7 @@ describe("vault service", () => {
       const app = await buildServer({
         db: vaultDb,
         cipher,
+        revocation: freshEmptyRevocationCache(),
         connectors: [slack as Connector],
         clock,
       });
@@ -122,7 +230,11 @@ describe("vault service", () => {
 
   it("404s a token request for a tool with no stored credential", async () => {
     await withRegisteredAgent(4502, async (credential) => {
-      const app = await buildServer({ db: vaultDb, cipher });
+      const app = await buildServer({
+        db: vaultDb,
+        cipher,
+        revocation: freshEmptyRevocationCache(),
+      });
       const response = await app.inject({
         method: "POST",
         url: "/tokens",
@@ -133,13 +245,13 @@ describe("vault service", () => {
   });
 
   it("400s a malformed /call request", async () => {
-    const app = await buildServer({ db: vaultDb, cipher });
+    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
     const response = await app.inject({ method: "POST", url: "/call", payload: { action: "x" } });
     expect(response.statusCode).toBe(400);
   });
 
   it("400s a malformed /credentials request", async () => {
-    const app = await buildServer({ db: vaultDb, cipher });
+    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
     const response = await app.inject({
       method: "POST",
       url: "/credentials",
@@ -149,7 +261,7 @@ describe("vault service", () => {
   });
 
   it("400s a malformed /tokens request", async () => {
-    const app = await buildServer({ db: vaultDb, cipher });
+    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
     const response = await app.inject({ method: "POST", url: "/tokens", payload: { tool: "x" } });
     expect(response.statusCode).toBe(400);
   });
@@ -159,6 +271,7 @@ describe("vault service", () => {
       const app = await buildServer({
         db: vaultDb,
         cipher,
+        revocation: freshEmptyRevocationCache(),
         connectors: [createMockDatabaseConnector()],
       });
 
@@ -182,6 +295,154 @@ describe("vault service", () => {
 
       expect(callResponse.statusCode).toBe(502);
       expect(callResponse.json().error.code).toBe("UPSTREAM_ERROR");
+    });
+  });
+
+  describe("revocation", () => {
+    it("reports a fresh-boot vault as stale before its first resync", async () => {
+      // No revocationResyncIntervalMs: the real cache is built but never
+      // synced, so it must not silently claim to know who is revoked.
+      const app = await buildServer({
+        db: vaultDb,
+        cipher,
+        revocationUrl: "http://127.0.0.1:1",
+        revocationIssuerDid: "did:web:127.0.0.1%3A1",
+      });
+      const response = await app.inject({ method: "GET", url: "/revocations" });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ revokedCount: 0, freshAsOf: null, stale: true });
+    });
+
+    it(
+      "cuts a revoked agent off within one call: token issuance denies it, " +
+        "the tool adapter itself refuses it, and the vault reports it as revoked",
+      async () => {
+        const slack = createMockSlackConnector();
+        await withPhase3Stack(
+          { identity: 4601, revocation: 4602, vault: 4603 },
+          [slack as Connector],
+          async ({ vaultApp: app, register, revoke }) => {
+            const credential = await register();
+            // did:web:127.0.0.1%3A4601:agents:<uuid> — the id is the final
+            // colon-separated segment.
+            const agentId = credential.issuer.split(":").pop()!;
+
+            await app.inject({
+              method: "POST",
+              url: "/credentials",
+              payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+            });
+
+            // Works before revocation.
+            const tokenBefore = await app.inject({
+              method: "POST",
+              url: "/tokens",
+              payload: { tool: "mock-slack", action: "post-message", credential },
+            });
+            expect(tokenBefore.statusCode).toBe(200);
+
+            const revokeResponse = await revoke(agentId, "compromised");
+            expect(revokeResponse.status).toBe(200);
+            const revoked = (await revokeResponse.json()) as {
+              agentDid: string;
+              broadcast: { delivered: number; failed: readonly string[] };
+            };
+            // The tombstone push is synchronous with this response: by the
+            // time /revocations returns, the vault has already applied it.
+            expect(revoked.broadcast).toEqual({ delivered: 1, failed: [] });
+
+            // Postgres persists across test runs, so other revoked agents
+            // from earlier runs may already be in this shared DB — only the
+            // freshness and "at least this one" are guaranteed here.
+            const statusAfter = await app.inject({ method: "GET", url: "/revocations" });
+            const status = statusAfter.json() as { revokedCount: number; stale: boolean };
+            expect(status.stale).toBe(false);
+            expect(status.revokedCount).toBeGreaterThanOrEqual(1);
+
+            // Token issuance now refuses the revoked agent.
+            const tokenAfter = await app.inject({
+              method: "POST",
+              url: "/tokens",
+              payload: { tool: "mock-slack", action: "post-message", credential },
+            });
+            expect(tokenAfter.statusCode).toBe(403);
+            expect(tokenAfter.json().error.code).toBe("AGENT_REVOKED");
+
+            // The tool call with the pre-revocation token is also refused —
+            // the hot path re-checks revocation on every call, not just at
+            // issuance, so a 60s-old token cannot be used to dodge it.
+            const callAfter = await app.inject({
+              method: "POST",
+              url: "/call",
+              payload: {
+                token: tokenBefore.json().token,
+                action: "post-message",
+                input: { channel: "#general", text: "should not arrive" },
+              },
+            });
+            expect(callAfter.statusCode).toBe(403);
+            expect(callAfter.json().error.code).toBe("AGENT_REVOKED");
+            expect(slack.messages).toHaveLength(0);
+
+            // "Adapters honour revocation": the fanout genuinely reached the
+            // connector, which now refuses this agent even if called directly.
+            const direct = await slack.call({
+              action: "post-message",
+              input: { channel: "#general", text: "direct" },
+              credential: "xoxb-fake-bot-token",
+              agentId: revoked.agentDid,
+            });
+            expect(direct.ok).toBe(false);
+            if (!direct.ok) expect(direct.error.code).toBe("AGENT_REVOKED");
+          },
+        );
+      },
+    );
+
+    it("400s a malformed tombstone push", async () => {
+      const app = await buildServer({
+        db: vaultDb,
+        cipher,
+        revocation: freshEmptyRevocationCache(),
+      });
+      const response = await app.inject({ method: "POST", url: "/revocations", payload: {} });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it("401s a tombstone that fails to verify", async () => {
+      // The issuer's key is resolved before the signature is checked, so a
+      // live revocation service is needed to reach the verify step at all.
+      await withPhase3Stack(
+        { identity: 4611, revocation: 4612, vault: 4613 },
+        [],
+        async ({ vaultApp }) => {
+          const response = await vaultApp.inject({
+            method: "POST",
+            url: "/revocations",
+            payload: { tombstone: "not-a-real-tombstone" },
+          });
+          expect(response.statusCode).toBe(401);
+          expect(response.json().error.code).toBe("INVALID_TOMBSTONE");
+        },
+      );
+    });
+
+    it("502s a tombstone push when the issuer cannot be resolved to verify it", async () => {
+      const app = await buildServer({
+        db: vaultDb,
+        cipher,
+        revocationUrl: "http://127.0.0.1:1",
+        revocationIssuerDid: "did:web:127.0.0.1%3A1",
+      });
+      const response = await app.inject({
+        method: "POST",
+        url: "/revocations",
+        // Shape doesn't matter: the issuer key is resolved before the
+        // signature is even checked, and that resolution fails first.
+        payload: { tombstone: "claims.signature" },
+      });
+      expect(response.statusCode).toBe(502);
+      expect(response.json().error.code).toBe("UNVERIFIABLE_ISSUER");
     });
   });
 });

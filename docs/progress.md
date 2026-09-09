@@ -6,6 +6,28 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-09-09 — Phase 3: Revocation engine (built, verified, not yet shipped)
+
+**Status:** Implemented and fully verified locally — every automated check (lint, type-check, all tests including a genuine end-to-end run, and the build) passes across the whole project. **Not yet committed or pushed to `origin`**, so there is no GitHub Actions confirmation yet. That's the very next step, not a decision that's been made to skip it.
+
+**What this is:** This is the headline feature — the reason Custos exists as a company. Phase 1 gave every agent a real identity. Phase 2 let an agent borrow temporary access to a tool instead of holding a permanent key. Phase 3 is what happens when an agent goes bad: one command, and that agent is locked out of every tool it was touching, in well under a second — and provably so, not just "trust us."
+
+**How it works:**
+
+- There's now a real "revocation service" — a fourth backend service alongside identity, vault, and (later) audit. When an agent is registered, this new service hands it a reserved slot in a public list that says, for every agent ever issued, whether it's still allowed to operate. That list is published as a small, digitally signed document anyone can fetch and check for themselves — a genuinely independent, third-party-verifiable record of who's been cut off, not just an internal database flag.
+- Running `custos deprovision <agent-id>` does two things at once: it flips that agent's entry in the public list, and it immediately broadcasts a signed "this agent is revoked" notice directly to the vault — the same "push it out, don't wait to be asked" pattern used for a fire alarm rather than a manual headcount.
+- The vault keeps a live, in-memory answer to "is this agent currently allowed?" — checked in microseconds on every single tool call, with no database lookup and no waiting. The moment a revocation notice arrives, that answer flips instantly for every call after it, including ones using a temporary access pass the agent obtained just seconds earlier.
+- Each tool connector (Stripe, and the two internal stand-ins used for testing) also independently refuses a revoked agent on its own — so even a request that somehow bypassed the vault's own check still gets refused at the tool itself. Belt and suspenders.
+- If the vault ever loses touch with the revocation service for too long, it doesn't quietly assume everything's fine — it starts refusing calls until it's heard from the control plane recently enough to trust its own answer. An outage fails safe, not open.
+- Proven with a real automated test, not just described: an agent gets short-lived access to three different tools, actually uses all three successfully, then one `deprovision` command is issued — and all three tools reject that same agent, measured at well under one second, with the individual tool connectors also independently confirming the refusal. That's the literal thing this phase was built to demonstrate, running in an automated check every time the code changes.
+- Along the way, the revocation list format itself needed a real decision: the original plan named a 2021 draft spec that has since been finalized and renamed by the W3C. Custos now implements the current, finished standard rather than the superseded draft — the sensible call for a brand-new product with no existing integrations to break by doing so.
+
+**Why it matters:** This is the moment "trust layer for AI agents" stops being a claim and becomes something you can watch happen. It's also the clearest kind of demo there is — plug in an agent, watch it work, revoke it, watch it instantly stop. What it unblocks: Phase 4, which decides _what_ an agent is allowed to do in the first place (not just whether it exists) and builds the tamper-evident log of everything every agent has done.
+
+**Next up:** Commit this work, push it, and confirm it's green on the real automated build server the same way every prior phase was — that's what turns "verified on this machine" into "actually shipped." Then Phase 4: fine-grained permissions per agent, and a signed audit trail.
+
+---
+
 ## 2026-09-06 — Phase 2: Credentials & vault (dispossession)
 
 **Commits:** `91f45f5` — "feat: Phase 2 credentials and vault - scoped tokens, dispossessed agents"; `a298905` — handover docs; `83a5161` — test-suite hardening; `20126a4` — the CI fix described below. All pushed to `origin/main`, and CI is green.

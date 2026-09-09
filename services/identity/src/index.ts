@@ -4,7 +4,11 @@ import { buildServer } from "./server.js";
 
 const env = loadIdentityEnv();
 const db = createDb(env.DATABASE_URL);
-const app = buildServer({ db, didDomain: env.IDENTITY_DID_DOMAIN });
+const app = buildServer({
+  db,
+  didDomain: env.IDENTITY_DID_DOMAIN,
+  revocationUrl: env.REVOCATION_URL,
+});
 
 app.listen({ port: env.PORT, host: "0.0.0.0" }).catch((err: unknown) => {
   app.log.error(err);

@@ -13,6 +13,9 @@ import { storeToolCredential } from "../credentials/store.js";
 import { createDb } from "../db/client.js";
 import { invokeTool } from "./invoke.js";
 
+/** Nobody revoked, state fresh — the baseline these tests assume. */
+const neverRevoked = { isRevoked: () => false, isStale: () => false };
+
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const db = createDb(databaseUrl);
 const cipher = createLocalSecretCipher(new Uint8Array(32).fill(5));
@@ -74,6 +77,7 @@ describe("invokeTool", () => {
       action: "list-customers",
       input: { limit: 5 },
       now,
+      revocation: neverRevoked,
     });
 
     expect(result).toEqual({ ok: true, value: { echoedCredential: "sk_test_x" } });
@@ -104,6 +108,7 @@ describe("invokeTool", () => {
       action: "list-customers",
       input: {},
       now,
+      revocation: neverRevoked,
     });
 
     expect(result).toEqual({
@@ -133,6 +138,7 @@ describe("invokeTool", () => {
       action: "list-customers",
       input: {},
       now: new Date(issuedAt.getTime() + 61_000),
+      revocation: neverRevoked,
     });
 
     expect(result).toEqual({ ok: false, error: { code: "INVALID_TOKEN", reason: "EXPIRED" } });
@@ -159,6 +165,7 @@ describe("invokeTool", () => {
       action: "delete-everything",
       input: {},
       now,
+      revocation: neverRevoked,
     });
 
     expect(result).toEqual({ ok: false, error: { code: "ACTION_MISMATCH" } });
@@ -184,6 +191,7 @@ describe("invokeTool", () => {
       action: "list-customers",
       input: {},
       now,
+      revocation: neverRevoked,
     });
 
     expect(result).toEqual({ ok: false, error: { code: "UNKNOWN_TOOL", tool } });
@@ -209,6 +217,7 @@ describe("invokeTool", () => {
       action: "list-customers",
       input: {},
       now,
+      revocation: neverRevoked,
     });
 
     expect(result).toEqual({ ok: false, error: { code: "UNKNOWN_TOOL", tool } });
@@ -235,6 +244,7 @@ describe("invokeTool", () => {
       action: "reject-me",
       input: {},
       now,
+      revocation: neverRevoked,
     });
 
     expect(result).toEqual({ ok: false, error: { code: "UNKNOWN_ACTION", action: "reject-me" } });

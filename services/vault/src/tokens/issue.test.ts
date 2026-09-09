@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   createLocalKeyProvider,
   createLocalSecretCipher,
+  ok,
   type SignedCredential,
 } from "@custos/core";
 import { buildServer as buildIdentityServer, createDb as createIdentityDb } from "@custos/identity";
@@ -10,6 +11,19 @@ import { afterAll, describe, expect, it } from "vitest";
 import { storeToolCredential } from "../credentials/store.js";
 import { createDb } from "../db/client.js";
 import { issueToolToken } from "./issue.js";
+
+/** Nobody revoked — the baseline these tests assume. */
+const neverRevoked = { isRevoked: () => false };
+
+/** Stands in for the revocation service so registration can succeed here. */
+let nextStatusListIndex = 200_000;
+const fakeStatusAllocator = {
+  allocate: async () =>
+    ok({
+      statusListIndex: nextStatusListIndex++,
+      statusListCredential: "http://127.0.0.1:4503/status/revocation",
+    }),
+};
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const vaultDb = createDb(databaseUrl);
@@ -28,6 +42,7 @@ async function withRegisteredAgent<T>(
   const app: FastifyInstance = buildIdentityServer({
     db: identityDb,
     didDomain: `127.0.0.1:${port}`,
+    statusAllocator: fakeStatusAllocator,
   });
   await app.listen({ port, host: "127.0.0.1" });
   try {
@@ -56,6 +71,7 @@ describe("issueToolToken", () => {
         tool,
         action: "list-customers",
         now,
+        revocation: neverRevoked,
       });
 
       expect(result.ok).toBe(true);
@@ -80,6 +96,7 @@ describe("issueToolToken", () => {
         tool: unknownTool,
         action: "list-customers",
         now: new Date(),
+        revocation: neverRevoked,
       });
 
       expect(result).toEqual({ ok: false, error: { code: "UNKNOWN_TOOL", tool: unknownTool } });
@@ -105,6 +122,7 @@ describe("issueToolToken", () => {
         tool,
         action: "list-customers",
         now: new Date(),
+        revocation: neverRevoked,
       });
 
       expect(result.ok).toBe(false);
@@ -142,6 +160,7 @@ describe("issueToolToken", () => {
       tool,
       action: "list-customers",
       now: new Date(),
+      revocation: neverRevoked,
     });
 
     expect(result.ok).toBe(false);
@@ -165,6 +184,7 @@ describe("issueToolToken", () => {
         tool,
         action: "list-customers",
         now: new Date(),
+        revocation: neverRevoked,
       });
 
       expect(result).toEqual({

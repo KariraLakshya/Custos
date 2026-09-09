@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createMockSlackConnector } from "./mock-slack.js";
 
+const AGENT_DID = "did:web:127.0.0.1%3A4001:agents:11111111-1111-4111-8111-111111111111";
+
 describe("createMockSlackConnector", () => {
   it("posts a message and records it", async () => {
     const connector = createMockSlackConnector();
@@ -9,6 +11,7 @@ describe("createMockSlackConnector", () => {
       action: "post-message",
       input: { channel: "#general", text: "hello" },
       credential: "xoxb-fake",
+      agentId: AGENT_DID,
     });
 
     expect(result.ok).toBe(true);
@@ -17,7 +20,12 @@ describe("createMockSlackConnector", () => {
 
   it("rejects an unknown action", async () => {
     const connector = createMockSlackConnector();
-    const result = await connector.call({ action: "delete-channel", input: {}, credential: "x" });
+    const result = await connector.call({
+      action: "delete-channel",
+      input: {},
+      credential: "x",
+      agentId: AGENT_DID,
+    });
     expect(result).toEqual({
       ok: false,
       error: { code: "UNKNOWN_ACTION", action: "delete-channel" },
@@ -30,6 +38,7 @@ describe("createMockSlackConnector", () => {
       action: "post-message",
       input: { channel: "#general" },
       credential: "x",
+      agentId: AGENT_DID,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("INVALID_INPUT");

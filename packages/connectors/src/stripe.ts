@@ -1,5 +1,5 @@
 import { err, ok } from "@custos/contracts";
-import type { Connector } from "./connector.js";
+import { createRevocationGuard, type Connector } from "./connector.js";
 
 const DEFAULT_BASE_URL = "https://api.stripe.com/v1";
 
@@ -22,10 +22,14 @@ function errorMessage(error: unknown): string {
  */
 export function createStripeConnector(options?: { readonly baseUrl?: string }): Connector {
   const baseUrl = options?.baseUrl ?? DEFAULT_BASE_URL;
+  const guard = createRevocationGuard();
 
   return {
     tool: "stripe",
-    async call({ action, input, credential }) {
+    async call({ action, input, credential, agentId }) {
+      if (guard.isRevoked(agentId)) {
+        return err({ code: "AGENT_REVOKED", agentId });
+      }
       if (action !== "list-customers") {
         return err({ code: "UNKNOWN_ACTION", action });
       }
@@ -53,9 +57,12 @@ export function createStripeConnector(options?: { readonly baseUrl?: string }): 
       }
       return ok(await response.json());
     },
-    async revoke() {
-      // Phase 3: broadcast revocation — rotate/roll the stored Stripe key
-      // (or delete a per-agent restricted key, once agents get one each).
+    async revoke(agentId) {
+      // Stripe has no per-agent concept while the vault holds one account
+      // key, so this refuses the agent locally rather than calling Stripe.
+      // Once agents each hold a restricted key, this is also where that key
+      // gets deleted upstream — the enforcement point stays the same.
+      guard.revoke(agentId);
     },
   };
 }
