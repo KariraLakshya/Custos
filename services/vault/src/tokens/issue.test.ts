@@ -56,7 +56,7 @@ async function withRegisteredAgent<T>(
 
 describe("issueToolToken", () => {
   it("issues a 60s-scoped token for a verified agent and a known tool", async () => {
-    await withRegisteredAgent(4201, async (credential) => {
+    await withRegisteredAgent(4211, async (credential) => {
       const tool = `test-tool-${randomUUID()}`;
       await storeToolCredential({ db: vaultDb, cipher, tool, secret: "sk_test_x" });
       const keyProvider = createLocalKeyProvider();
@@ -83,7 +83,7 @@ describe("issueToolToken", () => {
   });
 
   it("rejects a request for a tool the vault has no stored credential for", async () => {
-    await withRegisteredAgent(4202, async (credential) => {
+    await withRegisteredAgent(4212, async (credential) => {
       const keyProvider = createLocalKeyProvider();
       const { keyId } = await keyProvider.createKeyPair();
       const unknownTool = `unknown-tool-${randomUUID()}`;
@@ -104,7 +104,7 @@ describe("issueToolToken", () => {
   });
 
   it("rejects an agent credential tampered with after issuance", async () => {
-    await withRegisteredAgent(4203, async (credential) => {
+    await withRegisteredAgent(4213, async (credential) => {
       const tool = `test-tool-${randomUUID()}`;
       await storeToolCredential({ db: vaultDb, cipher, tool, secret: "sk_test_x" });
       const tampered = structuredClone(credential) as SignedCredential & {
@@ -168,7 +168,7 @@ describe("issueToolToken", () => {
   });
 
   it("surfaces a signing failure (e.g. the KMS is unreachable) as an error value", async () => {
-    await withRegisteredAgent(4204, async (credential) => {
+    await withRegisteredAgent(4214, async (credential) => {
       const tool = `test-tool-${randomUUID()}`;
       await storeToolCredential({ db: vaultDb, cipher, tool, secret: "sk_test_x" });
       const failingKeyProvider = {

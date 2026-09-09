@@ -6,9 +6,11 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
-## 2026-09-09 — Phase 3: Revocation engine (built, verified, not yet shipped)
+## 2026-09-10 — Phase 3: Revocation engine (shipped)
 
-**Status:** Implemented and fully verified locally — every automated check (lint, type-check, all tests including a genuine end-to-end run, and the build) passes across the whole project. **Not yet committed or pushed to `origin`**, so there is no GitHub Actions confirmation yet. That's the very next step, not a decision that's been made to skip it.
+**Commits:** `b3b388f` — "feat: Phase 3 revocation engine - status list, signed tombstone push, deprovision"; two follow-up commits fixed CI issues unrelated to the feature itself (a known-vulnerable indirect dependency, and a third-party GitHub Action that had quietly moved to a newer, incompatible major version). Merged to `origin/main` via PR #28, and every automated check is green.
+
+**Status:** Shipped and confirmed working by the real automated build, not just on one machine.
 
 **What this is:** This is the headline feature — the reason Custos exists as a company. Phase 1 gave every agent a real identity. Phase 2 let an agent borrow temporary access to a tool instead of holding a permanent key. Phase 3 is what happens when an agent goes bad: one command, and that agent is locked out of every tool it was touching, in well under a second — and provably so, not just "trust us."
 
@@ -24,7 +26,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **Why it matters:** This is the moment "trust layer for AI agents" stops being a claim and becomes something you can watch happen. It's also the clearest kind of demo there is — plug in an agent, watch it work, revoke it, watch it instantly stop. What it unblocks: Phase 4, which decides _what_ an agent is allowed to do in the first place (not just whether it exists) and builds the tamper-evident log of everything every agent has done.
 
-**Next up:** Commit this work, push it, and confirm it's green on the real automated build server the same way every prior phase was — that's what turns "verified on this machine" into "actually shipped." Then Phase 4: fine-grained permissions per agent, and a signed audit trail.
+**Next up:** Phase 4: fine-grained permissions per agent, and a signed audit trail.
 
 ---
 

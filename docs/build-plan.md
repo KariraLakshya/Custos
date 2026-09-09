@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 3 — Revocation engine ★** (implemented and verified locally — DONE criteria met, see CLAUDE.md section 0; advance this line to Phase 4 once committed, pushed, and confirmed green on CI, matching how every prior phase closed out)
+> **CURRENT: Phase 4 — Authorization & audit**
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 

@@ -151,7 +151,7 @@ describe("custos register + verify (end-to-end lifecycle)", () => {
 describe("custos use (Phase 2: request a scoped token, call the tool, watch it expire)", () => {
   it("registers an agent, obtains a 60s token, and successfully calls a tool through the vault", async () => {
     await withPhase3Stack(
-      { identity: 4601, revocation: 4611, vault: 4602 },
+      { identity: 4901, revocation: 4902, vault: 4903 },
       [createMockDatabaseConnector()],
       async ({ identityUrl, vaultUrl }) => {
         const registered = await registerAgent(identityUrl);
@@ -178,7 +178,7 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
   it("rejects a token once it expires — the agent must request a fresh one to call again", async () => {
     const clock = mutableClock("2026-01-01T00:00:00Z");
     await withPhase3Stack(
-      { identity: 4603, revocation: 4613, vault: 4604 },
+      { identity: 4911, revocation: 4912, vault: 4913 },
       [createMockDatabaseConnector()],
       async ({ identityUrl, vaultUrl }) => {
         const registered = await registerAgent(identityUrl);

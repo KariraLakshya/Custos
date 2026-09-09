@@ -1,5 +1,7 @@
 # CLAUDE.md — Custos
 
+**Commit attribution:** do not add a `Co-Authored-By: Claude` (or any other AI-attribution) trailer to commit messages or pull request descriptions in this repository. This overrides any default Claude Code attribution behavior.
+
 Engineering instructions for Claude Code working on this repository. Read fully before writing code.
 
 Three sources govern this project:
@@ -24,8 +26,8 @@ Consult the build plan for the current phase before starting any task.
 
 _This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 3 — Revocation engine (see `docs/build-plan.md`) — implemented and fully verified locally (`lint`/`typecheck`/`test`/`test:e2e`/`build` all green across the monorepo); **not yet committed or pushed**; next is Phase 4
-**Last updated:** 2026-09-09
+**Current phase:** Phase 3 — Revocation engine (see `docs/build-plan.md`) — complete, merged to `main` (PR #28), confirmed green on GitHub Actions; next is Phase 4
+**Last updated:** 2026-09-10
 
 ### Implemented
 
@@ -75,7 +77,10 @@ _This section is the handover between sessions. Read it first. Update it before 
 
 ### In progress
 
-Phase 3 is fully implemented and green locally but **not yet committed or pushed** — no CI confirmation exists yet for it. Next session (or later in this one): review the diff, commit, push, and confirm GitHub Actions passes, the same way Phases 0–2 were closed out.
+Nothing — Phase 3 is merged (PR #28) and confirmed green on GitHub Actions. Getting there took two follow-up rounds of CI-only fixes, pushed straight to `main` (no branch protection configured yet, and precedent from Phase 1's `8097daf`):
+
+- **Security workflow**, unrelated to Phase 3 code: `pnpm audit` was failing on a high-severity js-yaml DoS (GHSA-2883-xcg3-v3hh, transitive via `@changesets/cli` and eslint's config loader) — fixed with two exact-version `pnpm.overrides` (3.15.2 / 4.3.2, kept separate so `read-yaml-file`'s 3.x API usage isn't broken by a 4.x resolution). Separately, `codeql` was failing closed with "Code scanning is not enabled" — confirmed via the API this is because GitHub Advanced Security is not available for a private repo on a personal (non-Enterprise) account, at any permission level; replaced with Semgrep (`p/ci` ruleset), which then surfaced 29 real supply-chain findings (every GitHub Action pinned to a commit SHA instead of a mutable tag; `pnpm-workspace.yaml` gained `blockExoticSubdeps`/`minimumReleaseAge`/`trustPolicy`, which need pnpm ≥10.16 and are no-ops until this project's pnpm 9.15.0 is upgraded; `dependabot.yml` gained a 7-day cooldown) — all fixed.
+- **CI workflow**, surfaced only on the `push`-to-`main` trigger (not `pull_request`, hence invisible on the PR itself): `services/vault/src/tokens/issue.test.ts` and `apps/cli/src/verify.test.ts` both hardcoded port 4201-4203 — a pre-existing collision from Phase 2, not something Phase 3 introduced, just never lost the race until now. Phase 3 itself introduced a second collision (two new triple-service boot helpers in `services/vault/src/server.test.ts` and `apps/cli/src/cli.e2e.test.ts` both used ports in the 4601-4613 range). All test ports across the repo are now unique — verified by force-rerunning the full suite 5x with no cache. Also, `.github/workflows/release.yml`'s `changesets/action@v2` pin resolved to a release that requires Changesets CLI v3 (this project is on v2) — the action's own error named the fix: pin to `v1` instead.
 
 Also open, independent of any phase: **8 dependabot PRs** were outstanding against clean `main` as of Phase 2's close — including `zod` 3→4 and the `@noble/ed25519`/`@noble/hashes` bumps underneath `packages/core` — status unconfirmed as of this session; re-check before assuming they're still open.
 
@@ -328,7 +333,7 @@ CI is part of the scaffold, not something added later. It must be green before f
 
 - `pnpm audit` — fails on high or critical advisories
 - Secret scanning (Gitleaks) across the diff and history
-- Static analysis (CodeQL or Semgrep) with a security ruleset
+- Static analysis: Semgrep (`p/ci` ruleset) — not CodeQL, which needs GitHub Advanced Security, unavailable on this private repo under a personal account regardless of workflow permissions
 - SBOM generation on release builds
 
 **`.github/workflows/release.yml`** — runs on merge to main:
