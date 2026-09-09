@@ -32,20 +32,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  codeql:
+  # CodeQL's github/codeql-action requires GitHub Advanced Security to
+  # upload results, which is not available on a private repo owned by a
+  # personal (non-Enterprise) account — it fails closed with "Code scanning
+  # is not enabled for this repository" regardless of workflow permissions.
+  # Semgrep needs no such feature and runs standalone; CLAUDE.md section 9
+  # already names it as the sanctioned alternative ("CodeQL or Semgrep").
+  semgrep:
     runs-on: ubuntu-latest
-    permissions:
-      # Declaring any permissions block replaces the default set, so
-      # contents: read must be restated or actions/checkout cannot read
-      # this private repo ("Repository not found").
-      contents: read
-      security-events: write
-      # codeql-action/analyze reads the workflow run via the REST API; without
-      # this it fails with "Resource not accessible by integration".
-      actions: read
+    container:
+      image: semgrep/semgrep
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4
-        with:
-          languages: javascript-typescript
-      - uses: github/codeql-action/analyze@v4
+      - run: semgrep scan --config=p/ci --error
