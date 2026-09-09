@@ -24,8 +24,8 @@ Consult the build plan for the current phase before starting any task.
 
 _This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 2 — Credentials & vault (see `docs/build-plan.md`) — complete, pushed, CI green; next is Phase 3
-**Last updated:** 2026-09-06
+**Current phase:** Phase 3 — Revocation engine (see `docs/build-plan.md`) — implemented and fully verified locally (`lint`/`typecheck`/`test`/`test:e2e`/`build` all green across the monorepo); **not yet committed or pushed**; next is Phase 4
+**Last updated:** 2026-09-09
 
 ### Implemented
 
@@ -62,16 +62,26 @@ _This section is the handover between sessions. Read it first. Update it before 
   - `packages/testing`: added `mutableClock` (advanceable sibling to `fixedClock`) for exactly this expiry-simulation need.
   - Coverage: `packages/core` 99.1%+ (still ≥95% threshold), `services/vault` ~99%, `packages/connectors` 100% stmts — all above the 80%/95% thresholds.
   - CI fix (`20126a4`): the `test` job had been failing on every DB-backed identity test with a 500 while `pnpm migrate` in the same job succeeded. Cause was Turborepo strict env mode, not Phase 2 code — see the gotcha below. A prior commit (`83a5161`) raised vitest's timeouts to 30s and switched tests from `localhost` to `127.0.0.1`; both are genuine determinism improvements but neither was the actual fix.
+- **Phase 3 — Revocation engine**, the reason the project exists:
+  - `packages/core`: `status/bitstring-status-list.ts` (Bitstring Status List v1.0, not the superseded StatusList2021 draft CLAUDE.md previously named — see `docs/adr/0005-revocation-architecture.md`; gzip+multibase-encoded 131,072-bit minimum bitstring, `buildStatusListEntry`/`buildStatusListSubject` helpers) and `revocation/tombstone.ts` (`issueRevocationTombstone`/`verifyRevocationTombstone`, the same compact Ed25519-signed envelope shape as `scoped-token.ts`, permanent — no `exp`, since a replayed revocation is idempotent). `vc/credential.ts`'s `UnsignedCredential` gained an optional `credentialStatus` field.
+  - `services/revocation`: was a health-check shell, now the control plane for both allocation and revocation. Own `did:web` signing identity (same `KeyProvider` pattern), published at `/.well-known/did.json`. `POST /agents` (called by identity during registration, before the credential is signed) reserves a status list index per agent, idempotently, via a `serial` column so no index is ever reused. `POST /revocations` flips the DB row, signs a tombstone, and pushes it to every configured subscriber (`REVOCATION_SUBSCRIBER_URLS`) via `broadcast.ts`'s `TombstoneBroadcaster` (HTTP today; interface-shaped for a broker later, matching `KeyProvider`/`SecretCipher`). `GET /revocations` replays every revocation as a fresh tombstone, for a subscriber's resync. `GET /status/revocation` rebuilds the bitstring from the DB on every request and returns it as a signed VC — the durable, third-party-verifiable half; the tombstone push is the fast half.
+  - `services/identity`: registration now calls the revocation service first and fails the registration closed if that call fails (`agents/status-allocator.ts`) — an agent issued with no status list entry could never be revoked. `REVOCATION_URL` env var, defaults to `http://localhost:4003`.
+  - `services/vault`: `revocation/cache.ts` is the hot-path revocation view — an in-memory revoked-DID set, checked in microseconds on every `/call`, updated by pushed tombstones (`POST /revocations`, verified against the revocation service's resolved DID before being trusted — an unauthenticated push would be a denial-of-service vector) and by a periodic resync (`REVOCATION_RESYNC_INTERVAL_MS`, plus one at boot). Bounded staleness is explicit config (`REVOCATION_MAX_STALENESS_MS`, default 30s): a cache that has never synced, or has gone stale, denies rather than silently trusting an outdated view. `issueToolToken` also now refuses a revoked agent a fresh token, not only the hot path.
+  - `packages/connectors`: `Connector.call()` gained `agentId`; `connector.ts` exports a shared `createRevocationGuard()` every adapter composes, so "adapters honour revocation" is genuinely true at the tool boundary, not only at the vault's own gate. Stripe's `revoke()` marks the agent revoked locally (no per-agent upstream key to withdraw yet, see Known issues).
+  - `apps/cli`: `custos deprovision <agentId> [--revocation-url] [--reason]` — the entire Phase 3 demo in one command.
+  - Tests: unit (status list bit-packing/encoding, tombstone issue/verify, all three connectors' revocation guard, the vault's revocation cache — forged/unverifiable-issuer/malformed/stale cases), integration (`services/revocation` and `services/vault` against real Postgres, including independent verification of the published status list credential against the revocation service's own DID document), and a genuine end-to-end addition to `apps/cli/src/cli.e2e.test.ts`: an agent actively holding session tokens for three tools (mock-slack, mock-database, and Stripe against a local stand-in), one `custos deprovision` call, all three calls rejected — measured under 1 second — and the connectors themselves (not only the vault) independently refuse the agent afterward. This is the literal Phase 3 DONE criterion, proven in CI, not just described.
+  - Coverage: every touched package/service above its threshold (`packages/core` 100% lines / ~98% branches; `services/vault` ~96% stmts / ~91% branches; `services/revocation` ~91% stmts / ~83% branches; `packages/connectors` ~95% stmts).
+  - `docs/adr/0005-revocation-architecture.md` records the three consequential decisions: Bitstring Status List over the superseded draft, signed-push-plus-status-list (not either alone), and the revocation service owning index allocation.
 
 ### In progress
 
-Nothing — Phase 2 is committed, pushed, and **confirmed green on GitHub Actions** (`20126a4`: lint-typecheck, test, build all pass). Getting there needed a real CI fix, see the turbo env gotcha below.
+Phase 3 is fully implemented and green locally but **not yet committed or pushed** — no CI confirmation exists yet for it. Next session (or later in this one): review the diff, commit, push, and confirm GitHub Actions passes, the same way Phases 0–2 were closed out.
 
-Also open, and independent of Phase 2: **8 dependabot PRs** are outstanding against clean `main`, including three that need real care rather than a blind merge — `zod` 3→4 (breaking, used by `packages/{contracts,config}` and every service), and `@noble/ed25519` 2→3 plus `@noble/hashes` 1→2, which are the audited crypto dependencies underneath `packages/core` (note `crypto/ed25519.ts` uses the v2 `etc.sha512Sync` idiom, which v3 may have changed). The other five (typescript-eslint, the dev-dependencies group, and three GitHub Actions bumps) are low-risk.
+Also open, independent of any phase: **8 dependabot PRs** were outstanding against clean `main` as of Phase 2's close — including `zod` 3→4 and the `@noble/ed25519`/`@noble/hashes` bumps underneath `packages/core` — status unconfirmed as of this session; re-check before assuming they're still open.
 
 ### Next up
 
-Phase 3 — Revocation engine ★ (the "it's real" demo, the reason the project exists — give it the most attention): credential status flip (VC Status List 2021), signed revocation tombstone broadcast to registered tool adapters (the `revoke(agentId)` method already stubbed on every `Connector`), adapters honour revocation. DONE = an agent actively calling three tools, one `custos deprovision` command, all three calls fail within roughly one second.
+Phase 4 — Authorization & audit: simple per-agent × tool allowlists (not full OPA/Rego), and a signed append-only audit record per action.
 
 ### Known issues, debt, and deviations
 
@@ -84,6 +94,8 @@ Phase 3 — Revocation engine ★ (the "it's real" demo, the reason the project 
 - `VAULT_MASTER_KEY` is one symmetric key for every stored tool credential — no per-tool keys, no envelope encryption, no rotation story. Deliberate for this phase's scale; see `docs/adr/0004-vault-credential-encryption.md` for the real-KMS migration path.
 - Phase 2 has no policy/allowlist enforcement — any agent that independently verifies can request a token for any tool the vault knows about. That's explicitly Phase 4 scope per `docs/build-plan.md`, not an oversight here.
 - The real Stripe connector implements exactly one action (`list-customers`, read-only) — enough to satisfy Phase 2's "at least one real connector" DONE criterion; broader Stripe coverage is future work if a later phase needs it.
+- Stripe's `revoke()` only marks the agent revoked in the connector's local guard — there is one shared vault-held Stripe key for every agent, so there is no per-agent upstream key to actually withdraw yet. Real per-agent upstream revocation for Stripe is future work once agents each hold a restricted key.
+- `services/vault`'s revocation cache resolves the revocation service's DID document once and caches the key for the process lifetime — if the revocation service ever rotates its signing key, a running vault needs a restart to pick up the new one. Not a Phase 3 gap (nothing rotates keys yet), but worth knowing.
 
 ### Gotchas for a new session
 
@@ -165,24 +177,24 @@ This is a security product. These are not preferences.
 
 Decisions recorded as ADRs in `docs/adr/`. Changeable with an ADR, not silently.
 
-| Concern                | Choice                                                |
-| ---------------------- | ----------------------------------------------------- |
-| Language / runtime     | TypeScript (strict), Node 22 LTS                      |
-| Monorepo               | pnpm workspaces + Turborepo                           |
-| Crypto                 | `@noble/ed25519`, `@noble/hashes`, `@noble/ciphers`   |
-| Identity               | `did:web`, W3C VC Data Model 2.0, VC Status List 2021 |
-| HTTP                   | Fastify                                               |
-| Validation / contracts | Zod, shared in `packages/contracts`                   |
-| Persistence            | Postgres (Drizzle ORM, versioned migrations)          |
-| Cache                  | Redis                                                 |
-| Key management         | AWS KMS behind a `KeyProvider` interface              |
-| Logging                | Pino, structured JSON, redaction configured           |
-| Tracing / metrics      | OpenTelemetry from the first service                  |
-| Tests                  | Vitest, with coverage thresholds enforced in CI       |
-| Lint / format          | ESLint (flat config) + Prettier                       |
-| Versioning / release   | Changesets, semantic versioning, Conventional Commits |
-| CI                     | GitHub Actions                                        |
-| Local environment      | Docker Compose                                        |
+| Concern                | Choice                                                       |
+| ---------------------- | ------------------------------------------------------------ |
+| Language / runtime     | TypeScript (strict), Node 22 LTS                             |
+| Monorepo               | pnpm workspaces + Turborepo                                  |
+| Crypto                 | `@noble/ed25519`, `@noble/hashes`, `@noble/ciphers`          |
+| Identity               | `did:web`, W3C VC Data Model 2.0, Bitstring Status List v1.0 |
+| HTTP                   | Fastify                                                      |
+| Validation / contracts | Zod, shared in `packages/contracts`                          |
+| Persistence            | Postgres (Drizzle ORM, versioned migrations)                 |
+| Cache                  | Redis                                                        |
+| Key management         | AWS KMS behind a `KeyProvider` interface                     |
+| Logging                | Pino, structured JSON, redaction configured                  |
+| Tracing / metrics      | OpenTelemetry from the first service                         |
+| Tests                  | Vitest, with coverage thresholds enforced in CI              |
+| Lint / format          | ESLint (flat config) + Prettier                              |
+| Versioning / release   | Changesets, semantic versioning, Conventional Commits        |
+| CI                     | GitHub Actions                                               |
+| Local environment      | Docker Compose                                               |
 
 TypeScript over Python because the W3C DID/VC and Ed25519 ecosystem is materially stronger in JS. A Python SDK follows once the TS core is stable.
 

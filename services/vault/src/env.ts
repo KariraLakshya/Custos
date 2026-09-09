@@ -8,6 +8,15 @@ export const envSchema = baseEnvSchema.extend({
   // tool credentials at rest — see docs/adr/0004-vault-credential-encryption.md.
   // No default: refuses to boot rather than fall back to a known key.
   VAULT_MASTER_KEY: z.string().regex(/^[0-9a-f]{64}$/i, "must be 64 hex characters (32 bytes)"),
+  REVOCATION_URL: z.string().min(1).default("http://localhost:4003"),
+  // DID of the revocation service, resolved once to get the key every pushed
+  // tombstone is verified against. Must match REVOCATION_DID_DOMAIN there.
+  REVOCATION_ISSUER_DID: z.string().min(1).default("did:web:localhost%3A4003"),
+  // Bounded staleness (CLAUDE.md section 3): if no resync has succeeded
+  // within this window the vault denies calls rather than trusting a stale
+  // allow list. Explicit configuration, never an accident.
+  REVOCATION_MAX_STALENESS_MS: z.coerce.number().int().positive().default(30_000),
+  REVOCATION_RESYNC_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

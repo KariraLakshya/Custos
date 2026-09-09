@@ -3,6 +3,7 @@ import { Ed25519VerificationKey2020 } from "@digitalbazaar/ed25519-verification-
 import { Ed25519Signature2020 } from "@digitalbazaar/ed25519-signature-2020";
 import { err, ok, type Result } from "../result.js";
 import type { DidWebDocument } from "../did/did-web.js";
+import type { BitstringStatusListEntry } from "../status/bitstring-status-list.js";
 import { staticDocumentLoader } from "./document-loader.js";
 
 const { purposes } = jsigs;
@@ -15,6 +16,18 @@ export interface UnsignedCredential {
   readonly issuer: string;
   readonly validFrom: string;
   readonly credentialSubject: Record<string, unknown>;
+  /**
+   * Points at this credential's single bit in a published Bitstring Status
+   * List, so a verifier can check revocation without asking the issuer which
+   * agent it is asking about. Optional because the status list is only wired
+   * up from Phase 3 onward; credentials issued before it have no entry.
+   *
+   * Note this is the credential's *durable, publicly verifiable* revocation
+   * record — the hot path never fetches it (CLAUDE.md section 3 forbids a
+   * control-plane network call per request) and reads a pushed local cache
+   * instead. See docs/adr/0005-revocation-architecture.md.
+   */
+  readonly credentialStatus?: BitstringStatusListEntry;
 }
 
 export interface VerifiableCredentialProof {

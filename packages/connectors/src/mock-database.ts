@@ -1,5 +1,5 @@
 import { err, ok } from "@custos/contracts";
-import type { Connector } from "./connector.js";
+import { createRevocationGuard, type Connector } from "./connector.js";
 
 const FAKE_TABLES: Record<string, readonly Record<string, unknown>[]> = {
   customers: [
@@ -22,9 +22,14 @@ function isQueryInput(value: unknown): value is { table: string } {
  * tool (CLAUDE.md's Phase 2 "two or three tool connectors").
  */
 export function createMockDatabaseConnector(): Connector {
+  const guard = createRevocationGuard();
+
   return {
     tool: "mock-database",
-    async call({ action, input }) {
+    async call({ action, input, agentId }) {
+      if (guard.isRevoked(agentId)) {
+        return err({ code: "AGENT_REVOKED", agentId });
+      }
       if (action !== "query") {
         return err({ code: "UNKNOWN_ACTION", action });
       }
@@ -37,8 +42,8 @@ export function createMockDatabaseConnector(): Connector {
       }
       return ok(rows);
     },
-    async revoke() {
-      // no-op: fake tool has no real access to revoke.
+    async revoke(agentId) {
+      guard.revoke(agentId);
     },
   };
 }

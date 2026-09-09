@@ -1,10 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { Command } from "commander";
+import { deprovisionAgent } from "./deprovision.js";
 import { registerAgent } from "./register.js";
 import { loadAgentCredential, useTool } from "./use.js";
 import { loadCredentialFile, verifyCredentialIndependently } from "./verify.js";
 
-// deprovision subcommand lands in Phase 3.
 export function createCli(): Command {
   const program = new Command()
     .name("custos")
@@ -62,6 +62,21 @@ export function createCli(): Command {
         process.stdout.write(`${JSON.stringify(outcome, null, 2)}\n`);
       },
     );
+
+  program
+    .command("deprovision")
+    .description("Revoke an agent's identity — cuts it off from every tool it can reach")
+    .argument("<agentId>", "agent id, from `custos register`'s output")
+    .option("--revocation-url <url>", "revocation service base URL", "http://localhost:4003")
+    .option("--reason <text>", "why this agent is being deprovisioned")
+    .action(async (agentId: string, opts: { revocationUrl: string; reason?: string }) => {
+      const result = await deprovisionAgent({
+        revocationUrl: opts.revocationUrl,
+        agentId,
+        ...(opts.reason === undefined ? {} : { reason: opts.reason }),
+      });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    });
 
   return program;
 }

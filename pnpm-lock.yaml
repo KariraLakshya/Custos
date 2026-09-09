@@ -7,6 +7,8 @@ settings:
 overrides:
   fast-uri@<3.1.6: '>=3.1.6'
   fast-uri@>=4.0.0 <4.1.3: '>=4.1.3'
+  js-yaml@<3.15.2: 3.15.2
+  js-yaml@>=4.0.0 <4.3.2: 4.3.2
 
 importers:
 
@@ -70,6 +72,9 @@ importers:
       '@custos/identity':
         specifier: workspace:*
         version: link:../../services/identity
+      '@custos/revocation':
+        specifier: workspace:*
+        version: link:../../services/revocation
       '@custos/testing':
         specifier: workspace:*
         version: link:../../packages/testing
@@ -317,22 +322,40 @@ importers:
       '@custos/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@custos/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@custos/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@custos/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.0)
       fastify:
         specifier: ^5.2.0
         version: 5.12.1
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
       zod:
         specifier: ^4.5.4
         version: 4.5.4
     devDependencies:
+      '@custos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       '@custos/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
       '@custos/vitest-config':
         specifier: workspace:*
         version: link:../../tooling/vitest-config
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.23.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -373,6 +396,9 @@ importers:
       '@custos/identity':
         specifier: workspace:*
         version: link:../identity
+      '@custos/revocation':
+        specifier: workspace:*
+        version: link:../revocation
       '@custos/testing':
         specifier: workspace:*
         version: link:../../packages/testing
@@ -2021,12 +2047,12 @@ packages:
   js-tokens@10.0.0:
     resolution: {integrity: sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q==}
 
-  js-yaml@3.15.1:
-    resolution: {integrity: sha512-S99WuO3HlhO3XN41EtYUNl9zzXjoJx7QvmipxsJVxtCBT0YHEFy+iOJhjSvrmV12nYhWpZaM8lPHkJm0yUMbag==}
+  js-yaml@3.15.2:
+    resolution: {integrity: sha512-6EuL879VkRA+1Cz578mKMiKvjPNEuk6+r1JaFzoSWejZmtf7xWbIyw1e3KkxlkzTIt9Taw6JBhEppG7utc1P+w==}
     hasBin: true
 
-  js-yaml@4.3.1:
-    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
+  js-yaml@4.3.2:
+    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
 
   json-buffer@3.0.1:
@@ -2849,7 +2875,7 @@ snapshots:
   '@changesets/parse@0.4.3':
     dependencies:
       '@changesets/types': 6.1.0
-      js-yaml: 4.3.1
+      js-yaml: 4.3.2
 
   '@changesets/pre@2.0.2':
     dependencies:
@@ -3170,7 +3196,7 @@ snapshots:
       globals: 14.0.0
       ignore: 5.3.2
       import-fresh: 3.3.1
-      js-yaml: 4.3.1
+      js-yaml: 4.3.2
       minimatch: 3.1.5
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
@@ -4134,12 +4160,12 @@ snapshots:
 
   js-tokens@10.0.0: {}
 
-  js-yaml@3.15.1:
+  js-yaml@3.15.2:
     dependencies:
       argparse: 1.0.10
       esprima: 4.0.1
 
-  js-yaml@4.3.1:
+  js-yaml@4.3.2:
     dependencies:
       argparse: 2.0.1
 
@@ -4458,7 +4484,7 @@ snapshots:
   read-yaml-file@1.1.0:
     dependencies:
       graceful-fs: 4.2.11
-      js-yaml: 3.15.1
+      js-yaml: 3.15.2
       pify: 4.0.1
       strip-bom: 3.0.0
 

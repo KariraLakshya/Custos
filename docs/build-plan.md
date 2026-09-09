@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 3 — Revocation engine ★**
+> **CURRENT: Phase 3 — Revocation engine ★** (implemented and verified locally — DONE criteria met, see CLAUDE.md section 0; advance this line to Phase 4 once committed, pushed, and confirmed green on CI, matching how every prior phase closed out)
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
@@ -65,7 +65,7 @@ Close the one genuine knowledge gap, then stand up production-grade scaffolding.
 
 This is the reason the project exists. Give it the most attention.
 
-- Credential status flip (VC Status List 2021)
+- Credential status flip (Bitstring Status List v1.0 — the W3C Recommendation that superseded the StatusList2021 draft; see `docs/adr/0005-revocation-architecture.md`)
 - Signed revocation tombstone broadcast to registered tool adapters
 - Adapters honour revocation
 

@@ -146,4 +146,49 @@ describe("custos CLI", () => {
       process.exitCode = previousExitCode;
     });
   });
+
+  describe("deprovision", () => {
+    let server: Server | undefined;
+
+    afterEach(async () => {
+      if (server) await new Promise((resolve) => server?.close(resolve));
+      server = undefined;
+      vi.restoreAllMocks();
+    });
+
+    it("revokes the agent against the revocation service and prints the result", async () => {
+      let received: { url?: string; body: unknown } | undefined;
+      server = createServer((req, res) => {
+        let raw = "";
+        req.on("data", (chunk) => (raw += chunk));
+        req.on("end", () => {
+          received = { url: req.url, body: JSON.parse(raw) };
+          res.setHeader("content-type", "application/json");
+          res.end(
+            JSON.stringify({
+              agentId: "abc",
+              agentDid: "did:web:example:agents:abc",
+              statusListIndex: 7,
+              revokedAt: "2026-09-09T00:00:00.000Z",
+              alreadyRevoked: false,
+              broadcast: { delivered: 1, failed: [] },
+            }),
+          );
+        });
+      });
+      await new Promise<void>((resolve) => server?.listen(4306, "127.0.0.1", resolve));
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      await createCli().parseAsync(
+        ["deprovision", "abc", "--revocation-url", "http://127.0.0.1:4306", "--reason", "test"],
+        { from: "user" },
+      );
+
+      expect(received).toEqual({
+        url: "/revocations",
+        body: { agentId: "abc", reason: "test" },
+      });
+      expect(stdout.mock.calls.join("")).toContain('"alreadyRevoked": false');
+    });
+  });
 });

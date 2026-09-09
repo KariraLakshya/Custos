@@ -15,6 +15,7 @@ const DEFAULT_TTL_SECONDS = 60;
 export type IssueToolTokenError =
   | { readonly code: "UNKNOWN_TOOL"; readonly tool: string }
   | { readonly code: "INVALID_AGENT_CREDENTIAL"; readonly reason: string }
+  | { readonly code: "AGENT_REVOKED"; readonly agentId: string }
   | { readonly code: "SIGNING_FAILED"; readonly reason: string };
 
 export interface IssuedToolToken {
@@ -61,6 +62,7 @@ export async function issueToolToken(params: {
   readonly action: string;
   readonly now: Date;
   readonly ttlSeconds?: number;
+  readonly revocation: { isRevoked(agentDid: string): boolean };
 }): Promise<Result<IssuedToolToken, IssueToolTokenError>> {
   const {
     db,
@@ -70,8 +72,15 @@ export async function issueToolToken(params: {
     tool,
     action,
     now,
+    revocation,
     ttlSeconds = DEFAULT_TTL_SECONDS,
   } = params;
+
+  // Checked before anything expensive: a revoked agent gets no new tokens,
+  // so revocation closes the issuance path as well as the call path.
+  if (revocation.isRevoked(agentCredential.issuer)) {
+    return err({ code: "AGENT_REVOKED", agentId: agentCredential.issuer });
+  }
 
   if (!(await toolCredentialExists(db, tool))) {
     return err({ code: "UNKNOWN_TOOL", tool });

@@ -2,6 +2,8 @@ import { createServer, type Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createStripeConnector } from "./stripe.js";
 
+const AGENT_DID = "did:web:127.0.0.1%3A4001:agents:11111111-1111-4111-8111-111111111111";
+
 describe("createStripeConnector", () => {
   let server: Server;
   let baseUrl: string;
@@ -39,6 +41,7 @@ describe("createStripeConnector", () => {
       action: "list-customers",
       input: undefined,
       credential: "sk_test_good",
+      agentId: AGENT_DID,
     });
 
     expect(result).toEqual({ ok: true, value: { object: "list", data: [{ id: "cus_1" }] } });
@@ -51,6 +54,7 @@ describe("createStripeConnector", () => {
       action: "list-customers",
       input: undefined,
       credential: "sk_test_bad",
+      agentId: AGENT_DID,
     });
 
     expect(result.ok).toBe(false);
@@ -66,6 +70,7 @@ describe("createStripeConnector", () => {
       action: "delete-customer",
       input: {},
       credential: "sk_test_good",
+      agentId: AGENT_DID,
     });
     expect(result).toEqual({
       ok: false,
@@ -79,6 +84,7 @@ describe("createStripeConnector", () => {
       action: "list-customers",
       input: { limit: "ten" },
       credential: "sk_test_good",
+      agentId: AGENT_DID,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("INVALID_INPUT");
@@ -90,14 +96,25 @@ describe("createStripeConnector", () => {
       action: "list-customers",
       input: undefined,
       credential: "sk_test_good",
+      agentId: AGENT_DID,
     });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("UPSTREAM_ERROR");
   });
 
-  it("revoke() is a documented no-op for this phase", async () => {
+  it("revoke() marks the agent revoked locally — Stripe has no per-agent key to withdraw yet", async () => {
     const connector = createStripeConnector({ baseUrl });
-    await expect(connector.revoke("agent-1")).resolves.toBeUndefined();
+    await connector.revoke(AGENT_DID);
+
+    const result = await connector.call({
+      action: "list-customers",
+      input: undefined,
+      credential: "sk_test_good",
+      agentId: AGENT_DID,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("AGENT_REVOKED");
   });
 });

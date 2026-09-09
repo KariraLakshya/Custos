@@ -1,5 +1,5 @@
 import { err, ok } from "@custos/contracts";
-import type { Connector } from "./connector.js";
+import { createRevocationGuard, type Connector } from "./connector.js";
 
 export interface PostedMessage {
   readonly id: string;
@@ -22,13 +22,17 @@ export function createMockSlackConnector(): Connector & {
   readonly messages: readonly PostedMessage[];
 } {
   const messages: PostedMessage[] = [];
+  const guard = createRevocationGuard();
 
   return {
     tool: "mock-slack",
     get messages() {
       return messages;
     },
-    async call({ action, input }) {
+    async call({ action, input, agentId }) {
+      if (guard.isRevoked(agentId)) {
+        return err({ code: "AGENT_REVOKED", agentId });
+      }
       if (action !== "post-message") {
         return err({ code: "UNKNOWN_ACTION", action });
       }
@@ -43,8 +47,8 @@ export function createMockSlackConnector(): Connector & {
       messages.push(message);
       return ok(message);
     },
-    async revoke() {
-      // no-op: fake tool has no real access to revoke.
+    async revoke(agentId) {
+      guard.revoke(agentId);
     },
   };
 }

@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@custos/identity": "workspace:*",
+    "@custos/revocation": "workspace:*",
     "@custos/testing": "workspace:*",
     "@custos/tsconfig": "workspace:*",
     "@custos/vitest-config": "workspace:*",

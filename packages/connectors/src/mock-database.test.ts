@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createMockDatabaseConnector } from "./mock-database.js";
 
+const AGENT_DID = "did:web:127.0.0.1%3A4001:agents:11111111-1111-4111-8111-111111111111";
+
 describe("createMockDatabaseConnector", () => {
   it("returns canned rows for a known table", async () => {
     const connector = createMockDatabaseConnector();
@@ -8,6 +10,7 @@ describe("createMockDatabaseConnector", () => {
       action: "query",
       input: { table: "customers" },
       credential: "x",
+      agentId: AGENT_DID,
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toHaveLength(2);
@@ -19,6 +22,7 @@ describe("createMockDatabaseConnector", () => {
       action: "query",
       input: { table: "nope" },
       credential: "x",
+      agentId: AGENT_DID,
     });
     expect(result).toEqual({
       ok: false,
@@ -28,13 +32,23 @@ describe("createMockDatabaseConnector", () => {
 
   it("rejects an unknown action", async () => {
     const connector = createMockDatabaseConnector();
-    const result = await connector.call({ action: "drop-table", input: {}, credential: "x" });
+    const result = await connector.call({
+      action: "drop-table",
+      input: {},
+      credential: "x",
+      agentId: AGENT_DID,
+    });
     expect(result).toEqual({ ok: false, error: { code: "UNKNOWN_ACTION", action: "drop-table" } });
   });
 
   it("rejects malformed input", async () => {
     const connector = createMockDatabaseConnector();
-    const result = await connector.call({ action: "query", input: {}, credential: "x" });
+    const result = await connector.call({
+      action: "query",
+      input: {},
+      credential: "x",
+      agentId: AGENT_DID,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("INVALID_INPUT");
   });

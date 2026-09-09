@@ -9,3 +9,5 @@ export * from "./keys/local-secret-cipher.js";
 export * from "./vc/document-loader.js";
 export * from "./vc/credential.js";
 export * from "./token/scoped-token.js";
+export * from "./status/bitstring-status-list.js";
+export * from "./revocation/tombstone.js";

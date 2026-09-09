@@ -1,5 +1,6 @@
 import {
   buildDidWebDocument,
+  buildStatusListEntry,
   issueCredential,
   ok,
   type DidWebDocument,
@@ -11,6 +12,7 @@ import {
 } from "@custos/core";
 import { agents } from "../db/schema.js";
 import type { IdentityDb } from "../db/client.js";
+import type { AllocateStatusError, StatusAllocator } from "./status-allocator.js";
 
 export interface RegisteredAgent {
   readonly id: string;
@@ -19,19 +21,27 @@ export interface RegisteredAgent {
   readonly credential: SignedCredential;
 }
 
+export type RegisterAgentError = IssueCredentialError | AllocateStatusError;
+
 export async function registerAgent(params: {
   readonly db: IdentityDb;
   readonly keyProvider: KeyProvider;
+  readonly statusAllocator: StatusAllocator;
   readonly domain: string;
   readonly agentId: string;
   readonly now: Date;
-}): Promise<Result<RegisteredAgent, IssueCredentialError>> {
-  const { db, keyProvider, domain, agentId, now } = params;
+}): Promise<Result<RegisteredAgent, RegisterAgentError>> {
+  const { db, keyProvider, statusAllocator, domain, agentId, now } = params;
 
   const { keyId, publicKey } = await keyProvider.createKeyPair();
   const didDocument = buildDidWebDocument({ domain, path: ["agents", agentId], publicKey });
   const did = didDocument.id;
   const verificationMethodId = didDocument.verificationMethod[0].id;
+
+  // Before the credential is signed, not after: a credential that exists
+  // without a status list entry could never be revoked.
+  const allocated = await statusAllocator.allocate({ agentId, agentDid: did });
+  if (!allocated.ok) return allocated;
 
   const unsignedCredential: UnsignedCredential = {
     "@context": ["https://www.w3.org/ns/credentials/v2"],
@@ -40,6 +50,10 @@ export async function registerAgent(params: {
     issuer: did,
     validFrom: now.toISOString(),
     credentialSubject: { id: did },
+    credentialStatus: buildStatusListEntry({
+      statusListCredential: allocated.value.statusListCredential,
+      statusListIndex: allocated.value.statusListIndex,
+    }),
   };
 
   const issued = await issueCredential({
