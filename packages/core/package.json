@@ -21,8 +21,8 @@
   "devDependencies": {
     "@custos/tsconfig": "workspace:*",
     "@custos/vitest-config": "workspace:*",
-    "typescript": "^5.7.2",
-    "vitest": "^4.1.11"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
   },
   "dependencies": {
     "@digitalbazaar/ed25519-signature-2020": "^5.4.0",
