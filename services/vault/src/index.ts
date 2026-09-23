@@ -25,6 +25,7 @@ const app = await buildServer({
   revocationIssuerDid: env.REVOCATION_ISSUER_DID,
   revocationMaxStalenessMs: env.REVOCATION_MAX_STALENESS_MS,
   revocationResyncIntervalMs: env.REVOCATION_RESYNC_INTERVAL_MS,
+  auditUrl: env.AUDIT_URL,
 });
 
 app.listen({ port: env.PORT, host: "0.0.0.0" }).catch((err: unknown) => {

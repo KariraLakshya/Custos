@@ -1,0 +1,25 @@
+{
+  "name": "@custos/dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./src/server.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@custos/config": "workspace:*",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@custos/tsconfig": "workspace:*",
+    "@custos/vitest-config": "workspace:*",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
+  }
+}

@@ -9,6 +9,7 @@ import { buildServer as buildIdentityServer, createDb as createIdentityDb } from
 import type { FastifyInstance } from "fastify";
 import { afterAll, describe, expect, it } from "vitest";
 import { storeToolCredential } from "../credentials/store.js";
+import { grantToolAccess } from "../policy/policy.js";
 import { createDb } from "../db/client.js";
 import { issueToolToken } from "./issue.js";
 
@@ -59,6 +60,7 @@ describe("issueToolToken", () => {
     await withRegisteredAgent(4211, async (credential) => {
       const tool = `test-tool-${randomUUID()}`;
       await storeToolCredential({ db: vaultDb, cipher, tool, secret: "sk_test_x" });
+      await grantToolAccess(vaultDb, credential.issuer, tool);
       const keyProvider = createLocalKeyProvider();
       const { keyId } = await keyProvider.createKeyPair();
       const now = new Date("2026-01-01T00:00:00Z");
@@ -100,6 +102,31 @@ describe("issueToolToken", () => {
       });
 
       expect(result).toEqual({ ok: false, error: { code: "UNKNOWN_TOOL", tool: unknownTool } });
+    });
+  });
+
+  it("rejects a verified agent with no policy grant for the tool — deny by default", async () => {
+    await withRegisteredAgent(4218, async (credential) => {
+      const tool = `test-tool-${randomUUID()}`;
+      await storeToolCredential({ db: vaultDb, cipher, tool, secret: "sk_test_x" });
+      const keyProvider = createLocalKeyProvider();
+      const { keyId } = await keyProvider.createKeyPair();
+
+      const result = await issueToolToken({
+        db: vaultDb,
+        keyProvider,
+        signingKeyId: keyId,
+        agentCredential: credential,
+        tool,
+        action: "list-customers",
+        now: new Date(),
+        revocation: neverRevoked,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "POLICY_DENIED", agentId: credential.issuer, tool },
+      });
     });
   });
 
@@ -171,6 +198,7 @@ describe("issueToolToken", () => {
     await withRegisteredAgent(4214, async (credential) => {
       const tool = `test-tool-${randomUUID()}`;
       await storeToolCredential({ db: vaultDb, cipher, tool, secret: "sk_test_x" });
+      await grantToolAccess(vaultDb, credential.issuer, tool);
       const failingKeyProvider = {
         createKeyPair: () => Promise.reject(new Error("unreachable")),
         sign: () => Promise.reject(new Error("kms unreachable")),

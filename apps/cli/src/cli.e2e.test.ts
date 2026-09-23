@@ -11,10 +11,13 @@ import {
   buildServer as buildRevocationServer,
   createDb as createRevocationDb,
 } from "@custos/revocation";
+import { buildServer as buildAuditServer, createDb as createAuditDb } from "@custos/audit";
 import { mutableClock } from "@custos/testing";
 import { buildServer as buildVaultServer, createDb as createVaultDb } from "@custos/vault";
 import { afterAll, describe, expect, it } from "vitest";
+import { pullAuditLog } from "./audit-log.js";
 import { deprovisionAgent } from "./deprovision.js";
+import { grantToolAccess } from "./grant.js";
 import { registerAgent } from "./register.js";
 import { useTool } from "./use.js";
 import { verifyCredentialIndependently } from "./verify.js";
@@ -23,12 +26,14 @@ const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localh
 const db = createDb(databaseUrl);
 const vaultDb = createVaultDb(databaseUrl);
 const revocationDb = createRevocationDb(databaseUrl);
+const auditDb = createAuditDb(databaseUrl);
 const vaultCipher = createLocalSecretCipher(new Uint8Array(32).fill(21));
 
 afterAll(async () => {
   await db.$client.end();
   await vaultDb.$client.end();
   await revocationDb.$client.end();
+  await auditDb.$client.end();
 });
 
 /**
@@ -124,6 +129,71 @@ async function withPhase3Stack<T>(
   }
 }
 
+/**
+ * Boots the full Phase 4 stack — identity, revocation, vault, and audit —
+ * wired together exactly as production is, so a denied token request and a
+ * completed tool call both genuinely reach the audit service, and a pulled
+ * record genuinely verifies against the audit service's own published DID.
+ */
+async function withPhase4Stack<T>(
+  ports: {
+    readonly identity: number;
+    readonly revocation: number;
+    readonly vault: number;
+    readonly audit: number;
+  },
+  connectors: readonly Connector[],
+  run: (urls: {
+    readonly identityUrl: string;
+    readonly revocationUrl: string;
+    readonly vaultUrl: string;
+    readonly auditUrl: string;
+  }) => Promise<T>,
+): Promise<T> {
+  const identityUrl = `http://127.0.0.1:${ports.identity}`;
+  const revocationUrl = `http://127.0.0.1:${ports.revocation}`;
+  const vaultUrl = `http://127.0.0.1:${ports.vault}`;
+  const auditUrl = `http://127.0.0.1:${ports.audit}`;
+
+  const auditApp = await buildAuditServer({ db: auditDb, didDomain: `127.0.0.1:${ports.audit}` });
+  await auditApp.listen({ port: ports.audit, host: "127.0.0.1" });
+
+  const revocationApp = await buildRevocationServer({
+    db: revocationDb,
+    didDomain: `127.0.0.1:${ports.revocation}`,
+    subscriberUrls: [vaultUrl],
+  });
+  await revocationApp.listen({ port: ports.revocation, host: "127.0.0.1" });
+
+  const identityApp = buildServer({
+    db,
+    didDomain: `127.0.0.1:${ports.identity}`,
+    revocationUrl,
+  });
+  await identityApp.listen({ port: ports.identity, host: "127.0.0.1" });
+
+  const vaultApp = await buildVaultServer({
+    db: vaultDb,
+    cipher: vaultCipher,
+    connectors,
+    revocationUrl,
+    revocationIssuerDid: `did:web:127.0.0.1%3A${ports.revocation}`,
+    revocationResyncIntervalMs: 5_000,
+    revocationMaxStalenessMs: 10 * 60_000,
+    auditUrl,
+  });
+  await vaultApp.listen({ port: ports.vault, host: "127.0.0.1" });
+
+  try {
+    return await run({ identityUrl, revocationUrl, vaultUrl, auditUrl });
+  } finally {
+    await vaultApp.close();
+    await identityApp.close();
+    await revocationApp.close();
+    await auditApp.close();
+  }
+}
+
 describe("custos register + verify (end-to-end lifecycle)", () => {
   it("registers an agent via the CLI's HTTP call and independently verifies the issued credential", async () => {
     const outcome = await withRunningIdentityService(4101, async (identityUrl) => {
@@ -161,6 +231,11 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
         });
+        await grantToolAccess({
+          vaultUrl,
+          agentDid: (registered.credential as SignedCredential).issuer,
+          tool: "mock-database",
+        });
 
         const outcome = await useTool({
           vaultUrl,
@@ -187,6 +262,11 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
+        });
+        await grantToolAccess({
+          vaultUrl,
+          agentDid: (registered.credential as SignedCredential).issuer,
+          tool: "mock-database",
         });
         const requestToken = () =>
           fetch(new URL("/tokens", vaultUrl), {
@@ -268,6 +348,7 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
                 body: JSON.stringify({ tool, secret }),
               });
               expect(seeded.status).toBe(201);
+              await grantToolAccess({ vaultUrl, agentDid: credential.issuer, tool });
             }
 
             // The agent's active session: one 60s token per tool, already
@@ -355,6 +436,76 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
           },
         );
       });
+    },
+  );
+});
+
+describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
+  it(
+    "an agent may call the tool it was granted but not one it wasn't, and " +
+      "pulling the audit log shows both actions, independently verified",
+    async () => {
+      await withPhase4Stack(
+        { identity: 4920, revocation: 4921, vault: 4922, audit: 4923 },
+        [createMockSlackConnector()],
+        async ({ identityUrl, vaultUrl, auditUrl }) => {
+          const registered = await registerAgent(identityUrl);
+          const credential = registered.credential as SignedCredential;
+
+          await fetch(new URL("/credentials", vaultUrl), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ tool: "mock-slack", secret: "xoxb-fake" }),
+          });
+          // Granted mock-slack only — Stripe is never granted.
+          await grantToolAccess({ vaultUrl, agentDid: credential.issuer, tool: "mock-slack" });
+
+          // Allowed: the granted tool succeeds.
+          const allowed = await useTool({
+            vaultUrl,
+            credential,
+            tool: "mock-slack",
+            action: "post-message",
+            input: { channel: "#ops", text: "hi" },
+          });
+          expect(allowed.result).toEqual({ id: "msg_1", channel: "#ops", text: "hi" });
+
+          // Denied: the ungranted tool is refused at token issuance, before
+          // any tool is ever called — "agent A may call GitHub but not
+          // Stripe, enforced" (build plan Phase 4 DONE criterion).
+          const deniedResponse = await fetch(new URL("/tokens", vaultUrl), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ tool: "stripe", action: "list-customers", credential }),
+          });
+          expect(deniedResponse.status).toBe(403);
+          const deniedBody = (await deniedResponse.json()) as { error: { code: string } };
+          expect(deniedBody.error.code).toBe("POLICY_DENIED");
+
+          // Pull the verifiable log — of every action this agent took,
+          // allowed and denied alike — and independently verify each entry
+          // against the audit service's own published DID, sharing no state
+          // with the vault that reported them. The report itself is
+          // fire-and-forget from the vault (CLAUDE.md section 3: audit
+          // writes never block the caller), so both records may not have
+          // landed the instant the HTTP responses above returned — poll
+          // briefly rather than assume synchronous delivery.
+          let entries = await pullAuditLog({ auditUrl, agentDid: credential.issuer });
+          for (let attempt = 0; entries.length < 2 && attempt < 20; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            entries = await pullAuditLog({ auditUrl, agentDid: credential.issuer });
+          }
+          expect(entries).toHaveLength(2);
+          expect(entries.every((entry) => entry.verified)).toBe(true);
+
+          const decisions = entries.map((entry) => ({
+            tool: entry.record!.tool,
+            decision: entry.record!.policy.decision,
+          }));
+          expect(decisions).toContainEqual({ tool: "mock-slack", decision: "allow" });
+          expect(decisions).toContainEqual({ tool: "stripe", decision: "deny" });
+        },
+      );
     },
   );
 });

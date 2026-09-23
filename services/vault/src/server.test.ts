@@ -174,6 +174,13 @@ describe("vault service", () => {
       });
       expect(seed.statusCode).toBe(201);
 
+      const grant = await app.inject({
+        method: "POST",
+        url: "/policies",
+        payload: { agentId: credential.issuer, tool: "mock-slack" },
+      });
+      expect(grant.statusCode).toBe(201);
+
       const tokenResponse = await app.inject({
         method: "POST",
         url: "/tokens",
@@ -266,6 +273,168 @@ describe("vault service", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("400s a malformed /policies request", async () => {
+    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
+    const response = await app.inject({ method: "POST", url: "/policies", payload: { tool: "x" } });
+    expect(response.statusCode).toBe(400);
+  });
+
+  describe("authorization", () => {
+    it("denies a token request for a verified agent with no policy grant", async () => {
+      await withRegisteredAgent(4504, async (credential) => {
+        const app = await buildServer({
+          db: vaultDb,
+          cipher,
+          revocation: freshEmptyRevocationCache(),
+          connectors: [createMockSlackConnector()],
+          auditReporter: { report: () => {} },
+        });
+        await app.inject({
+          method: "POST",
+          url: "/credentials",
+          payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+        });
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: { tool: "mock-slack", action: "post-message", credential },
+        });
+        expect(response.statusCode).toBe(403);
+        expect(response.json().error).toEqual({
+          code: "POLICY_DENIED",
+          agentId: credential.issuer,
+          tool: "mock-slack",
+        });
+      });
+    });
+
+    it("grants access via /policies, then allows the same agent/tool pair", async () => {
+      await withRegisteredAgent(4505, async (credential) => {
+        const app = await buildServer({
+          db: vaultDb,
+          cipher,
+          revocation: freshEmptyRevocationCache(),
+          connectors: [createMockSlackConnector()],
+        });
+        await app.inject({
+          method: "POST",
+          url: "/credentials",
+          payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+        });
+        const grant = await app.inject({
+          method: "POST",
+          url: "/policies",
+          payload: { agentId: credential.issuer, tool: "mock-slack" },
+        });
+        expect(grant.statusCode).toBe(201);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: { tool: "mock-slack", action: "post-message", credential },
+        });
+        expect(response.statusCode).toBe(200);
+      });
+    });
+  });
+
+  describe("audit reporting", () => {
+    it("reports a denied token request", async () => {
+      await withRegisteredAgent(4506, async (credential) => {
+        const events: unknown[] = [];
+        const app = await buildServer({
+          db: vaultDb,
+          cipher,
+          revocation: freshEmptyRevocationCache(),
+          connectors: [createMockSlackConnector()],
+          auditReporter: { report: (event) => events.push(event) },
+        });
+        await app.inject({
+          method: "POST",
+          url: "/credentials",
+          payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+        });
+
+        await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: { tool: "mock-slack", action: "post-message", credential },
+        });
+
+        expect(events).toEqual([
+          {
+            agentDid: credential.issuer,
+            tool: "mock-slack",
+            action: "post-message",
+            dataCategories: ["messaging-content"],
+            policy: { rule: "agent-tool-allowlist", decision: "deny" },
+            reason: "no policy grant for this agent/tool pair",
+          },
+        ]);
+      });
+    });
+
+    it("reports both an allowed and a denied tool call", async () => {
+      await withRegisteredAgent(4507, async (credential) => {
+        const events: unknown[] = [];
+        const app = await buildServer({
+          db: vaultDb,
+          cipher,
+          revocation: freshEmptyRevocationCache(),
+          connectors: [createMockSlackConnector()],
+          auditReporter: { report: (event) => events.push(event) },
+        });
+        await app.inject({
+          method: "POST",
+          url: "/credentials",
+          payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+        });
+        await app.inject({
+          method: "POST",
+          url: "/policies",
+          payload: { agentId: credential.issuer, tool: "mock-slack" },
+        });
+        const tokenResponse = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: { tool: "mock-slack", action: "post-message", credential },
+        });
+        const { token } = tokenResponse.json();
+
+        await app.inject({
+          method: "POST",
+          url: "/call",
+          payload: { token, action: "post-message", input: { channel: "#general", text: "hi" } },
+        });
+        // Reusing the same token for a mismatched action is a second, denied action.
+        await app.inject({
+          method: "POST",
+          url: "/call",
+          payload: { token, action: "delete-everything", input: {} },
+        });
+
+        expect(events).toEqual([
+          {
+            agentDid: credential.issuer,
+            tool: "mock-slack",
+            action: "post-message",
+            dataCategories: ["messaging-content"],
+            policy: { rule: "scoped-token", decision: "allow" },
+          },
+          {
+            agentDid: credential.issuer,
+            tool: "mock-slack",
+            action: "delete-everything",
+            dataCategories: [],
+            policy: { rule: "token-scope", decision: "deny" },
+            reason: 'token is scoped to action "post-message"',
+          },
+        ]);
+      });
+    });
+  });
+
   it("502s when the underlying connector rejects the call", async () => {
     await withRegisteredAgent(4503, async (credential) => {
       const app = await buildServer({
@@ -279,6 +448,11 @@ describe("vault service", () => {
         method: "POST",
         url: "/credentials",
         payload: { tool: "mock-database", secret: "unused-by-the-mock" },
+      });
+      await app.inject({
+        method: "POST",
+        url: "/policies",
+        payload: { agentId: credential.issuer, tool: "mock-database" },
       });
       const tokenResponse = await app.inject({
         method: "POST",
@@ -331,6 +505,11 @@ describe("vault service", () => {
               method: "POST",
               url: "/credentials",
               payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+            });
+            await app.inject({
+              method: "POST",
+              url: "/policies",
+              payload: { agentId: credential.issuer, tool: "mock-slack" },
             });
 
             // Works before revocation.

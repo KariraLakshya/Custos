@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 4 — Authorization & audit**
+> **CURRENT: Phase 5 — Developer surface & clean demo ★**
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 

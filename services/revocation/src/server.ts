@@ -120,6 +120,10 @@ export async function buildServer(options: {
   // Resync: a subscriber bootstrapping at boot, or catching up after a
   // missed push, replays these through the same verification path.
   app.get("/revocations", async (_request, reply) => {
+    // Every tombstone is independently verifiable against the DID document
+    // above, so a same-origin restriction would only be theatre — this lets
+    // Phase 5's dashboard (apps/dashboard) read it directly from the browser.
+    reply.header("access-control-allow-origin", "*");
     const result = await listTombstones({ db, signer: tombstoneSigner });
     if (!result.ok) {
       reply.code(502);

@@ -11,3 +11,4 @@ export * from "./vc/credential.js";
 export * from "./token/scoped-token.js";
 export * from "./status/bitstring-status-list.js";
 export * from "./revocation/tombstone.js";
+export * from "./audit/record.js";

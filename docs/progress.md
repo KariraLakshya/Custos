@@ -6,6 +6,29 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-09-24 — Phase 4 + dashboard pushed to a feature branch
+
+**Commits:** `d0ed428` (Phase 4 authorization and audit), `51e8709` (live trust dashboard), `1cc8cf6` (docs split + orientation rule + pre-push gate). Pushed to `origin/feat/phase-4-and-5-partial`. Not merged to `main` — CI only runs on pull requests and on pushes to `main`, so opening a PR is what will put this work in front of the automated checks.
+
+**Status:** Implemented and working, confirmed by both automated tests and by hand — literally starting the four real services, registering a real agent, and watching an allowed action succeed and a disallowed one get refused, in real time.
+
+**What this is:** Phases 1–3 gave every agent an identity, took away its permanent keys, and proved a compromised agent can be cut off in under a second. What was still missing: nothing stopped an agent from asking to use _any_ tool it wanted — access was all-or-nothing once an agent proved who it was. Phase 4 adds the missing piece: deciding **what each agent is specifically allowed to do**, and keeping a tamper-evident record of every time it tried.
+
+**How it works:**
+
+- An operator can now grant a specific agent access to a specific tool — one command (`custos grant`), one entry in a simple list. No grant means no access: the system defaults to refusing, not allowing, exactly the posture you'd want from a security product.
+- That check happens the moment an agent asks for temporary access to a tool, before it's ever handed a usable pass. An agent that was never granted Stripe access gets refused instantly and clearly — it never even gets close to touching the real tool.
+- Every single attempt an agent makes — whether it succeeds or gets refused — is now written to a brand-new fourth service, the audit trail. Each entry records who did it, what they tried to do, what kind of data that tool touches, which rule decided the outcome, and whether it was allowed or denied. It's signed, the same way a revocation notice is signed, so it can't be quietly edited after the fact.
+- Recording an action never slows down the actual request — the system fires off the audit entry in the background and moves on immediately, the same "don't wait around" principle that makes revocation fast.
+- A new command, `custos audit-log`, pulls that trail for any agent and checks every single entry's signature itself, independently — the same "don't just trust the database, verify it" principle already used to check an agent's identity.
+- **A genuine bug was caught by testing this against the real running services, not just inside the automated test suite.** The audit service's signing key was being regenerated every time the service restarted — completely normal for how every other service here already works — but that meant every historical audit entry would permanently stop verifying the moment the service restarted, which would have quietly broken the entire promise of the audit trail. The fix (borrowed directly from how the existing revocation notices already solve the identical problem) was to sign each entry fresh every time it's read back, rather than once when it's first written. Re-tested by hand — starting the service fresh with a brand-new key — to confirm old entries still check out.
+
+**Why it matters:** This is the difference between "we can revoke a bad agent" and "we can prove, to someone who doesn't trust us, exactly what every agent was allowed to do and what it actually did." That second property is the whole basis of the compliance angle Custos is exploring — proving which agent, acting under whose authority, touched what — and it's the last piece the MVP core needed before Phase 5 turns this into something a stranger could pick up and run themselves.
+
+**Next up:** Phase 5 — the developer-facing polish pass: a minimal SDK, a clean CLI, a visual moment for the revocation demo, and a README good enough that someone who isn't the author can complete the whole flow unassisted.
+
+---
+
 ## 2026-09-10 — Phase 3: Revocation engine (shipped)
 
 **Commits:** `b3b388f` — "feat: Phase 3 revocation engine - status list, signed tombstone push, deprovision"; two follow-up commits fixed CI issues unrelated to the feature itself (a known-vulnerable indirect dependency, and a third-party GitHub Action that had quietly moved to a newer, incompatible major version). Merged to `origin/main` via PR #28, and every automated check is green.

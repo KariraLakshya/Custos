@@ -24,92 +24,7 @@ Consult the build plan for the current phase before starting any task.
 
 ## 0. Project state — keep this current
 
-_This section is the handover between sessions. Read it first. Update it before finishing any phase or significant change. It should be enough to start work without re-reading the codebase. For a plain-language progress log aimed at the founder rather than a future Claude session, see `docs/progress.md` — update both, they serve different readers._
-
-**Current phase:** Phase 3 — Revocation engine (see `docs/build-plan.md`) — complete, merged to `main` (PR #28), confirmed green on GitHub Actions; next is Phase 4
-**Last updated:** 2026-09-10
-
-### Implemented
-
-- Full monorepo scaffold: pnpm workspaces + Turborepo, `tooling/{tsconfig,eslint-config,vitest-config}`, `packages/{core,contracts,sdk,connectors,observability,config,testing}`, `apps/cli`, `services/{identity,vault,revocation,audit}` — each with its own `package.json`/`tsconfig.json`/`vitest.config.ts` and at least one passing test.
-- `packages/observability` — Pino logger with redaction enforced in the logger (caller-supplied `redact` cannot disable it).
-- `packages/config` — Zod env schema + `loadEnv()` that throws (refuses to boot) on invalid environment; each service extends the base schema with its own `PORT`.
-- `infra/docker/docker-compose.yml` — Postgres + Redis for local dev (`pnpm dev`).
-- `infra/migrations` — Drizzle wired, one empty custom initial migration (`0000_initial.sql`); verified with `pnpm migrate` against the live container.
-- Husky + lint-staged pre-commit (lint + format staged files) — verified it blocks a deliberate lint violation.
-- Changesets initialized. GitHub Actions: `ci.yml`, `security.yml`, `release.yml`.
-- Standard repo files: README, SECURITY, CONTRIBUTING, CODEOWNERS, dependabot.yml, issue/PR templates, `.env.example`, `.gitignore`, `.nvmrc`.
-- Coverage thresholds enforced via `tooling/vitest-config` (80% default, 95% for `packages/core`) — confirmed both failing and passing correctly.
-- `pnpm install && pnpm dev && pnpm test` (and `lint`/`typecheck`/`build`) all pass from this state.
-- `packages/core` — Phase 0's knowledge-gap work, all pure/no-I/O, 100% test coverage:
-  - `crypto/ed25519.ts` — keypair gen/sign/verify on `@noble/ed25519`; `verify()` fails closed (never throws) on malformed input.
-  - `did/did-web.ts` — builds a `did:web` document from a domain + public key only (no secret key needed, ready for a future KMS-shaped key provider).
-  - `vc/document-loader.ts` + `vc/credential.ts` — issues/verifies one W3C VC 2.0 credential using the `Ed25519Signature2020` JSON-LD Data Integrity suite (Digital Bazaar libraries, not hand-rolled canonicalization — see `docs/adr/0001-vc-proof-format.md`). The document loader only ever resolves bundled contexts, never the network.
-  - `types/vc-libs.d.ts` — ambient TS declarations for the several dependencies here that ship no types.
-- Pushed to `origin/main` (`e4d9c7b`, `5ffce60`) and confirmed green on GitHub Actions — `lint-typecheck`, `test`, `build`, and `version-or-release` all passed, not just the local run.
-- `release.yml`'s SBOM step now uses `@cyclonedx/cdxgen` instead of `@cyclonedx/cyclonedx-npm` — the latter shells out to `npm ls`, which doesn't understand pnpm's `node_modules` layout and failed on the first real push to actually exercise `release.yml`.
-- **Phase 1 — Identity core**, built on Phase 0's `packages/core` primitives:
-  - `packages/core`: `did-web.ts` now supports per-agent path segments (`did:web:{domain}:agents:{id}`) plus `didWebToResolutionUrl()` (reverses a DID to the URL a resolver fetches — `http` for `localhost`/`127.0.0.1`, `https` otherwise). New `keys/key-provider.ts` (`KeyProvider` interface — `createKeyPair()`/`sign(keyId, message)`, never returns private key material) and `keys/local-key-provider.ts` (in-memory dev implementation; secret keys live only in that process's memory). `vc/credential.ts`'s `issueCredential` now takes an injected `signer: { id, sign }` instead of a raw `secretKey` — closes the literal TODO left in Phase 0's code; core never sees private key material during issuance. `DidWebDocument` carries a doc comment recording that `assertionMethod` is signing-only and any future `keyAgreement` key must be a structurally separate X25519 keypair, never this Ed25519 key reused.
-  - `services/identity`: real Postgres-backed agent registry, replacing Phase 0's single in-memory demo key/route entirely. `POST /agents` generates a keypair via `KeyProvider`, builds a per-agent `did:web` document, self-issues a VC, and persists `{id, did, keyId, didDocument, credential}`. `GET /agents/:id/did.json` serves the stored document (400 on a malformed id, 404 on unknown). Schema lives at `services/identity/src/db/schema.ts` (the old placeholder `infra/migrations/schema.ts` is gone; `infra/migrations/drizzle.config.ts`'s `schema` path now points at the service). Migration `0001_narrow_sasquatch.sql` applied. `drizzle-orm`/`pg` added as `services/identity` dependencies (kept at root too, since drizzle-kit's config still resolves `drizzle-orm/pg-core` from the schema file's own location).
-  - `apps/cli`: `custos register [--identity-url] [--out]` and `custos verify <credentialFile>` (exit code 1 on rejection). Verification is genuinely independent — it resolves the issuer's DID document fresh over HTTP via `didWebToResolutionUrl` and calls `verifyCredential` from `@custos/core`, sharing no state with whatever issued the credential.
-  - Tests: unit (core primitives, CLI commands against a local `node:http` stand-in), integration (`services/identity` against the real Compose Postgres, including a tampered-credential rejection test), and a genuine end-to-end test (`apps/cli/src/cli.e2e.test.ts`, run via `pnpm test:e2e`) that boots the real identity service in-process and proves register → independently verify succeeds, and a post-issuance tampered credential is rejected — the literal Phase 1 DONE criterion.
-  - `.github/workflows/ci.yml`'s `test` job now runs `pnpm migrate` before `pnpm test` — the first push surfaced that the job's fresh Postgres service container had no schema applied, so every `services/identity` integration test hitting the `agents` table failed with `relation "agents" does not exist` (500s where 201/404 were expected). Fixed and reproduced locally against a genuinely fresh database before pushing (commit `8097daf`).
-- **Phase 2 — Credentials & vault (dispossession)**, built on Phase 1's identity primitives:
-  - `packages/core`: two new KMS-shaped primitives, same pattern as `KeyProvider`. `keys/secret-cipher.ts` (`SecretCipher` interface) + `keys/local-secret-cipher.ts` (dev implementation, XChaCha20-Poly1305 via the new `@noble/ciphers` dependency, keyed by a caller-supplied 32-byte key — never generates or persists the key itself; see `docs/adr/0004-vault-credential-encryption.md`). `token/scoped-token.ts` — `issueScopedToken`/`verifyScopedToken`, a compact custom Ed25519-signed token (`base64url(claims).base64url(signature)`, claims are `{sub, tool, action, iat, exp}`), not JWT (see `docs/adr/0003-scoped-token-format.md`); verification is entirely local (no network/DB), fails closed on malformed/tampered/expired input, and takes an injected `now: Date` rather than reading the clock.
-  - `packages/connectors`: `Connector` gained a `call({action, input, credential}) -> Result<unknown, ConnectorCallError>` method (`revoke()` unchanged, still Phase 3's). Three implementations: `stripe.ts` (real — Stripe test-mode `list-customers` via plain `fetch`, no `stripe` SDK dependency), `mock-slack.ts` and `mock-database.ts` (fully in-memory fakes, no network). `@custos/contracts`'s `Result`/`ok`/`err` now a `connectors` dependency.
-  - `services/vault`: replaces the Phase 0 health-check shell entirely. Postgres table `tool_credentials` (`services/vault/src/db/schema.ts`) stores `{tool, ciphertext, nonce}` — the plaintext credential is never persisted. `POST /credentials` seeds a tool's real credential (encrypted via `SecretCipher` before storage); `POST /tokens` independently verifies the requesting agent's VC (resolves its issuer DID fresh over HTTP, same pattern as `apps/cli`'s `verify`) and, if the tool is known, issues a 60s-default scoped token signed by the vault's own in-memory `KeyProvider` keypair (generated once per server build — not yet published as a DID document, since nothing outside this process verifies these tokens yet); `POST /call` verifies the token locally (hot path — no DB/network until after the token checks out), decrypts the tool's stored credential just-in-time, and calls the matching connector. `buildServer` is `async` (needs to generate its signing keypair before serving) and takes an injectable `clock` for deterministic expiry tests. `VAULT_MASTER_KEY` (32-byte hex) is required at boot with no default — refuses to boot rather than fall back to a known key. `scripts/seed-credential.mjs` is the operational path to store a real tool credential (`pnpm --filter @custos/vault run seed <tool> <secret>`).
-  - `apps/cli`: `custos use <tool> <action> --credential <path> [--vault-url] [--input <json>]` — requests a token then immediately spends it, in one call (`src/use.ts`).
-  - `infra/migrations`: `0002_watery_hammerhead.sql` adds `tool_credentials`; `drizzle.config.ts`'s `schema` is now an array covering both `services/identity` and `services/vault`.
-  - Tests: unit (`scoped-token`, `local-secret-cipher`, all three connectors — tampered/expired/wrong-key/malformed-input/network-failure cases), integration (`services/vault` against real Postgres, including a real in-process `services/identity` boot for the token-issuance DID-verification path), and two genuine end-to-end additions to `apps/cli/src/cli.e2e.test.ts` (register → token → call succeeds; a token is rejected once expired and a fresh one is required) using `@custos/testing`'s new `mutableClock` to simulate the 60s expiry deterministically rather than sleeping in real time. Also manually smoke-tested against the real built services (`node services/{identity,vault}/dist/index.js` + the built CLI) end to end, including the fail-closed-on-invalid-env behavior for a bad `VAULT_MASTER_KEY`/`LOG_LEVEL`.
-  - `packages/testing`: added `mutableClock` (advanceable sibling to `fixedClock`) for exactly this expiry-simulation need.
-  - Coverage: `packages/core` 99.1%+ (still ≥95% threshold), `services/vault` ~99%, `packages/connectors` 100% stmts — all above the 80%/95% thresholds.
-  - CI fix (`20126a4`): the `test` job had been failing on every DB-backed identity test with a 500 while `pnpm migrate` in the same job succeeded. Cause was Turborepo strict env mode, not Phase 2 code — see the gotcha below. A prior commit (`83a5161`) raised vitest's timeouts to 30s and switched tests from `localhost` to `127.0.0.1`; both are genuine determinism improvements but neither was the actual fix.
-- **Phase 3 — Revocation engine**, the reason the project exists:
-  - `packages/core`: `status/bitstring-status-list.ts` (Bitstring Status List v1.0, not the superseded StatusList2021 draft CLAUDE.md previously named — see `docs/adr/0005-revocation-architecture.md`; gzip+multibase-encoded 131,072-bit minimum bitstring, `buildStatusListEntry`/`buildStatusListSubject` helpers) and `revocation/tombstone.ts` (`issueRevocationTombstone`/`verifyRevocationTombstone`, the same compact Ed25519-signed envelope shape as `scoped-token.ts`, permanent — no `exp`, since a replayed revocation is idempotent). `vc/credential.ts`'s `UnsignedCredential` gained an optional `credentialStatus` field.
-  - `services/revocation`: was a health-check shell, now the control plane for both allocation and revocation. Own `did:web` signing identity (same `KeyProvider` pattern), published at `/.well-known/did.json`. `POST /agents` (called by identity during registration, before the credential is signed) reserves a status list index per agent, idempotently, via a `serial` column so no index is ever reused. `POST /revocations` flips the DB row, signs a tombstone, and pushes it to every configured subscriber (`REVOCATION_SUBSCRIBER_URLS`) via `broadcast.ts`'s `TombstoneBroadcaster` (HTTP today; interface-shaped for a broker later, matching `KeyProvider`/`SecretCipher`). `GET /revocations` replays every revocation as a fresh tombstone, for a subscriber's resync. `GET /status/revocation` rebuilds the bitstring from the DB on every request and returns it as a signed VC — the durable, third-party-verifiable half; the tombstone push is the fast half.
-  - `services/identity`: registration now calls the revocation service first and fails the registration closed if that call fails (`agents/status-allocator.ts`) — an agent issued with no status list entry could never be revoked. `REVOCATION_URL` env var, defaults to `http://localhost:4003`.
-  - `services/vault`: `revocation/cache.ts` is the hot-path revocation view — an in-memory revoked-DID set, checked in microseconds on every `/call`, updated by pushed tombstones (`POST /revocations`, verified against the revocation service's resolved DID before being trusted — an unauthenticated push would be a denial-of-service vector) and by a periodic resync (`REVOCATION_RESYNC_INTERVAL_MS`, plus one at boot). Bounded staleness is explicit config (`REVOCATION_MAX_STALENESS_MS`, default 30s): a cache that has never synced, or has gone stale, denies rather than silently trusting an outdated view. `issueToolToken` also now refuses a revoked agent a fresh token, not only the hot path.
-  - `packages/connectors`: `Connector.call()` gained `agentId`; `connector.ts` exports a shared `createRevocationGuard()` every adapter composes, so "adapters honour revocation" is genuinely true at the tool boundary, not only at the vault's own gate. Stripe's `revoke()` marks the agent revoked locally (no per-agent upstream key to withdraw yet, see Known issues).
-  - `apps/cli`: `custos deprovision <agentId> [--revocation-url] [--reason]` — the entire Phase 3 demo in one command.
-  - Tests: unit (status list bit-packing/encoding, tombstone issue/verify, all three connectors' revocation guard, the vault's revocation cache — forged/unverifiable-issuer/malformed/stale cases), integration (`services/revocation` and `services/vault` against real Postgres, including independent verification of the published status list credential against the revocation service's own DID document), and a genuine end-to-end addition to `apps/cli/src/cli.e2e.test.ts`: an agent actively holding session tokens for three tools (mock-slack, mock-database, and Stripe against a local stand-in), one `custos deprovision` call, all three calls rejected — measured under 1 second — and the connectors themselves (not only the vault) independently refuse the agent afterward. This is the literal Phase 3 DONE criterion, proven in CI, not just described.
-  - Coverage: every touched package/service above its threshold (`packages/core` 100% lines / ~98% branches; `services/vault` ~96% stmts / ~91% branches; `services/revocation` ~91% stmts / ~83% branches; `packages/connectors` ~95% stmts).
-  - `docs/adr/0005-revocation-architecture.md` records the three consequential decisions: Bitstring Status List over the superseded draft, signed-push-plus-status-list (not either alone), and the revocation service owning index allocation.
-
-### In progress
-
-Nothing — Phase 3 is merged (PR #28) and confirmed green on GitHub Actions. Getting there took two follow-up rounds of CI-only fixes, pushed straight to `main` (no branch protection configured yet, and precedent from Phase 1's `8097daf`):
-
-- **Security workflow**, unrelated to Phase 3 code: `pnpm audit` was failing on a high-severity js-yaml DoS (GHSA-2883-xcg3-v3hh, transitive via `@changesets/cli` and eslint's config loader) — fixed with two exact-version `pnpm.overrides` (3.15.2 / 4.3.2, kept separate so `read-yaml-file`'s 3.x API usage isn't broken by a 4.x resolution). Separately, `codeql` was failing closed with "Code scanning is not enabled" — confirmed via the API this is because GitHub Advanced Security is not available for a private repo on a personal (non-Enterprise) account, at any permission level; replaced with Semgrep (`p/ci` ruleset), which then surfaced 29 real supply-chain findings (every GitHub Action pinned to a commit SHA instead of a mutable tag; `pnpm-workspace.yaml` gained `blockExoticSubdeps`/`minimumReleaseAge`/`trustPolicy`, which need pnpm ≥10.16 and are no-ops until this project's pnpm 9.15.0 is upgraded; `dependabot.yml` gained a 7-day cooldown) — all fixed.
-- **CI workflow**, surfaced only on the `push`-to-`main` trigger (not `pull_request`, hence invisible on the PR itself): `services/vault/src/tokens/issue.test.ts` and `apps/cli/src/verify.test.ts` both hardcoded port 4201-4203 — a pre-existing collision from Phase 2, not something Phase 3 introduced, just never lost the race until now. Phase 3 itself introduced a second collision (two new triple-service boot helpers in `services/vault/src/server.test.ts` and `apps/cli/src/cli.e2e.test.ts` both used ports in the 4601-4613 range). All test ports across the repo are now unique — verified by force-rerunning the full suite 5x with no cache. Also, `.github/workflows/release.yml`'s `changesets/action@v2` pin resolved to a release that requires Changesets CLI v3 (this project is on v2) — the action's own error named the fix: pin to `v1` instead.
-
-Also open, independent of any phase: **8 dependabot PRs** were outstanding against clean `main` as of Phase 2's close — including `zod` 3→4 and the `@noble/ed25519`/`@noble/hashes` bumps underneath `packages/core` — status unconfirmed as of this session; re-check before assuming they're still open.
-
-### Next up
-
-Phase 4 — Authorization & audit: simple per-agent × tool allowlists (not full OPA/Rego), and a signed append-only audit record per action.
-
-### Known issues, debt, and deviations
-
-- Reconciled doc filenames to match this file's structure: `BuildPlan.md` → `docs/build-plan.md`, `AgentID_Product_PRD.pdf` → `docs/prd.pdf`, `AgentID_BRD.pdf` → `docs/brd.pdf`, `AgentID_Project_Plan.drawio` → `docs/build-plan.drawio`, `AgentID_Architecture.drawio` → `docs/architecture.drawio`.
-- LICENSE deliberately not added — open-source-vs-proprietary decision explicitly deferred by the user.
-- `release.yml` runs `changeset version`/`changeset tag` only, no `npm publish` — no publish target exists yet (all packages private, no license chosen).
-- `services/identity`'s `KeyProvider` is still the in-memory local implementation — secret keys live only in that process's memory for its lifetime (never disk/logs), per CLAUDE.md section 4, but there's no real KMS integration yet. Swapping in an AWS KMS-backed `KeyProvider` is future work, not scoped to any phase yet.
-- No `keyAgreement` verification relationship exists anywhere (Custos's DID documents only sign/verify VCs today). If a later phase needs an encrypted channel (vault token handoff, Phase 6 cross-org handshake), that needs its own X25519 keypair under `keyAgreement` — never the Ed25519 identity key reused — see the doc comment on `DidWebDocument` in `packages/core/src/did/did-web.ts`.
-- `services/vault`'s own token-signing keypair is ephemeral (generated fresh each server start, via the same in-memory `KeyProvider` pattern) and not published as a DID document — nothing outside the vault process verifies these tokens today, so this is fine, but a multi-instance or restarted-mid-flight vault would invalidate outstanding tokens. Not a Phase 2 gap (tokens are 60s-lived by design), but worth knowing.
-- `VAULT_MASTER_KEY` is one symmetric key for every stored tool credential — no per-tool keys, no envelope encryption, no rotation story. Deliberate for this phase's scale; see `docs/adr/0004-vault-credential-encryption.md` for the real-KMS migration path.
-- Phase 2 has no policy/allowlist enforcement — any agent that independently verifies can request a token for any tool the vault knows about. That's explicitly Phase 4 scope per `docs/build-plan.md`, not an oversight here.
-- The real Stripe connector implements exactly one action (`list-customers`, read-only) — enough to satisfy Phase 2's "at least one real connector" DONE criterion; broader Stripe coverage is future work if a later phase needs it.
-- Stripe's `revoke()` only marks the agent revoked in the connector's local guard — there is one shared vault-held Stripe key for every agent, so there is no per-agent upstream key to actually withdraw yet. Real per-agent upstream revocation for Stripe is future work once agents each hold a restricted key.
-- `services/vault`'s revocation cache resolves the revocation service's DID document once and caches the key for the process lifetime — if the revocation service ever rotates its signing key, a running vault needs a restart to pick up the new one. Not a Phase 3 gap (nothing rotates keys yet), but worth knowing.
-
-### Gotchas for a new session
-
-- This machine has a native Windows PostgreSQL 18 service already bound to port 5432. The Compose Postgres is mapped to host port **5433** instead (`infra/docker/docker-compose.yml`, `.env.example`, `infra/migrations/drizzle.config.ts`). Don't "fix" this back to 5432.
-- Docker Desktop isn't started automatically by `pnpm dev` — start it first if the daemon isn't running.
-- pnpm wasn't preinstalled; `corepack enable` failed with `EPERM` in this environment (needs elevated Windows permissions) — installed instead via `npm install -g pnpm@9.15.0`.
-- `services/vault` refuses to boot without `VAULT_MASTER_KEY` set (32-byte hex, no default — see `.env.example` for how to generate one). Running it standalone (outside `pnpm dev`/tests) needs this exported first.
-- **Turborepo 2.x runs tasks in strict env mode**: a task only sees env vars declared in `turbo.json` (`env`/`globalEnv`). `DATABASE_URL`, `REDIS_URL` and `VAULT_MASTER_KEY` are declared on the `test`/`test:e2e` tasks — **any new env var a test depends on must be added there too, or it silently will not reach the task**. This cost a red CI for several commits: `pnpm migrate` runs directly and saw `DATABASE_URL`, the tests ran under turbo and did not, so they fell back to the hardcoded `localhost:5433` default and threw on every query (surfacing as a 500, not the 502 the route returns for a failed `Result` — that gap is the tell for an unhandled throw). It passed locally only because the compose Postgres really is on 5433. To check this class of bug: point `DATABASE_URL` at a dead port and run `npx turbo run test --force --filter=@custos/identity` — the tests must **fail**; if they pass, the env var is not reaching the task.
-- `eslint.config.js` (root) has a small `**/*.mjs` override adding Node globals (`process`, `console`, `fetch`, `URL`) — needed for `services/vault/scripts/seed-credential.mjs`, a plain Node script outside the TypeScript project where `eslint:recommended`'s `no-undef` isn't otherwise suppressed the way it is for `.ts` files.
+**Read `docs/state.md` first, before starting any task**, then orient through the knowledge graph rather than by opening source files — see "Orientation" at the end of this file for the required order. `docs/state.md` is the handover between sessions — current phase, what's implemented, in-progress work, known issues, and environment gotchas. It lives in its own file rather than here so that updating it every phase doesn't force a full re-embed of this rarely-changing file — see §12 for the update rule and §11 for why that matters for token cost. `docs/progress.md` is the separate, plain-language log for the founder — update both, they serve different readers.
 
 ---
 
@@ -374,6 +289,8 @@ Session cost is driven by structure, not sentence length — the full transcript
 
 **Scope one unit of work per exchange.** Batch genuinely related changes into one pass so they stay consistent. Do not batch unrelated work.
 
+**Stable instruction files stay cheap; edited ones don't.** An unchanged file is prompt-cached and costs little to keep in context turn after turn; editing it invalidates that cache and forces a full re-embed on the next turn. This is why volatile, frequently-updated state (`docs/state.md`) lives outside this file rather than in it — `CLAUDE.md` itself should change rarely, only for genuine rule/architecture/structure changes, not routine phase bookkeeping.
+
 ---
 
 ## 12. Working style
@@ -384,22 +301,77 @@ If something in this file is wrong, outdated, or superseded, say so and update i
 
 ### Session handover — required
 
-**Section 0 of this file must be updated before a phase is considered complete**, and whenever something lands that a future session would need to know. This is not optional bookkeeping; it is what makes the next session productive instead of archaeological.
+**`docs/state.md` must be updated before a phase is considered complete**, and whenever something lands that a future session would need to know. This is not optional bookkeeping; it is what makes the next session productive instead of archaeological. It lives in its own file, not in this one, specifically so that a routine phase-end update doesn't force a full re-embed of this file's rarely-changing architecture/rules content — see §11. Editing `docs/state.md` is cheap by comparison; editing `CLAUDE.md` itself should be rare, reserved for genuine changes to invariants, rules, or structure.
 
 Update it when: a phase completes, a package or service gains meaningful functionality, a dependency or schema changes, a shortcut or deviation is taken, a decision is deferred, or the environment gains a setup step.
 
-When updating, also: advance the **Current phase** line here and in `docs/build-plan.md`, set **Last updated** to the date, move finished items from _In progress_ to _Implemented_, and clear anything in _Known issues_ that has been resolved.
+When updating, also: advance the **Current phase** line there and in `docs/build-plan.md`, set **Last updated** to the date, move finished items from _In progress_ to _Implemented_, and clear anything in _Known issues_ that has been resolved.
 
-Write it for someone with no memory of the work. Be specific and brief — one line per item, naming the package or service. State what actually exists, not what was intended. If a shortcut was taken, say what and why, because an unrecorded shortcut becomes a silent bug later.
+Write it for someone with no memory of the work. Be specific and brief — one line per item, naming the package or service, not a narrative of how it was built (git history and `docs/adr/` already carry that). State what actually exists, not what was intended. If a shortcut was taken, say what and why, because an unrecorded shortcut becomes a silent bug later.
 
-Keep section 0 short. It is a handover note, not a changelog — git history is the changelog. If it grows past roughly a page, compress the _Implemented_ list into per-package summaries.
+Keep it short — a handover note, not a changelog. If the Implemented section grows past roughly a page, compress older phases down to one line each; the DONE criteria in `docs/build-plan.md` and the commit history already prove they happened.
 
 Write it for a future Claude reading cold, not for a human enjoying prose. Do not wait for a session to become unwieldy — update at each natural checkpoint (feature done, bug closed, phase complete), the same way you would commit at a logical stopping point.
 
 ### Progress log — required
 
-`docs/progress.md` is a **separate, mandatory** update from section 0 above — it is written for the founder tracking Custos as a business, not for a future Claude session, and section 0 being updated does not satisfy this.
+`docs/progress.md` is a **separate, mandatory** update from `docs/state.md` above — it is written for the founder tracking Custos as a business, not for a future Claude session, and updating `docs/state.md` does not satisfy this.
 
 Update it after **every phase completion and every push to `origin`**, no exceptions. Each entry needs: date, phase/milestone name, commit hash(es) and push status, what shipped, how it works explained in plain language (no unexplained jargon), and why it matters or what it unblocks. Newest entry on top.
 
 Write for someone who wants to understand how the project — the startup — is progressing, not someone reading code. Explain consequences and capabilities gained, not just facts about files changed.
+
+## Completion reports
+
+Never report a task as done from implementation alone. Before saying DONE,
+provide:
+
+REQUIREMENT: the exact requirement this change addresses, quoted or paraphrased
+from what was asked.
+
+TEST: the actual test run and its actual output, not a description of what
+should happen.
+
+REGRESSION: which existing behaviour could this change affect, and what you
+checked to confirm it still works.
+
+DIFF: every changed file and the specific reason it needed to change.
+
+UNPROVEN: anything you could not verify. If nothing is unproven, say so
+explicitly rather than omitting the section.
+
+Do not use the word "done" or "complete" without all five present.
+
+This is a reporting gate, distinct from section 7's "Definition of done" (what
+must actually be true — types pass, lint passes, tests pass, docs updated,
+etc.). That section says what "done" requires; this section says how you must
+show it.
+
+## Orientation — how to understand this repo
+
+**Every session orients through the knowledge graph before reading source files.** This repo is a monorepo with four services, seven packages, and an app; opening files one at a time to work out how they relate is the expensive, slow way to learn it, and it is what the graph exists to replace. Follow this order.
+
+**1. `docs/state.md`** — current phase, what exists, known issues, environment gotchas. Always first. It tells you _where the project is_; everything below tells you _how it is built_.
+
+**2. The graph artifacts in `graphify-out/`** — for structure, before any raw file:
+
+- **`graphify-out/obsidian/_COMMUNITY_*.md`** — 122 cluster summaries, one per community, each listing its members with cohesion scores. The fastest way to see how the codebase decomposes. Read the community that covers your area before touching it.
+- **`graphify-out/wiki/index.md`** and its 132 articles — the purpose-built agent entry point: per-community articles listing every symbol with its file path and connection count, plus cross-links to related clusters. Reading `wiki/<community>.md` is usually cheaper and more complete than opening the source file it describes.
+- **`graphify query "<question>"`** — targeted questions. `graphify path "<A>" "<B>"` for how two things connect, `graphify explain "<concept>"` for one node and its neighbourhood, `graphify affected "<X>"` for blast radius before a change. These return a scoped subgraph, far smaller than grep output.
+- **`graphify-out/GRAPH_REPORT.md`** — only for broad architecture review, or when the above does not surface enough.
+
+**3. Raw source files** — once the graph has told you _which_ files matter. Open them to read or change specific lines, not to discover structure.
+
+The one exception: a question about a single known file you are already editing. Then just read it.
+
+### Keeping it current
+
+- After modifying code, run `graphify update .` (AST-only, no API cost). A `PostToolUse` hook does this automatically after `.ts`/`.js` edits, so it is usually already done.
+- `graphify-out/` is **gitignored** — 7.2 MB, entirely derived. Regenerate exports with `graphify export wiki` / `graphify export obsidian` / `graphify export html`.
+- **The Obsidian vault has been deliberately pruned.** 691 notes sourced from `package.json` / `tsconfig.json` / `turbo.json` were deleted because manifest _fields_ (`dependencies`, `compilerOptions`, `scripts`, dependency names) were extracted as first-class nodes and made up 42% of the vault, drowning the architecture in boilerplate. `graph.json` still contains them, so queries are unaffected — only the browsable vault was cleaned. **Re-running `graphify export obsidian` restores all 691.** If you regenerate it, prune again:
+
+  ```bash
+  cd graphify-out/obsidian && grep -lE '^source_file: ".*(package\.json|tsconfig\.json|turbo\.json|pnpm-workspace\.yaml)"$' *.md | tr '\n' '\0' | xargs -0 rm -f
+  ```
+
+  The same noise affects `graphify-out/wiki/` (roughly a third of its 132 articles cluster on manifest fields) and `graphify query` results. Fixing it at the source needs a `.graphifyignore` plus a **full** rebuild — an incremental `update` merges and cannot remove existing nodes.

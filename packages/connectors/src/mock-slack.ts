@@ -26,6 +26,7 @@ export function createMockSlackConnector(): Connector & {
 
   return {
     tool: "mock-slack",
+    dataCategories: ["messaging-content"],
     get messages() {
       return messages;
     },

@@ -6,6 +6,7 @@ import {
   buildDidWebDocument,
   didWebFromDomain,
   generateKeyPair,
+  issueAuditRecord,
   issueCredential,
   sign,
   type UnsignedCredential,
@@ -143,6 +144,100 @@ describe("custos CLI", () => {
 
       expect(process.exitCode).toBe(1);
       expect(stderr.mock.calls.join("")).toContain("rejected:");
+      process.exitCode = previousExitCode;
+    });
+  });
+
+  describe("grant", () => {
+    let server: Server | undefined;
+
+    afterEach(async () => {
+      if (server) await new Promise((resolve) => server?.close(resolve));
+      server = undefined;
+      vi.restoreAllMocks();
+    });
+
+    it("grants an agent access to a tool via the vault and prints the result", async () => {
+      let received: { url?: string; body: unknown } | undefined;
+      server = createServer((req, res) => {
+        let raw = "";
+        req.on("data", (chunk) => (raw += chunk));
+        req.on("end", () => {
+          received = { url: req.url, body: JSON.parse(raw) };
+          res.statusCode = 201;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ agentId: "did:web:example:agents:abc", tool: "stripe" }));
+        });
+      });
+      await new Promise<void>((resolve) => server?.listen(4307, "127.0.0.1", resolve));
+
+      const dir = await mkdtemp(join(tmpdir(), "custos-cli-grant-"));
+      const path = join(dir, "credential.json");
+      await writeFile(path, JSON.stringify({ issuer: "did:web:example:agents:abc" }));
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      await createCli().parseAsync(
+        ["grant", "stripe", "--credential", path, "--vault-url", "http://127.0.0.1:4307"],
+        { from: "user" },
+      );
+
+      expect(received).toEqual({
+        url: "/policies",
+        body: { agentId: "did:web:example:agents:abc", tool: "stripe" },
+      });
+      expect(stdout.mock.calls.join("")).toContain('"tool": "stripe"');
+    });
+  });
+
+  describe("audit-log", () => {
+    let server: Server | undefined;
+
+    afterEach(async () => {
+      if (server) await new Promise((resolve) => server?.close(resolve));
+      server = undefined;
+      vi.restoreAllMocks();
+    });
+
+    it("pulls and prints the independently verified audit log", async () => {
+      const port = 4814;
+      const domain = `127.0.0.1:${port}`;
+      const { publicKey, secretKey } = generateKeyPair();
+      const didDocument = buildDidWebDocument({ domain, publicKey });
+      const agentDid = "did:web:localhost%3A4001:agents:a1";
+
+      const issued = await issueAuditRecord({
+        record: {
+          agentDid,
+          authorityChain: [agentDid],
+          tool: "mock-slack",
+          action: "post-message",
+          dataCategories: ["messaging-content"],
+          policy: { rule: "agent-tool-allowlist", decision: "allow" },
+          recordedAt: "2026-09-12T10:00:00.000Z",
+        },
+        signer: { sign: (data) => Promise.resolve(sign(data, secretKey)) },
+      });
+      if (!issued.ok) throw new Error("test setup: issuance failed");
+
+      server = createServer((req, res) => {
+        res.setHeader("content-type", "application/json");
+        if (req.url?.startsWith("/.well-known/did.json")) {
+          res.end(JSON.stringify(didDocument));
+          return;
+        }
+        res.end(JSON.stringify({ records: [issued.value] }));
+      });
+      await new Promise<void>((resolve) => server?.listen(port, "127.0.0.1", resolve));
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      const previousExitCode = process.exitCode;
+      process.exitCode = undefined;
+      await createCli().parseAsync(["audit-log", "--audit-url", `http://127.0.0.1:${port}`], {
+        from: "user",
+      });
+
+      expect(process.exitCode).toBeUndefined();
+      expect(stdout.mock.calls.join("")).toContain('"verified": true');
       process.exitCode = previousExitCode;
     });
   });

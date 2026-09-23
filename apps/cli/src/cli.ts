@@ -1,6 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import { Command } from "commander";
+import { pullAuditLog } from "./audit-log.js";
 import { deprovisionAgent } from "./deprovision.js";
+import { grantToolAccess } from "./grant.js";
 import { registerAgent } from "./register.js";
 import { loadAgentCredential, useTool } from "./use.js";
 import { loadCredentialFile, verifyCredentialIndependently } from "./verify.js";
@@ -62,6 +64,39 @@ export function createCli(): Command {
         process.stdout.write(`${JSON.stringify(outcome, null, 2)}\n`);
       },
     );
+
+  program
+    .command("grant")
+    .description("Grant an agent access to one tool (build plan Phase 4: agent × tool allowlist)")
+    .argument("<tool>", "tool name, e.g. stripe")
+    .requiredOption(
+      "--credential <path>",
+      "path to the agent's credential file (from `register --out`)",
+    )
+    .option("--vault-url <url>", "vault service base URL", "http://localhost:4002")
+    .action(async (tool: string, opts: { credential: string; vaultUrl: string }) => {
+      const credential = await loadAgentCredential(opts.credential);
+      const result = await grantToolAccess({
+        vaultUrl: opts.vaultUrl,
+        agentDid: credential.issuer,
+        tool,
+      });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    });
+
+  program
+    .command("audit-log")
+    .description("Pull and independently verify the signed audit log for an agent (or every agent)")
+    .argument("[agentDid]", "did:web DID to filter to, from an agent's credential's issuer")
+    .option("--audit-url <url>", "audit service base URL", "http://localhost:4004")
+    .action(async (agentDid: string | undefined, opts: { auditUrl: string }) => {
+      const entries = await pullAuditLog({ auditUrl: opts.auditUrl, agentDid });
+      process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
+      if (entries.some((entry) => !entry.verified)) {
+        process.stderr.write("one or more records failed independent verification\n");
+        process.exitCode = 1;
+      }
+    });
 
   program
     .command("deprovision")

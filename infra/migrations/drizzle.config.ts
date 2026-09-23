@@ -6,6 +6,7 @@ export default defineConfig({
     "./services/identity/src/db/schema.ts",
     "./services/vault/src/db/schema.ts",
     "./services/revocation/src/db/schema.ts",
+    "./services/audit/src/db/schema.ts",
   ],
   out: "./infra/migrations",
   dbCredentials: {

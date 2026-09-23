@@ -26,6 +26,7 @@ export function createMockDatabaseConnector(): Connector {
 
   return {
     tool: "mock-database",
+    dataCategories: ["internal-records"],
     async call({ action, input, agentId }) {
       if (guard.isRevoked(agentId)) {
         return err({ code: "AGENT_REVOKED", agentId });

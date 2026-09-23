@@ -8,6 +8,7 @@ import {
 } from "@custos/core";
 import { err, ok, type Result } from "@custos/contracts";
 import { toolCredentialExists } from "../credentials/store.js";
+import { isToolAllowed } from "../policy/policy.js";
 import type { VaultDb } from "../db/client.js";
 
 const DEFAULT_TTL_SECONDS = 60;
@@ -16,6 +17,7 @@ export type IssueToolTokenError =
   | { readonly code: "UNKNOWN_TOOL"; readonly tool: string }
   | { readonly code: "INVALID_AGENT_CREDENTIAL"; readonly reason: string }
   | { readonly code: "AGENT_REVOKED"; readonly agentId: string }
+  | { readonly code: "POLICY_DENIED"; readonly agentId: string; readonly tool: string }
   | { readonly code: "SIGNING_FAILED"; readonly reason: string };
 
 export interface IssuedToolToken {
@@ -97,6 +99,14 @@ export async function issueToolToken(params: {
   });
   if (!verified.ok) {
     return err({ code: "INVALID_AGENT_CREDENTIAL", reason: verified.error.code });
+  }
+
+  // Authorization is checked only now that the agent's identity is
+  // cryptographically confirmed — an allow/deny decision means nothing
+  // against an unverified claimant (build plan Phase 4: "simple allowlists
+  // per agent × tool"). Fail closed: no grant row means denied.
+  if (!(await isToolAllowed(db, agentCredential.issuer, tool))) {
+    return err({ code: "POLICY_DENIED", agentId: agentCredential.issuer, tool });
   }
 
   const iat = Math.floor(now.getTime() / 1000);

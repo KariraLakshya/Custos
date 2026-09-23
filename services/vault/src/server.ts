@@ -11,7 +11,9 @@ import { z } from "zod";
 import { storeToolCredential } from "./credentials/store.js";
 import { issueToolToken } from "./tokens/issue.js";
 import { invokeTool } from "./calls/invoke.js";
+import { grantToolAccess } from "./policy/policy.js";
 import { createRevocationCache, type RevocationCache } from "./revocation/cache.js";
+import { createHttpAuditReporter, type AuditReporter } from "./audit/report.js";
 import type { VaultDb } from "./db/client.js";
 
 // Re-exported so other packages' e2e tests can boot a real instance of this
@@ -35,6 +37,11 @@ const callSchema = z.object({
   input: z.unknown().optional(),
 });
 
+const grantPolicySchema = z.object({
+  agentId: z.string().min(1),
+  tool: z.string().min(1),
+});
+
 const tombstoneSchema = z.object({
   tombstone: z.string().min(1),
 });
@@ -49,8 +56,9 @@ function statusFor(code: string): number {
     return 401;
   }
   // A revoked agent is authenticated but no longer permitted, and a stale
-  // local view means we cannot safely say either way — both deny.
-  if (code === "AGENT_REVOKED") return 403;
+  // local view means we cannot safely say either way — both deny. A denied
+  // policy grant is the same shape of decision: authenticated, not permitted.
+  if (code === "AGENT_REVOKED" || code === "POLICY_DENIED") return 403;
   if (code === "REVOCATION_STATE_STALE") return 503;
   if (code === "UNKNOWN_ACTION" || code === "INVALID_INPUT") return 400;
   return 502;
@@ -77,6 +85,9 @@ export async function buildServer(options: {
   readonly revocationMaxStalenessMs?: number;
   /** Omitted in tests, which drive the cache directly and deterministically. */
   readonly revocationResyncIntervalMs?: number;
+  readonly auditUrl?: string;
+  /** Injectable for tests; defaults to a fire-and-forget HTTP push (see ./audit/report.ts). */
+  readonly auditReporter?: AuditReporter;
 }): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({ loggerInstance: createLogger({ level: "silent" }) });
   const { db, cipher } = options;
@@ -86,6 +97,12 @@ export async function buildServer(options: {
   const keyProvider = options.keyProvider ?? createLocalKeyProvider();
   const clock = options.clock ?? { now: () => new Date() };
   const { keyId: signingKeyId, publicKey: vaultPublicKey } = await keyProvider.createKeyPair();
+  const auditReporter =
+    options.auditReporter ??
+    createHttpAuditReporter({
+      auditUrl: options.auditUrl ?? "http://localhost:4004",
+      onError: (error) => app.log.warn({ err: error }, "audit report failed"),
+    });
 
   const revocation =
     options.revocation ??
@@ -162,6 +179,21 @@ export async function buildServer(options: {
     return { tool: body.data.tool };
   });
 
+  // Admin-facing grant endpoint (build plan Phase 4: "simple allowlists per
+  // agent × tool"). Deliberately no revoke-grant route yet — not required by
+  // this phase's DONE criteria, and adding it speculatively would be exactly
+  // the scope creep CLAUDE.md section 2 warns against.
+  app.post("/policies", async (request, reply) => {
+    const body = grantPolicySchema.safeParse(request.body);
+    if (!body.success) {
+      reply.code(400);
+      return { error: "INVALID_INPUT" };
+    }
+    await grantToolAccess(db, body.data.agentId, body.data.tool);
+    reply.code(201);
+    return { agentId: body.data.agentId, tool: body.data.tool };
+  });
+
   app.post("/tokens", async (request, reply) => {
     const body = issueTokenSchema.safeParse(request.body);
     if (!body.success) {
@@ -179,6 +211,25 @@ export async function buildServer(options: {
       revocation,
     });
     if (!result.ok) {
+      // Only these two codes are genuine authorization decisions about a
+      // confirmed identity; the rest (unknown tool, bad credential, signing
+      // failure) are not attributable "did this agent's action" outcomes.
+      if (result.error.code === "POLICY_DENIED" || result.error.code === "AGENT_REVOKED") {
+        auditReporter.report({
+          agentDid: result.error.agentId,
+          tool: body.data.tool,
+          action: body.data.action,
+          dataCategories: connectorsByTool.get(body.data.tool)?.dataCategories ?? [],
+          policy: {
+            rule: result.error.code === "POLICY_DENIED" ? "agent-tool-allowlist" : "revocation",
+            decision: "deny",
+          },
+          reason:
+            result.error.code === "POLICY_DENIED"
+              ? "no policy grant for this agent/tool pair"
+              : "agent is revoked",
+        });
+      }
       reply.code(statusFor(result.error.code));
       return { error: result.error };
     }
@@ -201,6 +252,7 @@ export async function buildServer(options: {
       input: body.data.input,
       now: clock.now(),
       revocation,
+      auditReporter,
     });
     if (!result.ok) {
       reply.code(statusFor(result.error.code));
