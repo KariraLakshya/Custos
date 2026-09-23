@@ -28,6 +28,7 @@ function recordingConnector(tool: string): Connector & { readonly calls: readonl
   const calls: unknown[] = [];
   return {
     tool,
+    dataCategories: ["test-data"],
     get calls() {
       return calls;
     },

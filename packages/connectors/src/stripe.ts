@@ -26,6 +26,7 @@ export function createStripeConnector(options?: { readonly baseUrl?: string }): 
 
   return {
     tool: "stripe",
+    dataCategories: ["payment-customer-data"],
     async call({ action, input, credential, agentId }) {
       if (guard.isRevoked(agentId)) {
         return err({ code: "AGENT_REVOKED", agentId });

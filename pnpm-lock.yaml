@@ -66,6 +66,9 @@ importers:
         specifier: ^12.1.0
         version: 12.1.0
     devDependencies:
+      '@custos/audit':
+        specifier: workspace:*
+        version: link:../../services/audit
       '@custos/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
@@ -84,6 +87,28 @@ importers:
       '@custos/vault':
         specifier: workspace:*
         version: link:../../services/vault
+      '@custos/vitest-config':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-config
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@22.20.1)(@vitest/coverage-v8@4.1.11)(vite@7.3.6(@types/node@22.20.1)(yaml@2.9.0))
+
+  apps/dashboard:
+    dependencies:
+      '@custos/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+    devDependencies:
+      '@custos/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
       '@custos/vitest-config':
         specifier: workspace:*
         version: link:../../tooling/vitest-config
@@ -254,22 +279,40 @@ importers:
       '@custos/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@custos/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@custos/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@custos/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.0)
       fastify:
         specifier: ^5.2.0
         version: 5.12.1
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
       zod:
         specifier: ^4.5.4
         version: 4.5.4
     devDependencies:
+      '@custos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       '@custos/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
       '@custos/vitest-config':
         specifier: workspace:*
         version: link:../../tooling/vitest-config
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.23.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

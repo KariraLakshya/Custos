@@ -10,6 +10,14 @@ export type ConnectorCallError =
 export interface Connector {
   readonly tool: string;
   /**
+   * A static declaration of what kind of data this tool touches at all —
+   * not a per-call classification of what a given response actually
+   * contained (that's PII classification, explicitly out of scope until a
+   * later phase — CLAUDE.md section 2). Recorded on every audit record for
+   * this tool (build plan Phase 4, CLAUDE.md section 10).
+   */
+  readonly dataCategories: readonly string[];
+  /**
    * Invokes one scoped action against the tool, using a credential the
    * caller has already decrypted — the connector never stores or logs it.
    *
