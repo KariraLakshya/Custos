@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Custos — Live Trust Dashboard</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f0f1a;
+    --panel: #1a1a2e;
+    --border: #2a2a4e;
+    --text: #e0e0e0;
+    --muted: #8a8aa0;
+    --allow: #4caf7d;
+    --deny: #e0567c;
+    --accent: #4e79a7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+  }
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; }
+  header .subtitle { color: var(--muted); font-size: 12px; }
+  .config { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+  .config label { color: var(--muted); font-size: 11px; }
+  .config input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 8px;
+    border-radius: 5px;
+    font-size: 12px;
+    width: 210px;
+  }
+  .config button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .status-row { display: flex; gap: 18px; padding: 10px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .status-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--allow); }
+  .dot.err { background: var(--deny); }
+  .stats { display: flex; gap: 24px; padding: 10px 20px; border-bottom: 1px solid var(--border); }
+  .stat .value { font-size: 20px; font-weight: 600; }
+  .stat .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  main { display: flex; gap: 0; align-items: flex-start; }
+  .panel { padding: 16px 20px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 10px; }
+  #revoked-panel { width: 280px; flex-shrink: 0; border-right: 1px solid var(--border); min-height: 60vh; }
+  #feed-panel { flex: 1; min-width: 0; }
+  .revoked-item {
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    border-left: 3px solid var(--deny);
+  }
+  .revoked-item .agent { font-family: monospace; font-size: 11px; word-break: break-all; }
+  .revoked-item .meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .empty { color: var(--muted); font-style: italic; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+  td.agent { font-family: monospace; font-size: 11px; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge.allow { background: rgba(76, 175, 125, 0.18); color: var(--allow); }
+  .badge.deny { background: rgba(224, 86, 124, 0.18); color: var(--deny); }
+  tr.new-row { animation: flash-in 1.2s ease-out; }
+  @keyframes flash-in { from { background: rgba(224, 86, 124, 0.25); } to { background: transparent; } }
+  #banners { position: fixed; top: 70px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 10; }
+  .banner {
+    background: var(--panel);
+    border: 1px solid var(--deny);
+    border-radius: 6px;
+    padding: 10px 14px;
+    max-width: 340px;
+    font-size: 12px;
+    animation: slide-in 0.25s ease-out, fade-out 0.4s ease-in 3.6s forwards;
+  }
+  @keyframes slide-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes fade-out { to { opacity: 0; } }
+  footer { padding: 12px 20px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div id="banners"></div>
+<header>
+  <div>
+    <h1>Custos</h1>
+    <div class="subtitle">Live trust dashboard</div>
+  </div>
+  <div class="config">
+    <label>Audit URL</label>
+    <input id="audit-url" placeholder="http://localhost:4004" />
+    <label>Revocation URL</label>
+    <input id="revocation-url" placeholder="http://localhost:4003" />
+    <button id="connect-btn">Connect</button>
+  </div>
+</header>
+<div class="status-row">
+  <div class="status-item"><span class="dot" id="audit-dot"></span><span>Audit service</span></div>
+  <div class="status-item"><span class="dot" id="revocation-dot"></span><span>Revocation service</span></div>
+  <div class="status-item" id="last-poll">Not connected yet</div>
+</div>
+<div class="stats">
+  <div class="stat"><div class="value" id="stat-total">0</div><div class="label">Actions seen</div></div>
+  <div class="stat"><div class="value" id="stat-allowed">0</div><div class="label">Allowed</div></div>
+  <div class="stat"><div class="value" id="stat-denied">0</div><div class="label">Denied</div></div>
+  <div class="stat"><div class="value" id="stat-revoked">0</div><div class="label">Revoked agents</div></div>
+</div>
+<main>
+  <div class="panel" id="revoked-panel">
+    <h2>Revoked agents</h2>
+    <div id="revoked-list"><div class="empty">No revoked agents yet.</div></div>
+  </div>
+  <div class="panel" id="feed-panel">
+    <h2>Live action feed</h2>
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Agent</th><th>Tool</th><th>Action</th><th>Decision</th><th>Rule</th><th>Reason</th></tr>
+      </thead>
+      <tbody id="feed-body">
+        <tr><td colspan="7" class="empty">Waiting for data…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+<footer>
+  This view shows what the audit and revocation services report over HTTP — it does not re-check any signature client-side.
+  For a cryptographically independently verified export, run <code>custos audit-log</code> from the CLI.
+</footer>
+<script>
+(function () {
+  "use strict";
+
+  const POLL_INTERVAL_MS = 1500;
+  const STORAGE_KEYS = { audit: "custos.dashboard.auditUrl", revocation: "custos.dashboard.revocationUrl" };
+
+  const auditUrlInput = document.getElementById("audit-url");
+  const revocationUrlInput = document.getElementById("revocation-url");
+  const connectBtn = document.getElementById("connect-btn");
+  const auditDot = document.getElementById("audit-dot");
+  const revocationDot = document.getElementById("revocation-dot");
+  const lastPollEl = document.getElementById("last-poll");
+  const statTotal = document.getElementById("stat-total");
+  const statAllowed = document.getElementById("stat-allowed");
+  const statDenied = document.getElementById("stat-denied");
+  const statRevoked = document.getElementById("stat-revoked");
+  const revokedListEl = document.getElementById("revoked-list");
+  const feedBodyEl = document.getElementById("feed-body");
+  const bannersEl = document.getElementById("banners");
+
+  auditUrlInput.value = localStorage.getItem(STORAGE_KEYS.audit) || "http://localhost:4004";
+  revocationUrlInput.value = localStorage.getItem(STORAGE_KEYS.revocation) || "http://localhost:4003";
+
+  let pollTimer = null;
+  const seenRecordKeys = new Set();
+  const seenRevokedKeys = new Set();
+
+  /**
+   * Decodes a compact envelope's claims WITHOUT verifying its signature —
+   * this is a display convenience, not a security check (see the footer
+   * note and server.ts's doc comment). Fails soft: a malformed envelope is
+   * skipped, never thrown.
+   */
+  function decodeEnvelopeUnverified(envelope) {
+    try {
+      const [encodedClaims] = String(envelope).split(".");
+      const base64 = encodedClaims.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = base64 + "===".slice((base64.length + 3) % 4);
+      return JSON.parse(atob(padded));
+    } catch {
+      return null;
+    }
+  }
+
+  function shortDid(did) {
+    if (typeof did !== "string") return "unknown";
+    const parts = did.split(":");
+    const last = parts[parts.length - 1] || did;
+    return last.length > 14 ? last.slice(0, 6) + "…" + last.slice(-4) : last;
+  }
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function setDot(dotEl, ok) {
+    dotEl.classList.toggle("ok", ok === true);
+    dotEl.classList.toggle("err", ok === false);
+  }
+
+  function showBanner(text) {
+    const banner = el("div", "banner", text);
+    bannersEl.appendChild(banner);
+    setTimeout(() => banner.remove(), 4200);
+  }
+
+  async function fetchJson(baseUrl, path) {
+    const response = await fetch(baseUrl.replace(/\/$/, "") + path);
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    return response.json();
+  }
+
+  function renderRevoked(tombstones) {
+    if (tombstones.length === 0) {
+      revokedListEl.innerHTML = "";
+      revokedListEl.appendChild(el("div", "empty", "No revoked agents yet."));
+      statRevoked.textContent = "0";
+      return;
+    }
+    revokedListEl.innerHTML = "";
+    for (const claims of tombstones) {
+      const key = claims.agentDid + "|" + claims.revokedAt;
+      if (!seenRevokedKeys.has(key)) {
+        seenRevokedKeys.add(key);
+        showBanner("🔴 Agent " + shortDid(claims.agentDid) + " revoked" + (claims.reason ? " — " + claims.reason : ""));
+      }
+      const item = el("div", "revoked-item");
+      item.appendChild(el("div", "agent", claims.agentDid));
+      item.appendChild(
+        el("div", "meta", (claims.reason || "no reason given") + " · " + new Date(claims.revokedAt).toLocaleTimeString()),
+      );
+      revokedListEl.appendChild(item);
+    }
+    statRevoked.textContent = String(tombstones.length);
+  }
+
+  function renderFeed(records) {
+    // Newest first for display; the service returns oldest-first.
+    const ordered = records.slice().reverse();
+    feedBodyEl.innerHTML = "";
+    if (ordered.length === 0) {
+      feedBodyEl.appendChild((() => {
+        const row = document.createElement("tr");
+        const cell = el("td", "empty", "No actions recorded yet.");
+        cell.colSpan = 7;
+        row.appendChild(cell);
+        return row;
+      })());
+    }
+
+    let allowed = 0;
+    let denied = 0;
+    const newlyDeniedByRevocation = [];
+
+    for (const claims of ordered) {
+      if (claims.policy && claims.policy.decision === "allow") allowed += 1;
+      else denied += 1;
+
+      const key = [claims.recordedAt, claims.agentDid, claims.tool, claims.action].join("|");
+      const isNew = !seenRecordKeys.has(key);
+      if (isNew) {
+        seenRecordKeys.add(key);
+        if (claims.policy && claims.policy.decision === "deny" && claims.policy.rule === "revocation") {
+          newlyDeniedByRevocation.push(claims);
+        }
+      }
+
+      const row = document.createElement("tr");
+      if (isNew) row.className = "new-row";
+      row.appendChild(el("td", "", new Date(claims.recordedAt).toLocaleTimeString()));
+      row.appendChild(el("td", "agent", shortDid(claims.agentDid)));
+      row.appendChild(el("td", "", claims.tool));
+      row.appendChild(el("td", "", claims.action));
+      const decisionCell = document.createElement("td");
+      const decision = claims.policy ? claims.policy.decision : "unknown";
+      decisionCell.appendChild(el("span", "badge " + (decision === "allow" ? "allow" : "deny"), decision));
+      row.appendChild(decisionCell);
+      row.appendChild(el("td", "", claims.policy ? claims.policy.rule : ""));
+      row.appendChild(el("td", "", claims.reason || ""));
+      feedBodyEl.appendChild(row);
+    }
+
+    statTotal.textContent = String(ordered.length);
+    statAllowed.textContent = String(allowed);
+    statDenied.textContent = String(denied);
+
+    for (const claims of newlyDeniedByRevocation) {
+      showBanner("🔌 " + shortDid(claims.agentDid) + " cut off from " + claims.tool);
+    }
+  }
+
+  async function poll() {
+    const auditUrl = auditUrlInput.value.trim();
+    const revocationUrl = revocationUrlInput.value.trim();
+
+    try {
+      const { records } = await fetchJson(auditUrl, "/records");
+      renderFeed(records.map(decodeEnvelopeUnverified).filter(Boolean));
+      setDot(auditDot, true);
+    } catch {
+      setDot(auditDot, false);
+    }
+
+    try {
+      const { tombstones } = await fetchJson(revocationUrl, "/revocations");
+      renderRevoked(tombstones.map(decodeEnvelopeUnverified).filter(Boolean));
+      setDot(revocationDot, true);
+    } catch {
+      setDot(revocationDot, false);
+    }
+
+    lastPollEl.textContent = "Last update: " + new Date().toLocaleTimeString();
+  }
+
+  function start() {
+    localStorage.setItem(STORAGE_KEYS.audit, auditUrlInput.value.trim());
+    localStorage.setItem(STORAGE_KEYS.revocation, revocationUrlInput.value.trim());
+    if (pollTimer) clearInterval(pollTimer);
+    void poll();
+    pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+  }
+
+  connectBtn.addEventListener("click", start);
+  start();
+})();
+</script>
+</body>
+</html>
