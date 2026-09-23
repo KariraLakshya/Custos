@@ -6,6 +6,30 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-09-24 — Phase 5: the developer SDK
+
+**Commits:** `a351289` (the SDK). Pushed to `origin/feat/phase-5-sdk`, open as PR #38. Not yet merged. Opening the PR is what starts CI, so the automated checks run there. The previous batch (Phase 4 + dashboard, PR #36) is now merged to `main`.
+
+**Status:** Implemented and passing every check locally: lint, type checks, the full test suite, and the end-to-end tests against the real running services. CI results are pending on the PR.
+
+**What this is:** Until now, the only way to use Custos was the command line: type `custos register`, copy an ID, type `custos grant`, and so on. That's fine for a demo but not for a developer building an AI agent, who wants to use Custos from inside their own code. The SDK is that: a small library a developer adds to their project. Registering an agent, giving it access to a tool, using the tool safely, and cutting the agent off each take one line of their own code.
+
+**How it works:**
+
+- A developer points the library at the three Custos services and gets four operations: **register** a new agent, **grant** it access to a tool, **connect** it to that tool and make calls, and **deprovision** it (cut it off everywhere).
+- When the agent makes a call, the library gets a 60-second pass from the vault and immediately uses it. The agent never sees the real tool password (the vault uses it on the agent's behalf), and it never holds the pass longer than that one call.
+- **A refusal is treated as an answer, not a crash.** If the agent isn't allowed to use a tool, or has been cut off, the developer gets a clear "no" with the reason: not permitted, revoked, or pass expired. This matters for a security product. If a refusal looked like an ordinary error, a developer's code could easily retry it or ignore it and quietly treat a revoked agent as a temporary glitch. As a distinct answer, it has to be handled deliberately.
+- **It fails safe.** If the vault's reply is garbled or incomplete, the library refuses to go further rather than guessing. Nothing counts as "allowed" unless the vault clearly said so.
+- The build plan named three operations. The fourth, **grant**, was added because Custos refuses access by default (since Phase 4). Without it, a developer using only the library could never get past the first call.
+
+**Proof it works:** An automated test starts the real identity, vault, and revocation services and runs a whole agent lifecycle through the library alone. The new agent is refused before it's granted access, allowed after, still refused on a tool it wasn't granted, and then deprovisioned. Its very next call is refused in well under a second. A second test tampers with an agent's identity document and confirms the vault rejects it.
+
+**Why it matters:** This is the step from "a system the founder can demonstrate" to "a product a developer can build on." Phase 5's goal is that someone who isn't the author can take Custos and make it work unassisted, and the SDK is the thing they'd actually use.
+
+**Next up:** Merge PR #38 once CI is green. Then the last Phase 5 item: a README that gets a stranger from zero to a working agent, including the revocation moment. Tested by having someone other than the author follow it. That completes the MVP.
+
+---
+
 ## 2026-09-24 — Phase 4 + dashboard pushed to a feature branch
 
 **Commits:** `d0ed428` (Phase 4 authorization and audit), `51e8709` (live trust dashboard), `1cc8cf6` (docs split + orientation rule + pre-push gate). Pushed to `origin/feat/phase-4-and-5-partial`. Not merged to `main` — CI only runs on pull requests and on pushes to `main`, so opening a PR is what will put this work in front of the automated checks.
