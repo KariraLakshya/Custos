@@ -245,10 +245,32 @@ importers:
         version: 4.1.11(@types/node@22.20.1)(@vitest/coverage-v8@4.1.11)(vite@7.3.6(@types/node@22.20.1)(yaml@2.9.0))
 
   packages/sdk:
+    dependencies:
+      '@custos/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
     devDependencies:
+      '@custos/connectors':
+        specifier: workspace:*
+        version: link:../connectors
+      '@custos/core':
+        specifier: workspace:*
+        version: link:../core
+      '@custos/identity':
+        specifier: workspace:*
+        version: link:../../services/identity
+      '@custos/revocation':
+        specifier: workspace:*
+        version: link:../../services/revocation
       '@custos/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
+      '@custos/vault':
+        specifier: workspace:*
+        version: link:../../services/vault
       '@custos/vitest-config':
         specifier: workspace:*
         version: link:../../tooling/vitest-config
