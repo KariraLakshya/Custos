@@ -1,0 +1,52 @@
+# Custos — Project state
+
+_The handover between sessions. Read it first. Update it before finishing any phase or significant change — this is what makes the next session productive instead of archaeological (see `CLAUDE.md` §12 for the update rule). Kept in its own file, separate from `CLAUDE.md`, so routine phase updates don't force a full re-embed of the rarely-changing architecture/rules file on every edit._
+
+_Write for a future Claude reading cold — state what exists, not what was intended. Git history and `docs/adr/` are the changelog and rationale; this is not a narrative retelling of either. One line per package/service. For a plain-language log aimed at the founder, see `docs/progress.md` — update both, they serve different readers._
+
+**Current phase:** Phase 5 — Developer surface & clean demo, in progress. Phases 0–4 complete (MVP core: identity, vault, revocation, authorization+audit). Phase 5's dashboard is done; SDK and README are outstanding. **Nothing committed or pushed yet** — Phase 4 and the dashboard both exist only locally, fully tested.
+**Last updated:** 2026-09-24
+
+## Implemented, by phase
+
+- **Phase 0 — Scaffold + crypto primitives.** Monorepo (pnpm + Turborepo), all tooling/CI/hooks/Docker Compose wired. `packages/core`: `crypto/ed25519.ts`, `did/did-web.ts`, `vc/credential.ts`+`document-loader.ts` (Digital Bazaar JSON-LD libs, not hand-rolled — ADR 0001). 100% coverage.
+- **Phase 1 — Identity core.** `packages/core`: `keys/key-provider.ts` (KMS-shaped, ADR 0002) + `local-key-provider.ts`. `services/identity`: Postgres-backed registry, `POST /agents` → keypair + did:web doc + self-issued VC. `apps/cli`: `register`, `verify` (independent — resolves DID fresh over HTTP).
+- **Phase 2 — Vault (dispossession).** `packages/core`: `keys/secret-cipher.ts`+`local-secret-cipher.ts` (XChaCha20-Poly1305, ADR 0004), `token/scoped-token.ts` (compact Ed25519 envelope, not JWT — ADR 0003). `packages/connectors`: `Connector.call()`, three adapters (stripe real/mock-slack/mock-database). `services/vault`: `tool_credentials` table, `POST /credentials`, `POST /tokens` (independent VC verify + 60s token), `POST /call` (hot path, no I/O until token+revocation checked). `apps/cli`: `use`.
+- **Phase 3 — Revocation ★.** `packages/core`: `status/bitstring-status-list.ts` (Bitstring Status List v1.0, not superseded StatusList2021 — ADR 0005), `revocation/tombstone.ts`. `services/revocation`: own did:web identity, `POST /agents` (index allocation), `POST /revocations` (flip + sign + push), `GET /status/revocation` (signed VC, rebuilt live). `services/vault`: `revocation/cache.ts` (in-memory hot-path view, bounded staleness, fail-closed). `packages/connectors`: `createRevocationGuard()` — adapters honour revocation directly. `apps/cli`: `deprovision`. E2e proves 3-tool cutoff <1s.
+- **Phase 4 — Authorization & audit.** `packages/core`: `audit/record.ts` (same envelope family, permanent). `packages/connectors`: static `dataCategories` per adapter. `services/vault`: `agent_policies` table (deny-by-default, checked once at token issuance after identity verifies), `POST /policies`, `audit/report.ts`'s fire-and-forget `AuditReporter` wired into `/tokens` denials and every `/call` outcome. `services/audit`: built out from health-check shell — own did:web identity, `audit_records` stores **unsigned** fields, signs fresh at **read** time (mirrors `revocation`'s `listTombstones()`) — a real bug found by manual smoke-testing (ephemeral signing key + pre-signed storage meant a restart broke every historical record), fixed and regression-tested. `apps/cli`: `grant`, `audit-log` (independent verify, exit 1 on any failure). Migration `0004_cynical_kree.sql`. ADR 0006. E2e proves grant/deny/audit-verify DONE criterion.
+- **Phase 5 — Developer surface (in progress).** `apps/dashboard`: static page (`index.html`, no framework/CDN) + plain `node:http` server, polls audit `GET /records` + revocation `GET /revocations` directly from the browser every 1.5s, live allow/deny feed + revoked-agents panel + "🔌 cut off" toast on a revocation-deny. Explicitly a monitoring view, not a verifier — no client-side signature check (footer says so, points at `custos audit-log`). Required CORS (`access-control-allow-origin: *`, manual header, no dependency) on those two already-signed, already-public read endpoints. Verified live against real running services. **Still outstanding:** minimal SDK (`register()`/`connect()`/`deprovision()`), README that gets a stranger from zero to working (Phase 5 DONE criterion).
+
+## In progress / not yet pushed
+
+Phase 4 (allowlists + audit trail) and the Phase 5 dashboard are both implemented and fully verified locally (full test suite, e2e, manual smoke tests against real built services) but **not committed or pushed**. Do that, and update `docs/progress.md`, before either counts as closed out for CI purposes.
+
+Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's close (incl. `zod` 3→4, `@noble/*` bumps under `packages/core`) — re-check before assuming still open.
+
+## Next up
+
+Phase 5: minimal SDK, README. Then Phase 6 — cross-org federation (post-MVP, do not start early).
+
+## Known issues, debt, and deviations
+
+- LICENSE and open-source-vs-proprietary decision deliberately deferred by the user.
+- `release.yml` runs `changeset version`/`tag` only — no publish target yet (private packages, no license).
+- No real KMS anywhere yet — `identity`/`vault`/`revocation`/`audit` all use `createLocalKeyProvider()` (in-memory, ephemeral per process). Deliberate for this stage; migration path is the `KeyProvider` interface itself.
+- No `keyAgreement` key exists (DID docs only sign/verify). A future encrypted channel (Phase 6 cross-org handshake) needs its own X25519 keypair — never the Ed25519 identity key reused (see doc comment on `DidWebDocument`, `packages/core/src/did/did-web.ts`).
+- `VAULT_MASTER_KEY` is one symmetric key for all stored tool credentials — no per-tool keys/rotation (ADR 0004 has the real-KMS path).
+- Stripe connector: one action only (`list-customers`); `revoke()` is connector-local only (one shared vault-held key, no per-agent upstream key yet).
+- `services/vault`'s revocation-service DID/key is resolved once and cached for the process lifetime — a revocation-service key rotation needs a vault restart to pick up.
+- `agent_policies` has grant but no revoke-grant endpoint (only whole-agent `deprovision`) — not required by Phase 4, deliberately deferred (ADR 0006).
+- `audit_records` are individually signed, not hash-chained (no cross-row tamper detection) — deferred hardening, not required by Phase 4 (ADR 0006).
+- `Connector.dataCategories` is a static per-tool declaration, not per-response data classification (PII detection etc. is explicitly out of scope until a later phase — CLAUDE.md §2).
+
+## Gotchas for a new session
+
+- Native Windows Postgres already owns port 5432 — Compose Postgres is on **5433** (`infra/docker/docker-compose.yml`, `.env.example`, `drizzle.config.ts`). Don't "fix" this back to 5432.
+- Docker Desktop doesn't auto-start with `pnpm dev` — start it first.
+- pnpm installed via `npm install -g pnpm@9.15.0` (`corepack enable` hit `EPERM` in this environment).
+- `services/vault` refuses to boot without `VAULT_MASTER_KEY` (32-byte hex, no default) — export it first when running standalone.
+- **Turborepo 2.x strict env mode**: a task only sees env vars listed in `turbo.json`'s `env`/`globalEnv`. `DATABASE_URL`/`REDIS_URL`/`VAULT_MASTER_KEY` are declared for `test`/`test:e2e` — **any new env var a test needs must be added there too**, or it silently falls back to a hardcoded default instead of failing loudly. To check: point `DATABASE_URL` at a dead port and run `npx turbo run test --force --filter=<pkg>` — it must **fail**; if it passes, the var isn't reaching the task.
+- Root `eslint.config.js` has a `**/*.mjs` override adding Node globals — needed for plain Node scripts (e.g. `services/vault/scripts/seed-credential.mjs`) outside the TS project.
+- **graphify knowledge-graph artifacts** live in `graphify-out/` and are now **gitignored** (7.2 MB, derived entirely from source; the `PostToolUse` hook regenerates `graph.json` after every TS edit, so tracking it would dirty a 1 MB file on every code change). Regenerate with `graphify update .` (AST-only, free) plus `graphify export wiki|obsidian|html` as needed. `graphify-out/wiki/index.md` now exists — 132 community articles — which activates the navigation rule in `CLAUDE.md`'s graphify section that previously pointed at a file that was never generated. Caveat: roughly a third of those wiki articles cluster around `package.json`/`tsconfig.json` field nodes rather than architecture; the code-centric ones (e.g. `bitstring-status-list.ts.md`) are genuinely useful, the manifest ones are noise. Fixing it at the source needs a `.graphifyignore` **plus a full rebuild** — an incremental `update` merges and cannot remove existing nodes. The **Obsidian vault has been pruned** of that noise as a stopgap: 691 manifest-sourced notes deleted, 940 remain (all 122 `_COMMUNITY_*` summaries intact); `graph.json` untouched so queries are unaffected. Re-exporting the vault restores the 691 — the re-prune command is in `CLAUDE.md`'s Orientation section.
+- **Claude Code hooks + a real git hook, added this session** — `.claude/settings.json`: a `PreToolUse` guard on `Bash(git commit*)` blocks any commit whose message contains a `Co-Authored-By: ... Claude` trailer (enforces the attribution override at the top of `CLAUDE.md`, not just as a remembered rule); a `PostToolUse` hook on `Edit|Write` runs `graphify update .` (AST-only, no LLM) after any `.ts`/`.js`-family file changes, `async: true` so it never blocks. Both use plain `node -e` to parse the hook's stdin JSON — `jq` isn't installed in this environment. Separately, `.husky/pre-push` (a real git hook, not a Claude Code one — needs to fire on a manual push too) runs `pnpm lint && pnpm typecheck && pnpm test` before any push, catching what CI would catch, locally, first. `pnpm test:e2e` deliberately isn't in the pre-push gate — it's the heaviest layer and needs Docker up; run it manually before a push that touches cross-service behavior.
+- On Windows/git-bash, `pkill`/backgrounded `node` processes can survive a `pkill` silently (job-control quirk) — use PowerShell's `Get-Process node | Stop-Process -Force` to actually confirm a restart took effect before concluding a fix didn't work.
