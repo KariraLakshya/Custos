@@ -15,11 +15,21 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@custos/contracts": "workspace:*",
+    "zod": "^4.5.4"
+  },
   "devDependencies": {
+    "@custos/connectors": "workspace:*",
+    "@custos/core": "workspace:*",
+    "@custos/identity": "workspace:*",
+    "@custos/revocation": "workspace:*",
     "@custos/tsconfig": "workspace:*",
+    "@custos/vault": "workspace:*",
     "@custos/vitest-config": "workspace:*",
     "typescript": "^5.7.2",
     "vitest": "^4.1.11"
