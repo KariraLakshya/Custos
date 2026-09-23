@@ -4,7 +4,7 @@ _The handover between sessions. Read it first. Update it before finishing any ph
 
 _Write for a future Claude reading cold — state what exists, not what was intended. Git history and `docs/adr/` are the changelog and rationale; this is not a narrative retelling of either. One line per package/service. For a plain-language log aimed at the founder, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 5 — Developer surface & clean demo, in progress. Phases 0–4 complete (MVP core: identity, vault, revocation, authorization+audit). Phase 5's dashboard is done; SDK and README are outstanding. **Nothing committed or pushed yet** — Phase 4 and the dashboard both exist only locally, fully tested.
+**Current phase:** Phase 5 — Developer surface & clean demo, in progress. Phases 0–4 complete (MVP core: identity, vault, revocation, authorization+audit). Phase 5's dashboard is done; SDK and README are outstanding. Phase 4 + dashboard + docs are committed and pushed to `origin/feat/phase-4-and-5-partial` (`d0ed428`, `51e8709`, `1cc8cf6`), **not merged to `main` and not yet seen by CI**.
 **Last updated:** 2026-09-24
 
 ## Implemented, by phase
@@ -16,9 +16,9 @@ _Write for a future Claude reading cold — state what exists, not what was inte
 - **Phase 4 — Authorization & audit.** `packages/core`: `audit/record.ts` (same envelope family, permanent). `packages/connectors`: static `dataCategories` per adapter. `services/vault`: `agent_policies` table (deny-by-default, checked once at token issuance after identity verifies), `POST /policies`, `audit/report.ts`'s fire-and-forget `AuditReporter` wired into `/tokens` denials and every `/call` outcome. `services/audit`: built out from health-check shell — own did:web identity, `audit_records` stores **unsigned** fields, signs fresh at **read** time (mirrors `revocation`'s `listTombstones()`) — a real bug found by manual smoke-testing (ephemeral signing key + pre-signed storage meant a restart broke every historical record), fixed and regression-tested. `apps/cli`: `grant`, `audit-log` (independent verify, exit 1 on any failure). Migration `0004_cynical_kree.sql`. ADR 0006. E2e proves grant/deny/audit-verify DONE criterion.
 - **Phase 5 — Developer surface (in progress).** `apps/dashboard`: static page (`index.html`, no framework/CDN) + plain `node:http` server, polls audit `GET /records` + revocation `GET /revocations` directly from the browser every 1.5s, live allow/deny feed + revoked-agents panel + "🔌 cut off" toast on a revocation-deny. Explicitly a monitoring view, not a verifier — no client-side signature check (footer says so, points at `custos audit-log`). Required CORS (`access-control-allow-origin: *`, manual header, no dependency) on those two already-signed, already-public read endpoints. Verified live against real running services. **Still outstanding:** minimal SDK (`register()`/`connect()`/`deprovision()`), README that gets a stranger from zero to working (Phase 5 DONE criterion).
 
-## In progress / not yet pushed
+## In progress / not yet merged
 
-Phase 4 (allowlists + audit trail) and the Phase 5 dashboard are both implemented and fully verified locally (full test suite, e2e, manual smoke tests against real built services) but **not committed or pushed**. Do that, and update `docs/progress.md`, before either counts as closed out for CI purposes.
+Phase 4 (allowlists + audit trail), the Phase 5 dashboard, and the docs split are pushed to `origin/feat/phase-4-and-5-partial`. **CI has not run on them**: `.github/workflows/ci.yml` triggers only on `push` to `main` and on `pull_request`, so a branch push alone runs nothing. Open a PR to get the automated checks. Still outstanding in Phase 5: the minimal SDK (`register()` / `connect(tool)` / `deprovision()`) and a README that gets a stranger from zero to working.
 
 Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's close (incl. `zod` 3→4, `@noble/*` bumps under `packages/core`) — re-check before assuming still open.
 
@@ -42,6 +42,8 @@ Phase 5: minimal SDK, README. Then Phase 6 — cross-org federation (post-MVP, d
 ## Gotchas for a new session
 
 - Native Windows Postgres already owns port 5432 — Compose Postgres is on **5433** (`infra/docker/docker-compose.yml`, `.env.example`, `drizzle.config.ts`). Don't "fix" this back to 5432.
+- On Windows, WinNAT/Hyper-V periodically grabs a dynamic port range covering 5433 (seen as `5433-5532`), and Compose then fails with `bind: An attempt was made to access a socket in a way forbidden by its access permissions` — note that this is **not** "port already in use"; nothing is listening. Fixed once, persistently, by reserving the single port from an elevated shell: `net stop winnat` → `netsh int ipv4 add excludedportrange protocol=tcp startport=5433 numberofports=1 store=persistent` → `net start winnat`. The narrow `5433-5433` exclusion that this leaves behind is the fix, not the problem: it only removes the port from the ephemeral pool, and an explicit bind still succeeds. Restarting WinNAT briefly disrupts Docker networking for every running container.
+- `pnpm test` requires the Compose stack up (`pnpm dev`) plus `pnpm migrate`; the `.husky/pre-push` gate runs lint + typecheck + test, so a push fails on a stopped Docker daemon. `test:e2e` is deliberately not in that gate — slowest layer; run it by hand for cross-service changes.
 - Docker Desktop doesn't auto-start with `pnpm dev` — start it first.
 - pnpm installed via `npm install -g pnpm@9.15.0` (`corepack enable` hit `EPERM` in this environment).
 - `services/vault` refuses to boot without `VAULT_MASTER_KEY` (32-byte hex, no default) — export it first when running standalone.

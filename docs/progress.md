@@ -6,9 +6,9 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
-## 2026-09-12 — Phase 4: Authorization & audit (built, verified locally — not yet pushed)
+## 2026-09-24 — Phase 4 + dashboard pushed to a feature branch
 
-**Commits:** none yet — this session's work is complete and verified (full test suite, end-to-end tests, and a manual test against the real running services) but has not been committed or pushed to `origin` yet.
+**Commits:** `d0ed428` (Phase 4 authorization and audit), `51e8709` (live trust dashboard), `1cc8cf6` (docs split + orientation rule + pre-push gate). Pushed to `origin/feat/phase-4-and-5-partial`. Not merged to `main` — CI only runs on pull requests and on pushes to `main`, so opening a PR is what will put this work in front of the automated checks.
 
 **Status:** Implemented and working, confirmed by both automated tests and by hand — literally starting the four real services, registering a real agent, and watching an allowed action succeed and a disallowed one get refused, in real time.
 
