@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 5 — Developer surface & clean demo ★**
+> **CURRENT: Phase 5 — Developer surface & clean demo ★** — built; its DONE check (non-author README run) follows **Phase 5b — Auth hardening**, which is next.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
@@ -92,6 +92,36 @@ This is the reason the project exists. Give it the most attention.
 - README that gets a stranger from zero to working
 
 **DONE =** someone who is not the author completes the full flow using only the README.
+
+Sequencing: Phase 5's DONE check (the non-author README run) happens **after** Phase 5b. Phase 5b changes the registration flow the README teaches, so validating the README first would waste the tester's run on a flow about to change.
+
+---
+
+## Phase 5b — Auth hardening
+
+Added 2026-09-25 after a security review found two gaps: an agent credential is a bearer credential (a copied `agent.json` is enough to act as the agent), and the control-plane endpoints have no operator authentication. Design: `docs/adr/0007-agent-key-custody-and-proof-of-possession.md` (agents) and ADR 0008 (operators, written when that part starts).
+
+In order:
+
+1. **Stable issuer key.** `KeyProvider` can use an existing key by ID; an AWS KMS implementation (Ed25519); a dev implementation keyed from an env var, with no default.
+2. **Agent-held keys + issuer-signed credentials.** The agent generates its own keypair and registration proves possession of it. The identity service signs credentials as issuer, with the agent's public key embedded. Every vault read of agent identity moves from `issuer` to `credentialSubject.id`.
+3. **Proof of possession on `POST /tokens`.** A DPoP-pattern signature over method, URL, timestamp, unique ID and credential hash; bounded skew; a replay cache.
+4. **Operator authentication**, behind one `OperatorAuthenticator` interface, on `/credentials`, `/policies`, and the revocation service's `/revocations`:
+   - scoped API keys first: SHA-256 hashed at rest, constant-time compare, shown once, expiring, every write audited with the operator's identity;
+   - then mTLS;
+   - then SSO (OIDC).
+5. SDK, CLI and README updated to the new flow; threat model documented in the repo.
+
+**DONE =** all of the following, each proven in CI:
+
+- a copied credential without its private key is refused at `/tokens`;
+- a replayed proof is refused;
+- an identity service restart does not invalidate previously issued credentials;
+- a revoked agent is still denied, keyed on the subject, not the issuer;
+- every control-plane endpoint rejects unauthenticated, wrongly-scoped, and expired operator credentials with one uniform error;
+- mTLS rejects expired, wrong-CA, self-signed, and mismatched-SAN certificates;
+- SSO rejects tokens with a bad signature, issuer, audience or nonce, and expired ones;
+- the full `pnpm test:e2e` lifecycle passes on the new flow.
 
 ---
 
