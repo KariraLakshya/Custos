@@ -8,11 +8,14 @@ describe("createStripeConnector", () => {
   let server: Server;
   let baseUrl: string;
   let lastAuthHeader: string | undefined;
+  let lastPath: string | undefined;
 
   beforeEach(async () => {
     server = createServer((req, res) => {
       lastAuthHeader = req.headers.authorization;
-      if (req.url?.startsWith("/customers")) {
+      lastPath = req.url;
+      // Real Stripe serves under /v1; also accept the root so a bare stand-in baseUrl works.
+      if (req.url?.startsWith("/customers") || req.url?.startsWith("/v1/customers")) {
         if (lastAuthHeader !== "Bearer sk_test_good") {
           res.writeHead(401, { "content-type": "application/json" });
           res.end(JSON.stringify({ error: { message: "Invalid API key" } }));
@@ -33,6 +36,22 @@ describe("createStripeConnector", () => {
 
   afterEach(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  // Regression: the path was resolved with a leading "/", which discards the
+  // base URL's own path — against real Stripe (https://api.stripe.com/v1) it
+  // requested /customers instead of /v1/customers and got a 404.
+  it("keeps the base URL's path prefix, as real Stripe's /v1 requires", async () => {
+    const connector = createStripeConnector({ baseUrl: `${baseUrl}/v1` });
+    const result = await connector.call({
+      action: "list-customers",
+      input: { limit: 3 },
+      credential: "sk_test_good",
+      agentId: AGENT_DID,
+    });
+
+    expect(lastPath).toBe("/v1/customers?limit=3");
+    expect(result.ok).toBe(true);
   });
 
   it("lists customers using the caller-supplied credential", async () => {
