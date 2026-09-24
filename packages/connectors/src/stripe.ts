@@ -38,7 +38,9 @@ export function createStripeConnector(options?: { readonly baseUrl?: string }): 
         return err({ code: "INVALID_INPUT", reason: "expected { limit?: number } or no input" });
       }
       const limit = input?.limit;
-      const url = new URL("/customers", baseUrl);
+      // Relative, against a slash-terminated base: a leading "/" would drop
+      // the base's /v1 path segment.
+      const url = new URL("customers", baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
       if (limit !== undefined) url.searchParams.set("limit", String(limit));
 
       let response: Response;

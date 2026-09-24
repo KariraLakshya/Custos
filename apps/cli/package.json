@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@custos/core": "workspace:*",
+    "@custos/sdk": "workspace:*",
     "commander": "^12.1.0"
   },
   "devDependencies": {

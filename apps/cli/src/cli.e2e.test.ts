@@ -15,12 +15,15 @@ import { buildServer as buildAuditServer, createDb as createAuditDb } from "@cus
 import { mutableClock } from "@custos/testing";
 import { buildServer as buildVaultServer, createDb as createVaultDb } from "@custos/vault";
 import { afterAll, describe, expect, it } from "vitest";
+import { createCustos, type CustosConfig } from "@custos/sdk";
 import { pullAuditLog } from "./audit-log.js";
-import { deprovisionAgent } from "./deprovision.js";
-import { grantToolAccess } from "./grant.js";
-import { registerAgent } from "./register.js";
-import { useTool } from "./use.js";
 import { verifyCredentialIndependently } from "./verify.js";
+
+/** The CLI's HTTP layer is @custos/sdk; each test supplies the URLs its stack exposes. */
+function sdkAt(urls: Partial<CustosConfig>) {
+  const unused = "http://127.0.0.1:1";
+  return createCustos({ identityUrl: unused, vaultUrl: unused, revocationUrl: unused, ...urls });
+}
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const db = createDb(databaseUrl);
@@ -197,7 +200,7 @@ async function withPhase4Stack<T>(
 describe("custos register + verify (end-to-end lifecycle)", () => {
   it("registers an agent via the CLI's HTTP call and independently verifies the issued credential", async () => {
     const outcome = await withRunningIdentityService(4101, async (identityUrl) => {
-      const registered = await registerAgent(identityUrl);
+      const registered = await sdkAt({ identityUrl }).register();
       return verifyCredentialIndependently(registered.credential as SignedCredential);
     });
 
@@ -206,7 +209,7 @@ describe("custos register + verify (end-to-end lifecycle)", () => {
 
   it("rejects a credential tampered with after registration", async () => {
     const outcome = await withRunningIdentityService(4102, async (identityUrl) => {
-      const registered = await registerAgent(identityUrl);
+      const registered = await sdkAt({ identityUrl }).register();
       const tampered = structuredClone(registered.credential) as SignedCredential & {
         credentialSubject: { id: string };
       };
@@ -224,28 +227,20 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
       { identity: 4901, revocation: 4902, vault: 4903 },
       [createMockDatabaseConnector()],
       async ({ identityUrl, vaultUrl }) => {
-        const registered = await registerAgent(identityUrl);
+        const registered = await sdkAt({ identityUrl }).register();
 
         await fetch(new URL("/credentials", vaultUrl), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
         });
-        await grantToolAccess({
-          vaultUrl,
-          agentDid: (registered.credential as SignedCredential).issuer,
-          tool: "mock-database",
-        });
+        await sdkAt({ vaultUrl }).grant(registered, "mock-database");
 
-        const outcome = await useTool({
-          vaultUrl,
-          credential: registered.credential as SignedCredential,
-          tool: "mock-database",
-          action: "query",
-          input: { table: "customers" },
-        });
+        const outcome = await sdkAt({ vaultUrl })
+          .connect(registered, "mock-database")
+          .call("query", { table: "customers" });
 
-        expect(outcome.result).toHaveLength(2);
+        expect(outcome.ok && outcome.value).toHaveLength(2);
       },
     );
   });
@@ -256,18 +251,14 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
       { identity: 4911, revocation: 4912, vault: 4913 },
       [createMockDatabaseConnector()],
       async ({ identityUrl, vaultUrl }) => {
-        const registered = await registerAgent(identityUrl);
+        const registered = await sdkAt({ identityUrl }).register();
 
         await fetch(new URL("/credentials", vaultUrl), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
         });
-        await grantToolAccess({
-          vaultUrl,
-          agentDid: (registered.credential as SignedCredential).issuer,
-          tool: "mock-database",
-        });
+        await sdkAt({ vaultUrl }).grant(registered, "mock-database");
         const requestToken = () =>
           fetch(new URL("/tokens", vaultUrl), {
             method: "POST",
@@ -334,7 +325,7 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
           { identity: 4801, revocation: 4802, vault: 4803 },
           [slack, database, stripe],
           async ({ identityUrl, revocationUrl, vaultUrl }) => {
-            const registered = await registerAgent(identityUrl);
+            const registered = await sdkAt({ identityUrl }).register();
             const credential = registered.credential as SignedCredential;
 
             for (const [tool, secret] of [
@@ -348,7 +339,7 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
                 body: JSON.stringify({ tool, secret }),
               });
               expect(seeded.status).toBe(201);
-              await grantToolAccess({ vaultUrl, agentDid: credential.issuer, tool });
+              await sdkAt({ vaultUrl }).grant({ did: credential.issuer }, tool);
             }
 
             // The agent's active session: one 60s token per tool, already
@@ -392,7 +383,7 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
             for (const response of before) expect(response.status).toBe(200);
 
             const start = Date.now();
-            const deprovisioned = await deprovisionAgent({ revocationUrl, agentId: registered.id });
+            const deprovisioned = await sdkAt({ revocationUrl }).deprovision(registered);
             expect(deprovisioned.broadcast).toEqual({ delivered: 1, failed: [] });
 
             // The same session tokens the agent already holds — no new
@@ -449,7 +440,7 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
         { identity: 4920, revocation: 4921, vault: 4922, audit: 4923 },
         [createMockSlackConnector()],
         async ({ identityUrl, vaultUrl, auditUrl }) => {
-          const registered = await registerAgent(identityUrl);
+          const registered = await sdkAt({ identityUrl }).register();
           const credential = registered.credential as SignedCredential;
 
           await fetch(new URL("/credentials", vaultUrl), {
@@ -458,17 +449,16 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
             body: JSON.stringify({ tool: "mock-slack", secret: "xoxb-fake" }),
           });
           // Granted mock-slack only — Stripe is never granted.
-          await grantToolAccess({ vaultUrl, agentDid: credential.issuer, tool: "mock-slack" });
+          await sdkAt({ vaultUrl }).grant({ did: credential.issuer }, "mock-slack");
 
           // Allowed: the granted tool succeeds.
-          const allowed = await useTool({
-            vaultUrl,
-            credential,
-            tool: "mock-slack",
-            action: "post-message",
-            input: { channel: "#ops", text: "hi" },
+          const allowed = await sdkAt({ vaultUrl })
+            .connect(registered, "mock-slack")
+            .call("post-message", { channel: "#ops", text: "hi" });
+          expect(allowed).toEqual({
+            ok: true,
+            value: { id: "msg_1", channel: "#ops", text: "hi" },
           });
-          expect(allowed.result).toEqual({ id: "msg_1", channel: "#ops", text: "hi" });
 
           // Denied: the ungranted tool is refused at token issuance, before
           // any tool is ever called — "agent A may call GitHub but not

@@ -6,6 +6,50 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-09-25 — Phase 5 build finished; security gaps found and the fix designed
+
+**Commits:**
+
+- PR #39, on `feat/phase-5-readme`: `328756e`, `938cfd6`, `11b5b02`, `5375562` (plus this log entry).
+- PR #40, on `docs/phase-5b-auth-design`: `9f1d271`.
+
+Both are pushed and open, awaiting CI and merge. PR #38 (the SDK) is merged.
+
+**Status:** Every build item in Phase 5 now exists and works. Its final check, a person other than the founder setting Custos up using only the README, is deliberately scheduled after the security work below, because that work changes the steps the README teaches.
+
+**What shipped (PR #39):**
+
+- **A README that takes a stranger from nothing to a revoked agent.** Step by step: install, start the services, register an agent, watch it be refused, grant it one tool, use it, cut it off, and check the signed record of everything that happened. It covers both Mac/Linux and Windows, with a troubleshooting table. Every command in it was actually run against the real system, not just written down.
+- **Three real bugs, found by following the README exactly as a stranger would.** Automated tests hadn't caught any of them:
+  - **The live dashboard never started.** Its start command pointed at a file that sets the server up but never switches it on.
+  - **The one real tool connector, Stripe, had never worked against real Stripe.** Every request went to the wrong web address. The tests talked to a fake Stripe that happened to accept the wrong address.
+  - **Every refusal printed a wall of programmer error text**, including the moment the whole demo is built around. It now prints one line, such as `denied: AGENT_REVOKED`.
+
+  Each fix comes with a test that fails if the bug ever returns.
+
+- **The command-line tool now runs on the developer library (SDK).** There's one implementation instead of two copies that could drift apart.
+
+**What was found, and designed (PR #40):**
+
+Walking through the product as a user surfaced two security gaps that matter before anyone uses Custos for real:
+
+1. **Anyone with a copy of an agent's ID file can impersonate the agent.** The system checks that the ID card is genuine, but not that the person holding it is its owner.
+2. **The administrative controls have no login.** Anyone who can reach the system could swap a stored tool password or grant themselves access.
+
+The fix is written down as a formal decision record (ADR 0007) and a new phase in the build plan, Phase 5b:
+
+- Each agent will hold its own secret key, and prove it has it whenever it asks for access. A copied ID file becomes useless.
+- The company's Custos installation will sign every agent's ID card, like a passport office, so any verifier can confirm which organisation vouched for the agent. It works offline too, which is exactly what the next milestone (trust between two companies) needs.
+- Administrators will need to log in, first with API keys, then with certificates (mTLS), then with company single sign-on.
+
+One piece of groundwork was confirmed: Amazon's key-protection service (AWS KMS) supports the exact signature type Custos uses, so production keys can be locked in hardware-backed storage without changing any cryptography.
+
+**Why it matters:** The MVP is fully built and documented. More importantly, this found and planned the fix for the gap a serious customer's security team would have found first. "A copied file lets you impersonate an agent" is the question a CISO asks in the first meeting. Custos will now have a designed, test-backed answer before that meeting happens.
+
+**Next up:** Merge PRs #39 and #40. Then Phase 5b, step 1: a signing key for the identity service that survives restarts, so the upcoming "passport office" signatures stay valid.
+
+---
+
 ## 2026-09-24 — Phase 5: the developer SDK
 
 **Commits:** `a351289` (the SDK). Pushed to `origin/feat/phase-5-sdk`, open as PR #38. Not yet merged. Opening the PR is what starts CI, so the automated checks run there. The previous batch (Phase 4 + dashboard, PR #36) is now merged to `main`.

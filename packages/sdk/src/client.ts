@@ -5,8 +5,10 @@ import { z } from "zod";
  * The agent's identity credential, treated as opaque by the SDK: it is sent
  * to the vault verbatim and the vault verifies it. It must never be reshaped
  * — the signature covers every field — so it is validated as a loose object.
+ * Typed structurally (no index signature) so a fully typed credential, such
+ * as `@custos/core`'s `SignedCredential`, is accepted as-is.
  */
-export type AgentCredential = Readonly<Record<string, unknown>> & { readonly issuer: string };
+export type AgentCredential = { readonly issuer: string };
 
 /** Plain, JSON-serialisable data — persist it and hand it to the agent's own process. */
 export interface Agent {

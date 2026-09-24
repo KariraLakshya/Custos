@@ -23,3 +23,6 @@ bash.exe.stackdump
 
 # local smoke-test scratch (holds issued agent credentials)
 .smoke-tmp/
+
+# agent credentials written by `custos register --out` in the README walkthrough
+agent.json

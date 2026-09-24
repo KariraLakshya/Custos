@@ -52,11 +52,8 @@ function custosAt(url: string) {
   return createCustos({ identityUrl: url, vaultUrl: url, revocationUrl: url });
 }
 
-const agent: Agent = {
-  id: "abc",
-  did: "did:web:example:agents:abc",
-  credential: { issuer: "did:web:example:agents:abc", proof: { proofValue: "z123" } },
-};
+const credential = { issuer: "did:web:example:agents:abc", proof: { proofValue: "z123" } };
+const agent: Agent = { id: "abc", did: "did:web:example:agents:abc", credential };
 
 const deprovisioned = {
   agentId: "abc",
