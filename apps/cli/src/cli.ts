@@ -1,11 +1,28 @@
 import { writeFile } from "node:fs/promises";
+import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
 import { pullAuditLog } from "./audit-log.js";
-import { deprovisionAgent } from "./deprovision.js";
-import { grantToolAccess } from "./grant.js";
-import { registerAgent } from "./register.js";
-import { loadAgentCredential, useTool } from "./use.js";
 import { loadCredentialFile, verifyCredentialIndependently } from "./verify.js";
+
+const DEFAULT_URLS: CustosConfig = {
+  identityUrl: "http://localhost:4001",
+  vaultUrl: "http://localhost:4002",
+  revocationUrl: "http://localhost:4003",
+};
+
+/**
+ * Each command talks to one service and takes only that service's URL; the
+ * SDK wants all three but only contacts the one a call needs.
+ */
+function custos(urls: Partial<CustosConfig>): Custos {
+  return createCustos({ ...DEFAULT_URLS, ...urls });
+}
+
+/** 401/403 are the vault's authorization decisions; anything else is a failure worth its detail. */
+function describeRefusal(refusal: CallDenied): string {
+  if (refusal.status === 401 || refusal.status === 403) return `denied: ${refusal.code}`;
+  return `failed: ${refusal.code} (HTTP ${refusal.status}) — ${JSON.stringify(refusal.detail)}`;
+}
 
 export function createCli(): Command {
   const program = new Command()
@@ -19,11 +36,11 @@ export function createCli(): Command {
     .option("--identity-url <url>", "identity service base URL", "http://localhost:4001")
     .option("--out <path>", "write the issued credential to a file")
     .action(async (opts: { identityUrl: string; out?: string }) => {
-      const result = await registerAgent(opts.identityUrl);
+      const agent = await custos({ identityUrl: opts.identityUrl }).register();
       if (opts.out) {
-        await writeFile(opts.out, JSON.stringify(result.credential, null, 2));
+        await writeFile(opts.out, JSON.stringify(agent.credential, null, 2));
       }
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(agent, null, 2)}\n`);
     });
 
   program
@@ -58,10 +75,17 @@ export function createCli(): Command {
         action: string,
         opts: { credential: string; vaultUrl: string; input: string },
       ) => {
-        const credential = await loadAgentCredential(opts.credential);
+        const credential = await loadCredentialFile(opts.credential);
         const input: unknown = JSON.parse(opts.input);
-        const outcome = await useTool({ vaultUrl: opts.vaultUrl, credential, tool, action, input });
-        process.stdout.write(`${JSON.stringify(outcome, null, 2)}\n`);
+        const outcome = await custos({ vaultUrl: opts.vaultUrl })
+          .connect({ credential }, tool)
+          .call(action, input);
+        if (!outcome.ok) {
+          process.stderr.write(`${describeRefusal(outcome.error)}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        process.stdout.write(`${JSON.stringify({ result: outcome.value }, null, 2)}\n`);
       },
     );
 
@@ -75,12 +99,11 @@ export function createCli(): Command {
     )
     .option("--vault-url <url>", "vault service base URL", "http://localhost:4002")
     .action(async (tool: string, opts: { credential: string; vaultUrl: string }) => {
-      const credential = await loadAgentCredential(opts.credential);
-      const result = await grantToolAccess({
-        vaultUrl: opts.vaultUrl,
-        agentDid: credential.issuer,
+      const credential = await loadCredentialFile(opts.credential);
+      const result = await custos({ vaultUrl: opts.vaultUrl }).grant(
+        { did: credential.issuer },
         tool,
-      });
+      );
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     });
 
@@ -105,13 +128,26 @@ export function createCli(): Command {
     .option("--revocation-url <url>", "revocation service base URL", "http://localhost:4003")
     .option("--reason <text>", "why this agent is being deprovisioned")
     .action(async (agentId: string, opts: { revocationUrl: string; reason?: string }) => {
-      const result = await deprovisionAgent({
-        revocationUrl: opts.revocationUrl,
-        agentId,
-        ...(opts.reason === undefined ? {} : { reason: opts.reason }),
-      });
+      const result = await custos({ revocationUrl: opts.revocationUrl }).deprovision(
+        { id: agentId },
+        opts.reason === undefined ? undefined : { reason: opts.reason },
+      );
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     });
 
   return program;
+}
+
+/**
+ * Runs the CLI for real: a failed command (a denied call, an unreachable
+ * service) is reported as one line on stderr with exit code 1, not an
+ * unhandled rejection's stack trace.
+ */
+export async function runCli(argv: readonly string[]): Promise<void> {
+  try {
+    await createCli().parseAsync(argv);
+  } catch (error: unknown) {
+    process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

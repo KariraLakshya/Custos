@@ -129,13 +129,11 @@ describe("@custos/sdk end to end: register → connect → deprovision", () => {
       const agent = await custos.register();
       await custos.grant(agent, "mock-database");
 
-      const tampered: Agent = {
-        ...agent,
-        credential: {
-          ...agent.credential,
-          credentialSubject: { id: "did:web:attacker.example" },
-        },
+      const tamperedCredential = {
+        ...agent.credential,
+        credentialSubject: { id: "did:web:attacker.example" },
       };
+      const tampered: Agent = { ...agent, credential: tamperedCredential };
 
       const outcome = await custos.connect(tampered, "mock-database").call("query", {
         table: "customers",

@@ -12,7 +12,7 @@ import {
   type UnsignedCredential,
 } from "@custos/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCli } from "./cli.js";
+import { createCli, runCli } from "./cli.js";
 
 describe("custos CLI", () => {
   it("reports its name and version", () => {
@@ -42,7 +42,13 @@ describe("custos CLI", () => {
     it("registers against the identity service and prints the result", async () => {
       server = createServer((_req, res) => {
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ id: "abc", did: "did:web:example:agents:abc", credential: {} }));
+        res.end(
+          JSON.stringify({
+            id: "abc",
+            did: "did:web:example:agents:abc",
+            credential: { issuer: "did:web:example:agents:abc" },
+          }),
+        );
       });
       await new Promise<void>((resolve) => server?.listen(4303, "127.0.0.1", resolve));
       const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -284,6 +290,153 @@ describe("custos CLI", () => {
         body: { agentId: "abc", reason: "test" },
       });
       expect(stdout.mock.calls.join("")).toContain('"alreadyRevoked": false');
+    });
+  });
+
+  describe("use", () => {
+    let server: Server | undefined;
+
+    afterEach(async () => {
+      if (server) await new Promise((resolve) => server?.close(resolve));
+      server = undefined;
+      process.exitCode = undefined;
+      vi.restoreAllMocks();
+    });
+
+    /** A stand-in vault: `/tokens` and `/call` each answer with the given status and body. */
+    async function vaultReplying(replies: {
+      tokens: { status: number; body: unknown };
+      call?: { status: number; body: unknown };
+    }): Promise<{ vaultUrl: string; credentialPath: string }> {
+      server = createServer((req, res) => {
+        const reply = req.url === "/tokens" ? replies.tokens : replies.call;
+        res.statusCode = reply?.status ?? 404;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(reply?.body ?? {}));
+      });
+      await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      if (address === null || typeof address === "string") throw new Error("expected a port");
+      const dir = await mkdtemp(join(tmpdir(), "custos-cli-use-"));
+      const credentialPath = join(dir, "agent.json");
+      await writeFile(credentialPath, JSON.stringify({ issuer: "did:web:example:agents:abc" }));
+      return { vaultUrl: `http://127.0.0.1:${address.port}`, credentialPath };
+    }
+
+    async function runUse(vaultUrl: string, credentialPath: string): Promise<void> {
+      await runCli([
+        "node",
+        "custos",
+        "use",
+        "mock-database",
+        "query",
+        "--credential",
+        credentialPath,
+        "--vault-url",
+        vaultUrl,
+        "--input",
+        '{"table":"customers"}',
+      ]);
+    }
+
+    it("prints the tool's result when the call is allowed", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 200, body: { token: "tok_abc" } },
+        call: { status: 200, body: { result: [{ id: 1 }] } },
+      });
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      expect(JSON.parse(stdout.mock.calls.join(""))).toEqual({ result: [{ id: 1 }] });
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("reports a denial as one readable line — the code, not a JSON dump — and exit code 1", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: {
+          status: 403,
+          body: { error: { code: "AGENT_REVOKED", agentId: "did:web:example:agents:abc" } },
+        },
+      });
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      expect(stderr.mock.calls.join("")).toBe("denied: AGENT_REVOKED\n");
+      expect(stdout).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("reports an expired token as a denial too", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 200, body: { token: "tok_expired" } },
+        call: { status: 401, body: { error: { code: "INVALID_TOKEN", reason: "EXPIRED" } } },
+      });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      expect(stderr.mock.calls.join("")).toBe("denied: INVALID_TOKEN\n");
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("reports a non-authorization failure with its detail, since the code alone won't explain it", async () => {
+      const upstream = {
+        error: { code: "UPSTREAM_ERROR", status: 401, reason: "Invalid API Key" },
+      };
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 200, body: { token: "tok_abc" } },
+        call: { status: 502, body: upstream },
+      });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      expect(stderr.mock.calls.join("")).toBe(
+        `failed: UPSTREAM_ERROR (HTTP 502) — ${JSON.stringify(upstream)}\n`,
+      );
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
+  describe("runCli", () => {
+    let server: Server | undefined;
+
+    afterEach(async () => {
+      if (server) await new Promise((resolve) => server?.close(resolve));
+      server = undefined;
+      process.exitCode = undefined;
+      vi.restoreAllMocks();
+    });
+
+    // Regression: a failed command (e.g. a denied call) surfaced as an
+    // unhandled rejection with a full Node stack trace instead of one line.
+    it("reports a failed command as one line on stderr and exit code 1, no stack trace", async () => {
+      server = createServer((_req, res) => {
+        res.statusCode = 403;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ error: { code: "AGENT_REVOKED" } }));
+      });
+      await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      if (address === null || typeof address === "string") throw new Error("expected a port");
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runCli([
+        "node",
+        "custos",
+        "deprovision",
+        "abc",
+        "--revocation-url",
+        `http://127.0.0.1:${address.port}`,
+      ]);
+
+      const written = stderr.mock.calls.map(([chunk]) => String(chunk)).join("");
+      expect(written).toMatch(/^error: deprovision failed: .*403.*AGENT_REVOKED.*\n$/);
+      expect(written).not.toMatch(/\n\s+at /);
+      expect(process.exitCode).toBe(1);
     });
   });
 });

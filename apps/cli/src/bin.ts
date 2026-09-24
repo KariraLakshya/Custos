@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-import { createCli } from "./cli.js";
+import { runCli } from "./cli.js";
 
-createCli().parse();
+await runCli(process.argv);
