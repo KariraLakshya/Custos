@@ -20,7 +20,11 @@ afterAll(async () => {
   await vaultDb.$client.end();
 });
 
-const ports = { identity: 5601, revocation: 5602, vault: 5603 } as const;
+// Each stack gets its own ports. Reusing one set across stacks let a new
+// vault's first revocation sync reuse a pooled keep-alive connection to the
+// previous, closed revocation service — the sync failed, and the vault
+// (correctly) failed closed with REVOCATION_STATE_STALE.
+let nextPortBase = 5601;
 
 /**
  * Real identity, revocation, and vault services wired as in production —
@@ -30,6 +34,9 @@ const ports = { identity: 5601, revocation: 5602, vault: 5603 } as const;
 async function withStack<T>(
   run: (urls: { identityUrl: string; revocationUrl: string; vaultUrl: string }) => Promise<T>,
 ): Promise<T> {
+  const base = nextPortBase;
+  nextPortBase += 3;
+  const ports = { identity: base, revocation: base + 1, vault: base + 2 } as const;
   const identityUrl = `http://127.0.0.1:${ports.identity}`;
   const revocationUrl = `http://127.0.0.1:${ports.revocation}`;
   const vaultUrl = `http://127.0.0.1:${ports.vault}`;
@@ -61,6 +68,7 @@ async function withStack<T>(
     revocationUrl,
     revocationIssuerDid: `did:web:127.0.0.1%3A${ports.revocation}`,
     trustedIssuerDid: `did:web:127.0.0.1%3A${ports.identity}`,
+    publicUrl: vaultUrl,
     revocationResyncIntervalMs: 5_000,
   });
   await vaultApp.listen({ port: ports.vault, host: "127.0.0.1" });
@@ -126,6 +134,31 @@ describe("@custos/sdk end to end: register → connect → deprovision", () => {
         status: 403,
         code: "AGENT_REVOKED",
       });
+    });
+  });
+
+  it("gives a copied credential nothing without the agent's private key (ADR 0007)", async () => {
+    await withStack(async ({ identityUrl, revocationUrl, vaultUrl }) => {
+      await storeToolSecret(vaultUrl, "mock-database");
+      const custos = createCustos({ identityUrl, revocationUrl, vaultUrl });
+      const agent = await custos.register();
+      await custos.grant(agent, "mock-database");
+
+      // The thief has agent.json, but their own key — not the agent's.
+      const thief = { ...agent, secretKey: "22".repeat(32) };
+      const stolen = await custos.connect(thief, "mock-database").call("query", {
+        table: "customers",
+      });
+      const genuine = await custos.connect(agent, "mock-database").call("query", {
+        table: "customers",
+      });
+
+      expect(stolen.ok === false && stolen.error).toMatchObject({
+        stage: "token",
+        status: 401,
+        code: "INVALID_PROOF_OF_POSSESSION",
+      });
+      expect(genuine.ok).toBe(true);
     });
   });
 

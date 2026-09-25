@@ -20,9 +20,34 @@ import { buildServer as buildAuditServer, createDb as createAuditDb } from "@cus
 import { mutableClock } from "@custos/testing";
 import { buildServer as buildVaultServer, createDb as createVaultDb } from "@custos/vault";
 import { afterAll, describe, expect, it } from "vitest";
+import { buildTokenRequestProof } from "@custos/core";
 import { createCustos, type CustosConfig } from "@custos/sdk";
 import { pullAuditLog } from "./audit-log.js";
 import { verifyCredentialIndependently } from "./verify.js";
+
+/**
+ * A raw token request with proof of possession, as the SDK sends it — for
+ * tests that drive /tokens directly. `now` lets a test date the proof by the
+ * vault's own (mock) clock.
+ */
+async function provenTokenRequest(
+  vaultUrl: string,
+  agent: { readonly credential: unknown; readonly secretKey: string },
+  body: { readonly tool: string; readonly action: string },
+  now: Date = new Date(),
+) {
+  const tokensUrl = new URL("/tokens", vaultUrl);
+  const proof = await buildTokenRequestProof({
+    audience: tokensUrl.href,
+    secretKey: Uint8Array.from(Buffer.from(agent.secretKey, "hex")),
+    now,
+  });
+  return fetch(tokensUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...body, credential: agent.credential, proof }),
+  });
+}
 
 /** The CLI's HTTP layer is @custos/sdk; each test supplies the URLs its stack exposes. */
 function sdkAt(urls: Partial<CustosConfig>) {
@@ -127,6 +152,7 @@ async function withPhase3Stack<T>(
     revocationUrl,
     revocationIssuerDid: `did:web:127.0.0.1%3A${ports.revocation}`,
     trustedIssuerDid: `did:web:127.0.0.1%3A${ports.identity}`,
+    publicUrl: vaultUrl,
     revocationResyncIntervalMs: 5_000,
     // Generous on purpose: some tests here jump a mutableClock far ahead to
     // simulate a scoped token's 60s TTL expiry, and that same clock also
@@ -199,6 +225,7 @@ async function withPhase4Stack<T>(
     revocationUrl,
     revocationIssuerDid: `did:web:127.0.0.1%3A${ports.revocation}`,
     trustedIssuerDid: `did:web:127.0.0.1%3A${ports.identity}`,
+    publicUrl: vaultUrl,
     revocationResyncIntervalMs: 5_000,
     revocationMaxStalenessMs: 10 * 60_000,
     auditUrl,
@@ -278,15 +305,12 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
         });
         await sdkAt({ vaultUrl }).grant(registered, "mock-database");
         const requestToken = () =>
-          fetch(new URL("/tokens", vaultUrl), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              tool: "mock-database",
-              action: "query",
-              credential: registered.credential,
-            }),
-          }).then((response) => response.json() as Promise<{ token: string }>);
+          provenTokenRequest(
+            vaultUrl,
+            registered,
+            { tool: "mock-database", action: "query" },
+            clock.now(),
+          ).then((response) => response.json() as Promise<{ token: string }>);
         const call = (token: string) =>
           fetch(new URL("/call", vaultUrl), {
             method: "POST",
@@ -344,7 +368,6 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
           [slack, database, stripe],
           async ({ identityUrl, revocationUrl, vaultUrl }) => {
             const registered = await sdkAt({ identityUrl }).register();
-            const credential = registered.credential as SignedCredential;
 
             for (const [tool, secret] of [
               ["mock-slack", "xoxb-fake"],
@@ -375,11 +398,7 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
 
             const tokens = await Promise.all(
               sessions.map(async ({ tool, action }) => {
-                const response = await fetch(new URL("/tokens", vaultUrl), {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ tool, action, credential }),
-                });
+                const response = await provenTokenRequest(vaultUrl, registered, { tool, action });
                 expect(response.status).toBe(200);
                 return (await response.json()) as { token: string };
               }),
@@ -459,7 +478,6 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
         [createMockSlackConnector()],
         async ({ identityUrl, vaultUrl, auditUrl }) => {
           const registered = await sdkAt({ identityUrl }).register();
-          const credential = registered.credential as SignedCredential;
 
           await fetch(new URL("/credentials", vaultUrl), {
             method: "POST",
@@ -481,10 +499,9 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
           // Denied: the ungranted tool is refused at token issuance, before
           // any tool is ever called — "agent A may call GitHub but not
           // Stripe, enforced" (build plan Phase 4 DONE criterion).
-          const deniedResponse = await fetch(new URL("/tokens", vaultUrl), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ tool: "stripe", action: "list-customers", credential }),
+          const deniedResponse = await provenTokenRequest(vaultUrl, registered, {
+            tool: "stripe",
+            action: "list-customers",
           });
           expect(deniedResponse.status).toBe(403);
           const deniedBody = (await deniedResponse.json()) as { error: { code: string } };

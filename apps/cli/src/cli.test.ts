@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   buildDidWebDocument,
   didWebFromDomain,
@@ -382,10 +382,16 @@ describe("custos CLI", () => {
       const dir = await mkdtemp(join(tmpdir(), "custos-cli-use-"));
       const credentialPath = join(dir, "agent.json");
       await writeFile(credentialPath, JSON.stringify({ issuer: "did:web:example:agents:abc" }));
+      // As `register` writes it: hex and a trailing newline.
+      await writeFile(join(dir, "agent.key"), `${"11".repeat(32)}\n`);
       return { vaultUrl: `http://127.0.0.1:${address.port}`, credentialPath };
     }
 
-    async function runUse(vaultUrl: string, credentialPath: string): Promise<void> {
+    async function runUse(
+      vaultUrl: string,
+      credentialPath: string,
+      keyPath = join(dirname(credentialPath), "agent.key"),
+    ): Promise<void> {
       await runCli([
         "node",
         "custos",
@@ -394,12 +400,43 @@ describe("custos CLI", () => {
         "query",
         "--credential",
         credentialPath,
+        "--key",
+        keyPath,
         "--vault-url",
         vaultUrl,
         "--input",
         '{"table":"customers"}',
       ]);
     }
+
+    it("reports a missing key file as one clear line, without contacting the vault", async () => {
+      let requests = 0;
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 200, body: { token: "tok_abc" } },
+      });
+      server?.on("request", () => (requests += 1));
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath, join(dirname(credentialPath), "missing.key"));
+
+      expect(stderr.mock.calls.join("")).toMatch(/^error: .*missing\.key/);
+      expect(process.exitCode).toBe(1);
+      expect(requests).toBe(0);
+    });
+
+    it("rejects a key file that isn't a 32-byte hex key", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 200, body: { token: "tok_abc" } },
+      });
+      const badKey = join(dirname(credentialPath), "bad.key");
+      await writeFile(badKey, "-----BEGIN PRIVATE KEY-----\n");
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath, badKey);
+
+      expect(stderr.mock.calls.join("")).toMatch(/^error: .*not an agent key/);
+      expect(process.exitCode).toBe(1);
+    });
 
     it("prints the tool's result when the call is allowed", async () => {
       const { vaultUrl, credentialPath } = await vaultReplying({
