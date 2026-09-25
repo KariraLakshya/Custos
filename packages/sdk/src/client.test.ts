@@ -1,5 +1,11 @@
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  multibaseToPublicKey,
+  publicKeyFromSecretKey,
+  REGISTRATION_PROOF_TYPE,
+  verifyPossessionProof,
+} from "@custos/core";
 import { createCustos, type Agent } from "./client.js";
 
 interface Reply {
@@ -53,7 +59,12 @@ function custosAt(url: string) {
 }
 
 const credential = { issuer: "did:web:example:agents:abc", proof: { proofValue: "z123" } };
-const agent: Agent = { id: "abc", did: "did:web:example:agents:abc", credential };
+const agent: Agent = {
+  id: "abc",
+  did: "did:web:example:agents:abc",
+  credential,
+  secretKey: "00".repeat(32),
+};
 
 const deprovisioned = {
   agentId: "abc",
@@ -89,11 +100,56 @@ describe("register", () => {
 
     const registered = await custosAt(url).register();
 
-    expect(requests).toEqual([{ url: "/agents", body: undefined }]);
+    expect(requests.map((r) => r.url)).toEqual(["/agents"]);
     expect(registered.id).toBe("abc");
     expect(registered.did).toBe("did:web:example:agents:abc");
     // The signature covers every field — any reshaping would break verification.
     expect(registered.credential).toEqual(credential);
+  });
+
+  it("generates the agent's key locally and sends only its public key and a proof of possession", async () => {
+    const { url, requests } = await stubServices({
+      "/agents": {
+        status: 201,
+        body: { id: "abc", did: "did:web:x:agents:abc", credential: { issuer: "did:web:x" } },
+      },
+    });
+
+    const registered = await custosAt(url).register();
+
+    const body = requests[0]?.body as { publicKey: string; proof: string };
+    expect(Object.keys(body).sort()).toEqual(["proof", "publicKey"]);
+    const publicKey = multibaseToPublicKey(body.publicKey);
+    if (!publicKey.ok) throw new Error("not a key");
+    // The proof is addressed to the identity service's DID, derived from its URL.
+    const verified = verifyPossessionProof({
+      proof: body.proof,
+      publicKey: publicKey.value,
+      expectedType: REGISTRATION_PROOF_TYPE,
+      expectedAudience: `did:web:${encodeURIComponent(new URL(url).host)}`,
+      now: new Date(),
+      maxSkewSeconds: 60,
+    });
+    expect(verified.ok).toBe(true);
+    // The returned agent holds the matching private key; the request never carried it.
+    expect(publicKeyFromSecretKey(Buffer.from(registered.secretKey, "hex"))).toEqual(
+      publicKey.value,
+    );
+    expect(JSON.stringify(requests)).not.toContain(registered.secretKey);
+  });
+
+  it("generates a different key for every registration", async () => {
+    const { url } = await stubServices({
+      "/agents": {
+        status: 201,
+        body: { id: "abc", did: "did:web:x:agents:abc", credential: { issuer: "did:web:x" } },
+      },
+    });
+
+    const a = await custosAt(url).register();
+    const b = await custosAt(url).register();
+
+    expect(a.secretKey).not.toBe(b.secretKey);
   });
 
   it("throws when the identity service responds with an error status", async () => {

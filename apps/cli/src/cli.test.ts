@@ -52,12 +52,59 @@ describe("custos CLI", () => {
       });
       await new Promise<void>((resolve) => server?.listen(4303, "127.0.0.1", resolve));
       const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const keyPath = join(await mkdtemp(join(tmpdir(), "custos-cli-key-")), "agent.key");
 
-      await createCli().parseAsync(["register", "--identity-url", "http://127.0.0.1:4303"], {
-        from: "user",
+      await createCli().parseAsync(
+        ["register", "--identity-url", "http://127.0.0.1:4303", "--key-out", keyPath],
+        { from: "user" },
+      );
+
+      const printed = stdout.mock.calls.join("");
+      expect(printed).toContain('"id": "abc"');
+      expect(printed).toContain(`"keyFile": ${JSON.stringify(keyPath)}`);
+      // The private key is written to its own file and never printed.
+      const secretKey = (await readFile(keyPath, "utf8")).trim();
+      expect(secretKey).toMatch(/^[0-9a-f]{64}$/);
+      expect(printed).not.toContain(secretKey);
+    });
+
+    it("refuses to overwrite an existing key file, before registering anything", async () => {
+      let requests = 0;
+      server = createServer((_req, res) => {
+        requests += 1;
+        res.end();
       });
+      await new Promise<void>((resolve) => server?.listen(4305, "127.0.0.1", resolve));
+      const keyPath = join(await mkdtemp(join(tmpdir(), "custos-cli-key-")), "agent.key");
+      await writeFile(keyPath, "an existing agent's key");
 
-      expect(stdout.mock.calls.join("")).toContain('"id": "abc"');
+      await expect(
+        createCli().parseAsync(
+          ["register", "--identity-url", "http://127.0.0.1:4305", "--key-out", keyPath],
+          { from: "user" },
+        ),
+      ).rejects.toThrow(/refusing to overwrite/);
+
+      expect(await readFile(keyPath, "utf8")).toBe("an existing agent's key");
+      expect(requests).toBe(0);
+    });
+
+    it("leaves no key file behind when registration fails", async () => {
+      server = createServer((_req, res) => {
+        res.statusCode = 502;
+        res.end();
+      });
+      await new Promise<void>((resolve) => server?.listen(4306, "127.0.0.1", resolve));
+      const keyPath = join(await mkdtemp(join(tmpdir(), "custos-cli-key-")), "agent.key");
+
+      await expect(
+        createCli().parseAsync(
+          ["register", "--identity-url", "http://127.0.0.1:4306", "--key-out", keyPath],
+          { from: "user" },
+        ),
+      ).rejects.toThrow(/register failed/);
+
+      await expect(readFile(keyPath)).rejects.toThrow(/ENOENT/);
     });
 
     it("writes the credential to --out when given", async () => {
@@ -77,7 +124,15 @@ describe("custos CLI", () => {
       const outPath = join(dir, "credential.json");
 
       await createCli().parseAsync(
-        ["register", "--identity-url", "http://127.0.0.1:4304", "--out", outPath],
+        [
+          "register",
+          "--identity-url",
+          "http://127.0.0.1:4304",
+          "--out",
+          outPath,
+          "--key-out",
+          join(dir, "agent.key"),
+        ],
         { from: "user" },
       );
 
@@ -179,7 +234,14 @@ describe("custos CLI", () => {
 
       const dir = await mkdtemp(join(tmpdir(), "custos-cli-grant-"));
       const path = join(dir, "credential.json");
-      await writeFile(path, JSON.stringify({ issuer: "did:web:example:agents:abc" }));
+      // Issued by the identity service; the agent is the subject (ADR 0007).
+      await writeFile(
+        path,
+        JSON.stringify({
+          issuer: "did:web:example",
+          credentialSubject: { id: "did:web:example:agents:abc" },
+        }),
+      );
       const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
       await createCli().parseAsync(

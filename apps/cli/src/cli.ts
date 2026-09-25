@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { open, rm, writeFile } from "node:fs/promises";
 import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
 import { pullAuditLog } from "./audit-log.js";
@@ -18,6 +18,15 @@ function custos(urls: Partial<CustosConfig>): Custos {
   return createCustos({ ...DEFAULT_URLS, ...urls });
 }
 
+/** The agent is the credential's subject; the issuer is the identity service (ADR 0007). */
+function agentDidOf(credential: { readonly credentialSubject?: unknown }): string {
+  const subject = credential.credentialSubject as { id?: unknown } | undefined;
+  if (typeof subject?.id !== "string") {
+    throw new Error("not a usable credential: no credentialSubject.id");
+  }
+  return subject.id;
+}
+
 /** 401/403 are the vault's authorization decisions; anything else is a failure worth its detail. */
 function describeRefusal(refusal: CallDenied): string {
   if (refusal.status === 401 || refusal.status === 403) return `denied: ${refusal.code}`;
@@ -35,12 +44,39 @@ export function createCli(): Command {
     .description("Register a new agent and issue its identity credential")
     .option("--identity-url <url>", "identity service base URL", "http://localhost:4001")
     .option("--out <path>", "write the issued credential to a file")
-    .action(async (opts: { identityUrl: string; out?: string }) => {
-      const agent = await custos({ identityUrl: opts.identityUrl }).register();
-      if (opts.out) {
-        await writeFile(opts.out, JSON.stringify(agent.credential, null, 2));
+    .option(
+      "--key-out <path>",
+      "where to write the agent's private key (never overwrites an existing file)",
+      "agent.key",
+    )
+    .action(async (opts: { identityUrl: string; out?: string; keyOut: string }) => {
+      // Claim the key file before registering: "wx" fails if it exists, so an
+      // existing agent's key is never overwritten, and 0o600 keeps it
+      // owner-only (POSIX; Windows applies its own ACLs instead).
+      let keyFile;
+      try {
+        keyFile = await open(opts.keyOut, "wx", 0o600);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new Error(`refusing to overwrite existing key file ${opts.keyOut}`);
+        }
+        throw error;
       }
-      process.stdout.write(`${JSON.stringify(agent, null, 2)}\n`);
+      try {
+        const { secretKey, ...agent } = await custos({ identityUrl: opts.identityUrl }).register();
+        await keyFile.writeFile(`${secretKey}\n`);
+        await keyFile.close();
+        if (opts.out) {
+          await writeFile(opts.out, JSON.stringify(agent.credential, null, 2));
+        }
+        // The private key is never printed — stdout ends up in logs.
+        process.stdout.write(`${JSON.stringify({ ...agent, keyFile: opts.keyOut }, null, 2)}\n`);
+      } catch (error) {
+        // No agent was registered for this key: leave nothing behind.
+        await keyFile.close();
+        await rm(opts.keyOut, { force: true });
+        throw error;
+      }
     });
 
   program
@@ -101,7 +137,7 @@ export function createCli(): Command {
     .action(async (tool: string, opts: { credential: string; vaultUrl: string }) => {
       const credential = await loadCredentialFile(opts.credential);
       const result = await custos({ vaultUrl: opts.vaultUrl }).grant(
-        { did: credential.issuer },
+        { did: agentDidOf(credential) },
         tool,
       );
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
