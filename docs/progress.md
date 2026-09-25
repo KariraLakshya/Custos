@@ -6,6 +6,33 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-09-25 — Phase 5b: agents hold their own keys; Custos signs their ID cards
+
+**Commits:** `506f8ff`, `6b646ec`, `7f9398b`, `2a815ef`, `b4d68ba`, `ac5b089` (plus this log entry). Pushed to `origin/feat/phase-5b-issuer-key`, open as PR #41, awaiting CI and merge. PRs #39 and #40 (Phase 5 build and the Phase 5b design) are merged.
+
+**Status:** Steps 1 and 2 of the five-step security hardening are implemented and passing every local check, including the full end-to-end tests. One piece is unverified: the Amazon key-protection service (AWS KMS) connection has never talked to real AWS, because the AWS account is still being set up.
+
+**What this is:** Last week's review found that an agent's ID file alone was enough to impersonate it, and the design to fix that was agreed. This is the first half of the fix: who holds which key.
+
+**How it works now:**
+
+- **The agent makes its own secret key, on its own machine.** When an agent registers, it creates a key pair locally and sends Custos only the public half, plus a signature proving it really holds the private half. The private key never leaves the agent: Custos never receives it, stores it, or logs it. The command-line tool saves it to a separate file, won't overwrite an existing one, and never prints it.
+- **Custos now signs every agent's ID card, like a passport office.** Before, each ID card was effectively signed by the agent itself: "I am agent X, signed agent X", which proves nothing about who vouched for it. Now the company's Custos installation signs it: "we registered this agent, and this is its public key". Anyone can check that signature against Custos's published key, offline.
+- **Custos's own signing key survives restarts.** On a developer's machine it's derived from a secret setting; in production it lives in AWS KMS, where it can sign but can never be copied out. The service refuses to start without it rather than invent a temporary key. A temporary key would silently invalidate every ID card the next time the service restarted.
+- **The access vault only trusts that one passport office.** An ID card signed by anyone else, including one an attacker signs for themselves, is refused before anything else is looked at.
+
+**Found and fixed while building it:**
+
+- Without that "trust only one passport office" rule, anyone with their own web domain could have printed themselves a valid-looking agent ID.
+- The vault was checking whether an agent was revoked before checking the ID card was genuine, so a forged card's claimed name could end up in the audit log. The order is fixed.
+- A test that occasionally failed under load was tracked to its cause and fixed.
+
+**Why it matters:** This is the foundation that makes a stolen ID file worthless. The next step (step 3) makes the vault demand a fresh signature from the agent's private key before it hands out any access pass. After that, copying `agent.json` gets an attacker nothing. It also sets up the next big milestone: when two companies need to trust each other's agents, each will only need to trust the other's one "passport office" key.
+
+**Next up:** Merge PR #41 once CI is green. Then step 3: proof of possession on every access request. Run the real-KMS check once the AWS account is ready.
+
+---
+
 ## 2026-09-25 — Phase 5 build finished; security gaps found and the fix designed
 
 **Commits:**
