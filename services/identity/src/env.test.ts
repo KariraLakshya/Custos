@@ -1,31 +1,96 @@
 import { describe, expect, it } from "vitest";
 import { loadIdentityEnv } from "./env.js";
 
+// The issuer seed is required; every other test supplies one so it can test its own variable.
+const SEED = { IDENTITY_ISSUER_SEED: "ab".repeat(32) };
+
 describe("identity env", () => {
+  it("refuses to load without an issuer seed — no default key, ephemeral or known", () => {
+    expect(() => loadIdentityEnv({})).toThrow(/IDENTITY_ISSUER_SEED/);
+  });
+
+  it.each([
+    ["too short", "ab".repeat(31)],
+    ["too long", "ab".repeat(33)],
+    ["not hex", "zz".repeat(32)],
+  ])("refuses an issuer seed that is %s", (_label, seed) => {
+    expect(() => loadIdentityEnv({ IDENTITY_ISSUER_SEED: seed })).toThrow(/IDENTITY_ISSUER_SEED/);
+  });
+
+  describe("issuer key provider", () => {
+    it("defaults to the local provider", () => {
+      expect(loadIdentityEnv(SEED).IDENTITY_KEY_PROVIDER).toBe("local");
+    });
+
+    it("uses KMS with a key id and no seed", () => {
+      const env = loadIdentityEnv({
+        IDENTITY_KEY_PROVIDER: "kms",
+        IDENTITY_ISSUER_KMS_KEY_ID: "arn:aws:kms:ap-southeast-1:111122223333:key/abc",
+      });
+      expect(env.IDENTITY_KEY_PROVIDER).toBe("kms");
+      expect(env.IDENTITY_ISSUER_KMS_KEY_ID).toBe(
+        "arn:aws:kms:ap-southeast-1:111122223333:key/abc",
+      );
+    });
+
+    it("refuses KMS without a key id — no silent fallback to a local key", () => {
+      expect(() => loadIdentityEnv({ IDENTITY_KEY_PROVIDER: "kms" })).toThrow(
+        /IDENTITY_ISSUER_KMS_KEY_ID/,
+      );
+    });
+
+    it("refuses an unknown provider", () => {
+      expect(() => loadIdentityEnv({ ...SEED, IDENTITY_KEY_PROVIDER: "vault" })).toThrow(
+        /IDENTITY_KEY_PROVIDER/,
+      );
+    });
+
+    it("still validates a seed's format even when KMS is selected", () => {
+      expect(() =>
+        loadIdentityEnv({
+          IDENTITY_KEY_PROVIDER: "kms",
+          IDENTITY_ISSUER_KMS_KEY_ID: "key-1",
+          IDENTITY_ISSUER_SEED: "not-hex",
+        }),
+      ).toThrow(/IDENTITY_ISSUER_SEED/);
+    });
+  });
+
+  it("accepts a 64-hex-character issuer seed", () => {
+    expect(loadIdentityEnv(SEED).IDENTITY_ISSUER_SEED).toBe("ab".repeat(32));
+  });
+
+  it("defaults the registration proof skew window to 60 seconds", () => {
+    expect(loadIdentityEnv(SEED).IDENTITY_REGISTRATION_PROOF_MAX_SKEW_SECONDS).toBe(60);
+  });
+
   it("defaults PORT to 4001", () => {
-    expect(loadIdentityEnv({}).PORT).toBe(4001);
+    expect(loadIdentityEnv(SEED).PORT).toBe(4001);
   });
 
   it("coerces PORT from a string", () => {
-    expect(loadIdentityEnv({ PORT: "5000" }).PORT).toBe(5000);
+    expect(loadIdentityEnv({ ...SEED, PORT: "5000" }).PORT).toBe(5000);
   });
 
   it("defaults IDENTITY_DID_DOMAIN to localhost:4001", () => {
-    expect(loadIdentityEnv({}).IDENTITY_DID_DOMAIN).toBe("localhost:4001");
+    expect(loadIdentityEnv(SEED).IDENTITY_DID_DOMAIN).toBe("localhost:4001");
   });
 
   it("accepts a configured IDENTITY_DID_DOMAIN", () => {
     expect(
-      loadIdentityEnv({ IDENTITY_DID_DOMAIN: "identity.custos.example" }).IDENTITY_DID_DOMAIN,
+      loadIdentityEnv({ ...SEED, IDENTITY_DID_DOMAIN: "identity.custos.example" })
+        .IDENTITY_DID_DOMAIN,
     ).toBe("identity.custos.example");
   });
 
   it("defaults DATABASE_URL to the local docker-compose Postgres", () => {
-    expect(loadIdentityEnv({}).DATABASE_URL).toBe("postgres://custos:custos@localhost:5433/custos");
+    expect(loadIdentityEnv(SEED).DATABASE_URL).toBe(
+      "postgres://custos:custos@localhost:5433/custos",
+    );
   });
 
   it("accepts a configured DATABASE_URL", () => {
-    expect(loadIdentityEnv({ DATABASE_URL: "postgres://other/db" }).DATABASE_URL).toBe(
+    expect(loadIdentityEnv({ ...SEED, DATABASE_URL: "postgres://other/db" }).DATABASE_URL).toBe(
       "postgres://other/db",
     );
   });
