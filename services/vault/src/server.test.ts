@@ -1,5 +1,10 @@
 import type { SignedCredential } from "@custos/core";
-import { createLocalSecretCipher, ok } from "@custos/core";
+import {
+  buildRegistrationRequest,
+  createLocalKeyProvider,
+  createLocalSecretCipher,
+  ok,
+} from "@custos/core";
 import {
   createMockDatabaseConnector,
   createMockSlackConnector,
@@ -47,6 +52,33 @@ const fakeStatusAllocator = {
  * cache starts stale and denies everything until its first resync, which is
  * correct but is not what these tests are exercising.
  */
+/** The agent's identity is its credential's subject; the issuer is the identity service (ADR 0007). */
+function agentDidOf(credential: SignedCredential): string {
+  return (credential.credentialSubject as { id: string }).id;
+}
+
+function testIssuerKey() {
+  return {
+    keyProvider: createLocalKeyProvider({ importedKeys: { issuer: new Uint8Array(32).fill(21) } }),
+    keyId: "issuer",
+  };
+}
+
+/** Registers an agent against the identity service on `port`, proving possession of a fresh key. */
+async function registerAgentAt(port: number): Promise<SignedCredential> {
+  const request = await buildRegistrationRequest({
+    audience: `did:web:127.0.0.1%3A${port}`,
+    now: new Date(),
+  });
+  const response = await fetch(`http://127.0.0.1:${port}/agents`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request.body),
+  });
+  const { credential } = (await response.json()) as { credential: SignedCredential };
+  return credential;
+}
+
 function freshEmptyRevocationCache(): RevocationCache {
   return {
     isRevoked: () => false,
@@ -61,16 +93,15 @@ async function withRegisteredAgent<T>(
   port: number,
   run: (credential: SignedCredential) => Promise<T>,
 ): Promise<T> {
-  const app: FastifyInstance = buildIdentityServer({
+  const app: FastifyInstance = await buildIdentityServer({
     db: identityDb,
     didDomain: `127.0.0.1:${port}`,
+    issuerKey: testIssuerKey(),
     statusAllocator: fakeStatusAllocator,
   });
   await app.listen({ port, host: "127.0.0.1" });
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/agents`, { method: "POST" });
-    const { credential } = (await response.json()) as { credential: SignedCredential };
-    return await run(credential);
+    return await run(await registerAgentAt(port));
   } finally {
     await app.close();
   }
@@ -104,9 +135,10 @@ async function withPhase3Stack<T>(
   });
   await revocationApp.listen({ port: ports.revocation, host: "127.0.0.1" });
 
-  const identityApp: FastifyInstance = buildIdentityServer({
+  const identityApp: FastifyInstance = await buildIdentityServer({
     db: identityDb,
     didDomain: `127.0.0.1:${ports.identity}`,
+    issuerKey: testIssuerKey(),
     revocationUrl,
   });
   await identityApp.listen({ port: ports.identity, host: "127.0.0.1" });
@@ -117,6 +149,7 @@ async function withPhase3Stack<T>(
     connectors,
     revocationUrl,
     revocationIssuerDid,
+    trustedIssuerDid: `did:web:127.0.0.1%3A${ports.identity}`,
     revocationResyncIntervalMs: 5_000,
   });
   await vaultApp.listen({ port: ports.vault, host: "127.0.0.1" });
@@ -126,13 +159,7 @@ async function withPhase3Stack<T>(
       identityApp,
       revocationApp,
       vaultApp,
-      register: async () => {
-        const response = await fetch(`http://127.0.0.1:${ports.identity}/agents`, {
-          method: "POST",
-        });
-        const { credential } = (await response.json()) as { credential: SignedCredential };
-        return credential;
-      },
+      register: () => registerAgentAt(ports.identity),
       revoke: async (agentId, reason) =>
         fetch(`${revocationUrl}/revocations`, {
           method: "POST",
@@ -162,6 +189,7 @@ describe("vault service", () => {
       const app = await buildServer({
         db: vaultDb,
         cipher,
+        trustedIssuerDid: credential.issuer,
         revocation: freshEmptyRevocationCache(),
         connectors: [slack as Connector],
         clock,
@@ -177,7 +205,7 @@ describe("vault service", () => {
       const grant = await app.inject({
         method: "POST",
         url: "/policies",
-        payload: { agentId: credential.issuer, tool: "mock-slack" },
+        payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
       });
       expect(grant.statusCode).toBe(201);
 
@@ -240,6 +268,7 @@ describe("vault service", () => {
       const app = await buildServer({
         db: vaultDb,
         cipher,
+        trustedIssuerDid: credential.issuer,
         revocation: freshEmptyRevocationCache(),
       });
       const response = await app.inject({
@@ -285,6 +314,7 @@ describe("vault service", () => {
         const app = await buildServer({
           db: vaultDb,
           cipher,
+          trustedIssuerDid: credential.issuer,
           revocation: freshEmptyRevocationCache(),
           connectors: [createMockSlackConnector()],
           auditReporter: { report: () => {} },
@@ -303,7 +333,7 @@ describe("vault service", () => {
         expect(response.statusCode).toBe(403);
         expect(response.json().error).toEqual({
           code: "POLICY_DENIED",
-          agentId: credential.issuer,
+          agentId: agentDidOf(credential),
           tool: "mock-slack",
         });
       });
@@ -314,6 +344,7 @@ describe("vault service", () => {
         const app = await buildServer({
           db: vaultDb,
           cipher,
+          trustedIssuerDid: credential.issuer,
           revocation: freshEmptyRevocationCache(),
           connectors: [createMockSlackConnector()],
         });
@@ -325,7 +356,7 @@ describe("vault service", () => {
         const grant = await app.inject({
           method: "POST",
           url: "/policies",
-          payload: { agentId: credential.issuer, tool: "mock-slack" },
+          payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
         });
         expect(grant.statusCode).toBe(201);
 
@@ -346,6 +377,7 @@ describe("vault service", () => {
         const app = await buildServer({
           db: vaultDb,
           cipher,
+          trustedIssuerDid: credential.issuer,
           revocation: freshEmptyRevocationCache(),
           connectors: [createMockSlackConnector()],
           auditReporter: { report: (event) => events.push(event) },
@@ -364,7 +396,7 @@ describe("vault service", () => {
 
         expect(events).toEqual([
           {
-            agentDid: credential.issuer,
+            agentDid: agentDidOf(credential),
             tool: "mock-slack",
             action: "post-message",
             dataCategories: ["messaging-content"],
@@ -381,6 +413,7 @@ describe("vault service", () => {
         const app = await buildServer({
           db: vaultDb,
           cipher,
+          trustedIssuerDid: credential.issuer,
           revocation: freshEmptyRevocationCache(),
           connectors: [createMockSlackConnector()],
           auditReporter: { report: (event) => events.push(event) },
@@ -393,7 +426,7 @@ describe("vault service", () => {
         await app.inject({
           method: "POST",
           url: "/policies",
-          payload: { agentId: credential.issuer, tool: "mock-slack" },
+          payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
         });
         const tokenResponse = await app.inject({
           method: "POST",
@@ -416,14 +449,14 @@ describe("vault service", () => {
 
         expect(events).toEqual([
           {
-            agentDid: credential.issuer,
+            agentDid: agentDidOf(credential),
             tool: "mock-slack",
             action: "post-message",
             dataCategories: ["messaging-content"],
             policy: { rule: "scoped-token", decision: "allow" },
           },
           {
-            agentDid: credential.issuer,
+            agentDid: agentDidOf(credential),
             tool: "mock-slack",
             action: "delete-everything",
             dataCategories: [],
@@ -440,6 +473,7 @@ describe("vault service", () => {
       const app = await buildServer({
         db: vaultDb,
         cipher,
+        trustedIssuerDid: credential.issuer,
         revocation: freshEmptyRevocationCache(),
         connectors: [createMockDatabaseConnector()],
       });
@@ -452,7 +486,7 @@ describe("vault service", () => {
       await app.inject({
         method: "POST",
         url: "/policies",
-        payload: { agentId: credential.issuer, tool: "mock-database" },
+        payload: { agentId: agentDidOf(credential), tool: "mock-database" },
       });
       const tokenResponse = await app.inject({
         method: "POST",
@@ -499,7 +533,7 @@ describe("vault service", () => {
             const credential = await register();
             // did:web:127.0.0.1%3A4601:agents:<uuid> — the id is the final
             // colon-separated segment.
-            const agentId = credential.issuer.split(":").pop()!;
+            const agentId = agentDidOf(credential).split(":").pop()!;
 
             await app.inject({
               method: "POST",
@@ -509,7 +543,7 @@ describe("vault service", () => {
             await app.inject({
               method: "POST",
               url: "/policies",
-              payload: { agentId: credential.issuer, tool: "mock-slack" },
+              payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
             });
 
             // Works before revocation.

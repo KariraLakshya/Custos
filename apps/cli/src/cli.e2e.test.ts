@@ -1,5 +1,10 @@
 import { createServer, type Server } from "node:http";
-import { createLocalSecretCipher, ok, type SignedCredential } from "@custos/core";
+import {
+  createLocalKeyProvider,
+  createLocalSecretCipher,
+  ok,
+  type SignedCredential,
+} from "@custos/core";
 import {
   createMockDatabaseConnector,
   createMockSlackConnector,
@@ -54,12 +59,21 @@ const fakeStatusAllocator = {
     }),
 };
 
+/** A restart-stable issuer key, as the identity service requires (ADR 0007). */
+function testIssuerKey() {
+  return {
+    keyProvider: createLocalKeyProvider({ importedKeys: { issuer: new Uint8Array(32).fill(41) } }),
+    keyId: "issuer",
+  };
+}
+
 async function withRunningIdentityService<T>(
   port: number,
   run: (identityUrl: string) => Promise<T>,
 ): Promise<T> {
-  const app = buildServer({
+  const app = await buildServer({
     db,
+    issuerKey: testIssuerKey(),
     didDomain: `127.0.0.1:${port}`,
     statusAllocator: fakeStatusAllocator,
   });
@@ -98,8 +112,9 @@ async function withPhase3Stack<T>(
   });
   await revocationApp.listen({ port: ports.revocation, host: "127.0.0.1" });
 
-  const identityApp = buildServer({
+  const identityApp = await buildServer({
     db,
+    issuerKey: testIssuerKey(),
     didDomain: `127.0.0.1:${ports.identity}`,
     revocationUrl,
   });
@@ -111,6 +126,7 @@ async function withPhase3Stack<T>(
     connectors,
     revocationUrl,
     revocationIssuerDid: `did:web:127.0.0.1%3A${ports.revocation}`,
+    trustedIssuerDid: `did:web:127.0.0.1%3A${ports.identity}`,
     revocationResyncIntervalMs: 5_000,
     // Generous on purpose: some tests here jump a mutableClock far ahead to
     // simulate a scoped token's 60s TTL expiry, and that same clock also
@@ -168,8 +184,9 @@ async function withPhase4Stack<T>(
   });
   await revocationApp.listen({ port: ports.revocation, host: "127.0.0.1" });
 
-  const identityApp = buildServer({
+  const identityApp = await buildServer({
     db,
+    issuerKey: testIssuerKey(),
     didDomain: `127.0.0.1:${ports.identity}`,
     revocationUrl,
   });
@@ -181,6 +198,7 @@ async function withPhase4Stack<T>(
     connectors,
     revocationUrl,
     revocationIssuerDid: `did:web:127.0.0.1%3A${ports.revocation}`,
+    trustedIssuerDid: `did:web:127.0.0.1%3A${ports.identity}`,
     revocationResyncIntervalMs: 5_000,
     revocationMaxStalenessMs: 10 * 60_000,
     auditUrl,
@@ -339,7 +357,7 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
                 body: JSON.stringify({ tool, secret }),
               });
               expect(seeded.status).toBe(201);
-              await sdkAt({ vaultUrl }).grant({ did: credential.issuer }, tool);
+              await sdkAt({ vaultUrl }).grant(registered, tool);
             }
 
             // The agent's active session: one 60s token per tool, already
@@ -449,7 +467,7 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
             body: JSON.stringify({ tool: "mock-slack", secret: "xoxb-fake" }),
           });
           // Granted mock-slack only — Stripe is never granted.
-          await sdkAt({ vaultUrl }).grant({ did: credential.issuer }, "mock-slack");
+          await sdkAt({ vaultUrl }).grant(registered, "mock-slack");
 
           // Allowed: the granted tool succeeds.
           const allowed = await sdkAt({ vaultUrl })
@@ -480,10 +498,10 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
           // writes never block the caller), so both records may not have
           // landed the instant the HTTP responses above returned — poll
           // briefly rather than assume synchronous delivery.
-          let entries = await pullAuditLog({ auditUrl, agentDid: credential.issuer });
+          let entries = await pullAuditLog({ auditUrl, agentDid: registered.did });
           for (let attempt = 0; entries.length < 2 && attempt < 20; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 50));
-            entries = await pullAuditLog({ auditUrl, agentDid: credential.issuer });
+            entries = await pullAuditLog({ auditUrl, agentDid: registered.did });
           }
           expect(entries).toHaveLength(2);
           expect(entries.every((entry) => entry.verified)).toBe(true);

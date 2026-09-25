@@ -1,5 +1,5 @@
 import { createMockDatabaseConnector, createMockSlackConnector } from "@custos/connectors";
-import { createLocalSecretCipher } from "@custos/core";
+import { createLocalKeyProvider, createLocalSecretCipher } from "@custos/core";
 import { buildServer as buildIdentityServer, createDb as createIdentityDb } from "@custos/identity";
 import {
   buildServer as buildRevocationServer,
@@ -41,9 +41,15 @@ async function withStack<T>(
   });
   await revocationApp.listen({ port: ports.revocation, host: "127.0.0.1" });
 
-  const identityApp = buildIdentityServer({
+  const identityApp = await buildIdentityServer({
     db: identityDb,
     didDomain: `127.0.0.1:${ports.identity}`,
+    issuerKey: {
+      keyProvider: createLocalKeyProvider({
+        importedKeys: { issuer: new Uint8Array(32).fill(31) },
+      }),
+      keyId: "issuer",
+    },
     revocationUrl,
   });
   await identityApp.listen({ port: ports.identity, host: "127.0.0.1" });
@@ -54,6 +60,7 @@ async function withStack<T>(
     connectors: [createMockDatabaseConnector(), createMockSlackConnector()],
     revocationUrl,
     revocationIssuerDid: `did:web:127.0.0.1%3A${ports.revocation}`,
+    trustedIssuerDid: `did:web:127.0.0.1%3A${ports.identity}`,
     revocationResyncIntervalMs: 5_000,
   });
   await vaultApp.listen({ port: ports.vault, host: "127.0.0.1" });

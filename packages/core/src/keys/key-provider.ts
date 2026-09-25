@@ -10,4 +10,10 @@ export interface KeyProvider {
     readonly publicKey: Uint8Array;
   }>;
   readonly sign: (keyId: string, message: Uint8Array) => Promise<Uint8Array>;
+  /**
+   * The public key of an existing key. Lets a service use a long-lived key
+   * provisioned out of band (a KMS key, a dev seed) rather than minting a
+   * new one per boot — an issuer key must outlive restarts (ADR 0007).
+   */
+  readonly getPublicKey: (keyId: string) => Promise<Uint8Array>;
 }

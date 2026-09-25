@@ -1,4 +1,5 @@
 import { err, ok, type Result } from "@custos/contracts";
+import { buildRegistrationRequest, didWebFromDomain } from "@custos/core/possession";
 import { z } from "zod";
 
 /**
@@ -10,11 +11,18 @@ import { z } from "zod";
  */
 export type AgentCredential = { readonly issuer: string };
 
-/** Plain, JSON-serialisable data — persist it and hand it to the agent's own process. */
+/**
+ * Plain, JSON-serialisable data — persist it and hand it to the agent's own
+ * process. `secretKey` is the agent's private key: generated here, never sent
+ * anywhere, and the only thing that lets the agent prove it is itself. Store
+ * it like any private key (ADR 0007 decision 1).
+ */
 export interface Agent {
   readonly id: string;
   readonly did: string;
   readonly credential: AgentCredential;
+  /** Hex-encoded 32-byte Ed25519 private key. Secret. */
+  readonly secretKey: string;
 }
 
 export interface CustosConfig {
@@ -57,7 +65,11 @@ export interface DeprovisionResult {
 }
 
 export interface Custos {
-  /** Registers a new agent: keypair, did:web document, and signed identity credential. */
+  /**
+   * Registers a new agent: generates its keypair locally, proves possession
+   * of it to the identity service, and returns the issued credential together
+   * with the private key, which never left this process.
+   */
   register(): Promise<Agent>;
   /** Operator action: allowlists `tool` for `agent`. Without it every call is denied. */
   grant(agent: Pick<Agent, "did">, tool: string): Promise<GrantResult>;
@@ -153,9 +165,16 @@ export function createCustos(config: CustosConfig): Custos {
 
   return {
     async register() {
-      const response = await postJson(new URL("/agents", identityUrl));
+      const request = await buildRegistrationRequest({
+        // The proof names the identity service it is for: its did:web DID,
+        // derived from the URL it is reached at.
+        audience: didWebFromDomain(identityUrl.host),
+        now: new Date(),
+      });
+      const response = await postJson(new URL("/agents", identityUrl), request.body);
       expectOk("register", "identity service", response);
-      return parseOrThrow("register", agentSchema, response.body);
+      const registered = parseOrThrow("register", agentSchema, response.body);
+      return { ...registered, secretKey: Buffer.from(request.secretKey).toString("hex") };
     },
 
     async grant(agent, tool) {

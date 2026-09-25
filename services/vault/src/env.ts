@@ -12,6 +12,9 @@ export const envSchema = baseEnvSchema.extend({
   // DID of the revocation service, resolved once to get the key every pushed
   // tombstone is verified against. Must match REVOCATION_DID_DOMAIN there.
   REVOCATION_ISSUER_DID: z.string().min(1).default("did:web:localhost%3A4003"),
+  // DID of the identity service, the only issuer whose agent credentials this
+  // vault accepts (ADR 0007). Must match IDENTITY_DID_DOMAIN there.
+  VAULT_TRUSTED_ISSUER_DID: z.string().min(1).default("did:web:localhost%3A4001"),
   // Bounded staleness (CLAUDE.md section 3): if no resync has succeeded
   // within this window the vault denies calls rather than trusting a stale
   // allow list. Explicit configuration, never an accident.

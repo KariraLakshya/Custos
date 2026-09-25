@@ -42,11 +42,29 @@ Custos is four small services plus a dashboard. Open **five terminals** at the r
 | --- | ---------------------------------------- | ---- | --------------------------------------------------------------- |
 | 1   | `pnpm --filter @custos/audit start`      | 4004 | Stores and signs the audit trail                                |
 | 2   | `pnpm --filter @custos/revocation start` | 4003 | Tracks which agents are revoked; pushes revocations out         |
-| 3   | `pnpm --filter @custos/identity start`   | 4001 | Registers agents and issues their identity credentials          |
+| 3   | identity, see below                      | 4001 | Registers agents and issues their identity credentials          |
 | 4   | vault, see below                         | 4002 | Holds the real tool passwords and makes calls on agents' behalf |
 | 5   | `pnpm --filter @custos/dashboard start`  | 4005 | Live view of every decision                                     |
 
-The vault encrypts stored tool passwords with a key you provide, and refuses to start without one:
+Identity and vault each need a secret key you provide, and refuse to start without one.
+
+The identity service signs every agent's credential with its **issuer key**, generated from this seed:
+
+```bash
+# bash / zsh
+export IDENTITY_ISSUER_SEED=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+pnpm --filter @custos/identity start
+```
+
+```powershell
+# PowerShell
+$env:IDENTITY_ISSUER_SEED = node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+pnpm --filter @custos/identity start
+```
+
+Save the seed. Restart identity with the **same** seed and every credential it issued stays valid; start it with a new one and they all stop verifying.
+
+The vault encrypts stored tool passwords with its own key:
 
 ```bash
 # bash / zsh
@@ -61,6 +79,8 @@ pnpm --filter @custos/vault start
 ```
 
 Keep this key for as long as you want the stored passwords to stay readable. A vault restarted with a different key can't decrypt them, so re-store them (step 3).
+
+Both are local-development keys held in environment variables. Production uses AWS KMS, where the key can sign but can never be read out.
 
 Now open **http://localhost:4005** and keep it visible. Every allow and deny below appears there live.
 
@@ -91,15 +111,20 @@ alias custos="node apps/cli/dist/bin.js"                  # bash / zsh
 function custos { node apps/cli/dist/bin.js @args }      # PowerShell
 ```
 
-**Register an agent.** This creates its keypair, publishes its identity document, and issues its signed identity credential:
+**Register an agent.** The CLI generates the agent's keypair **on your machine**, proves to the identity service that it holds the private key, and gets back a credential the identity service signs, naming the agent and its public key:
 
 ```bash
 custos register --out agent.json
 ```
 
-Note the `"id"` near the top of the output; you'll need it to revoke the agent. `agent.json` is the agent's credential. Whoever holds it can act as that agent, so treat it like a password. It's already gitignored.
+This writes two files:
 
-**Check the credential independently.** This fetches the agent's public identity document fresh and verifies the signature itself rather than trusting the server's word:
+- **`agent.key`**: the agent's private key. It never leaves your machine; it isn't sent to Custos and isn't printed. `register` won't overwrite an existing key file.
+- **`agent.json`**: the agent's credential.
+
+Note the `"id"` near the top of the output; you'll need it to revoke the agent. Treat **both files** like passwords; both are gitignored. For now, `agent.json` alone is still enough to act as the agent. Requiring the private key on every access request is the next step on the build plan.
+
+**Check the credential independently.** This fetches the identity service's public identity document fresh and verifies the credential's signature itself, rather than trusting the server's word:
 
 ```bash
 custos verify agent.json
@@ -197,16 +222,19 @@ Stop each service with Ctrl+C, then `pnpm dev:down` to stop the databases. Data 
 
 ## Troubleshooting
 
-| Symptom                                                                   | Cause and fix                                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm dev` fails with `failed to connect to the docker API`               | Docker Desktop isn't running. Start it and wait until it's ready.                                                                                                                                                                                |
-| Vault exits with `VAULT_MASTER_KEY … must be 64 hex characters`           | Set the key in the **same terminal** before starting the vault (step 2).                                                                                                                                                                         |
-| `custos register` fails with a 502                                        | The revocation service isn't running. Identity needs it to reserve the agent's revocation slot, and refuses to create an agent that couldn't be revoked.                                                                                         |
-| Calls denied with `REVOCATION_STATE_STALE`                                | The vault can't reach the revocation service, so it refuses rather than risk allowing a revoked agent. Start revocation; the vault catches up within ~10 s.                                                                                      |
-| `use` fails with a 404 `UNKNOWN_TOOL`                                     | The tool's password isn't in the vault (or the tool name is misspelled). Run the seed command in step 3.                                                                                                                                         |
-| `use` fails with a 500 `invalid tag`                                      | The stored tool password was encrypted under a different `VAULT_MASTER_KEY`: the vault was restarted with a new key, or `pnpm test` / `pnpm test:e2e` ran against the same database and stored test secrets. Re-run the seed commands in step 3. |
-| Windows: Docker can't bind port 5433 (`access permissions`, not "in use") | Windows NAT reserved the port. From an **elevated** shell: `net stop winnat`, `netsh int ipv4 add excludedportrange protocol=tcp startport=5433 numberofports=1 store=persistent`, `net start winnat`.                                           |
-| Something else already uses 5432                                          | Expected. Custos's Postgres uses **5433** on purpose.                                                                                                                                                                                            |
+| Symptom                                                                     | Cause and fix                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm dev` fails with `failed to connect to the docker API`                 | Docker Desktop isn't running. Start it and wait until it's ready.                                                                                                                                                                                |
+| Identity exits with `IDENTITY_ISSUER_SEED … expected string`                | Set the seed in the **same terminal** before starting identity (step 2).                                                                                                                                                                         |
+| Vault exits with `VAULT_MASTER_KEY … must be 64 hex characters`             | Set the key in the **same terminal** before starting the vault (step 2).                                                                                                                                                                         |
+| `custos register` fails with `refusing to overwrite existing key file`      | An `agent.key` from an earlier registration is in the way. Move it, or pass `--key-out <path>` for the new agent.                                                                                                                                |
+| Every call denied with `INVALID_AGENT_CREDENTIAL` after restarting identity | Identity was restarted with a **different** `IDENTITY_ISSUER_SEED`, so earlier credentials no longer verify. Restart it with the original seed, or register agents again.                                                                        |
+| `custos register` fails with a 502                                          | The revocation service isn't running. Identity needs it to reserve the agent's revocation slot, and refuses to create an agent that couldn't be revoked.                                                                                         |
+| Calls denied with `REVOCATION_STATE_STALE`                                  | The vault can't reach the revocation service, so it refuses rather than risk allowing a revoked agent. Start revocation; the vault catches up within ~10 s.                                                                                      |
+| `use` fails with a 404 `UNKNOWN_TOOL`                                       | The tool's password isn't in the vault (or the tool name is misspelled). Run the seed command in step 3.                                                                                                                                         |
+| `use` fails with a 500 `invalid tag`                                        | The stored tool password was encrypted under a different `VAULT_MASTER_KEY`: the vault was restarted with a new key, or `pnpm test` / `pnpm test:e2e` ran against the same database and stored test secrets. Re-run the seed commands in step 3. |
+| Windows: Docker can't bind port 5433 (`access permissions`, not "in use")   | Windows NAT reserved the port. From an **elevated** shell: `net stop winnat`, `netsh int ipv4 add excludedportrange protocol=tcp startport=5433 numberofports=1 store=persistent`, `net start winnat`.                                           |
+| Something else already uses 5432                                            | Expected. Custos's Postgres uses **5433** on purpose.                                                                                                                                                                                            |
 
 ---
 
@@ -220,6 +248,33 @@ pnpm typecheck
 ```
 
 The test suite includes negative cases for every security control: a tampered credential, an expired token, a revoked agent, an unknown signing key, and a tool outside the allowlist are each proven to fail.
+
+### Using AWS KMS for the issuer key
+
+In production the identity service signs credentials with an AWS KMS key instead of a seed. The private key is created inside KMS and can never be read out.
+
+1. Create an Ed25519 signing key:
+
+   ```bash
+   aws kms create-key --key-spec ECC_NIST_EDWARDS25519 --key-usage SIGN_VERIFY --description "Custos issuer key"
+   ```
+
+2. Give the identity service's AWS identity `kms:GetPublicKey` and `kms:Sign` on that key, and nothing else.
+3. Start identity with it. AWS region and credentials come from the standard AWS configuration (`AWS_REGION`, `AWS_PROFILE`, instance role, and so on):
+
+   ```bash
+   export IDENTITY_KEY_PROVIDER=kms
+   export IDENTITY_ISSUER_KMS_KEY_ID=<key id or ARN>
+   pnpm --filter @custos/identity start
+   ```
+
+Identity reads the key at boot and refuses to start if it can't, so a wrong key ID or missing permission shows up straight away, not at the first registration.
+
+To check a key end to end (real KMS signatures verified by Custos's own code; creates nothing):
+
+```bash
+CUSTOS_TEST_KMS_KEY_ID=<key id or ARN> pnpm --filter @custos/identity test:kms
+```
 
 ## Repository layout
 

@@ -26,3 +26,6 @@ bash.exe.stackdump
 
 # agent credentials written by `custos register --out` in the README walkthrough
 agent.json
+
+# agent private keys written by `custos register` (--key-out, default agent.key)
+*.key

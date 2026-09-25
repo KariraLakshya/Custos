@@ -10,9 +10,11 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:kms": "vitest run src/keys/kms-key-provider.aws.test.ts --coverage.enabled=false --mode kms"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.1140.0",
     "@custos/config": "workspace:*",
     "@custos/core": "workspace:*",
     "@custos/observability": "workspace:*",

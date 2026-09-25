@@ -4,7 +4,7 @@ _The handover between sessions. Read it first. Update it before finishing any ph
 
 _Write for a future Claude reading cold — state what exists, not what was intended. Git history and `docs/adr/` are the changelog and rationale; this is not a narrative retelling of either. One line per package/service. For a plain-language log aimed at the founder, see `docs/progress.md` — update both, they serve different readers._
 
-**Current phase:** Phase 5 — Developer surface & clean demo, in progress. Phases 0–4 complete (MVP core: identity, vault, revocation, authorization+audit). Phase 4 + dashboard (PR #36) and SDK (PR #38, `ea2c43f`) merged to `main`. Phase 5's dashboard, SDK, and README are written; the README quickstart is on branch `feat/phase-5-readme`. **Phase 5 is not complete**: its DONE check (non-author README run) is deliberately deferred until after **Phase 5b — Auth hardening** (`docs/build-plan.md`, ADR 0007), which is next.
+**Current phase:** Phase 5b — Auth hardening, in progress (steps 1–2 of 5 implemented, uncommitted on `feat/phase-5b-issuer-key`). Phases 0–4 complete; Phase 5 built and merged (PRs #36, #38, #39) — its DONE check (non-author README run) is deferred until after 5b. Phase 5b design merged (PR #40, ADR 0007).
 **Last updated:** 2026-09-25
 
 ## Implemented, by phase
@@ -18,7 +18,10 @@ _Write for a future Claude reading cold — state what exists, not what was inte
 
 ## In progress / not yet merged
 
-README + the three fixes on `feat/phase-5-readme`. Remaining for Phase 5: a non-author follows `README.md` alone, end to end; fix whatever they trip on.
+Phase 5b steps 1–2 on `feat/phase-5b-issuer-key` (uncommitted):
+
+- **Step 1, stable issuer key.** `packages/core` `KeyProvider.getPublicKey`; `createLocalKeyProvider({ importedKeys })` (seed → restart-stable dev key). `services/identity/src/keys/kms-key-provider.ts` (`@aws-sdk/client-kms`, Ed25519, strict SPKI parsing), wired via `src/keys/issuer-key.ts` (`IDENTITY_KEY_PROVIDER=local|kms`, `IDENTITY_ISSUER_KMS_KEY_ID`); boot fails closed on an unusable key (verified live). **Never run against real KMS**: this machine's AWS credentials are invalid (`InvalidClientTokenId`). Run `CUSTOS_TEST_KMS_KEY_ID=… pnpm --filter @custos/identity test:kms` once they work; without the id it fails deliberately (`--mode kms`), while normal `pnpm test` skips it.
+- **Step 2, agent-held keys + issuer-signed credentials.** `packages/core/src/proof/possession.ts` (typed/aud/iat/jti proof envelope, `buildRegistrationRequest`) + `multibaseToPublicKey` + light entry `@custos/core/possession`. `services/identity`: requires `issuerKey` (env `IDENTITY_ISSUER_SEED`, no default), publishes `/.well-known/did.json`, `POST /agents` takes `{ publicKey, proof }` → credential with `issuer` = identity DID, `credentialSubject` = `{ id: agentDid, publicKeyMultibase }` (inline JSON-LD context). Unique `agents.public_key_multibase` (migration `0005`). `services/vault`: `tokens/trusted-issuer.ts`, pinned by `VAULT_TRUSTED_ISSUER_DID`; identity = `credentialSubject.id`; revocation/allowlist checked after verification. SDK `register()` generates the key locally, `Agent.secretKey` (hex). CLI `register --key-out` (default `agent.key`, `wx` + `0o600`, never printed); `grant` uses the subject. Verified live: restart with same seed keeps credentials valid; foreign issuer refused. Details and deviations: ADR 0007 "Implementation notes".
 
 Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's close (incl. `zod` 3→4, `@noble/*` bumps under `packages/core`) — re-check before assuming still open.
 
@@ -38,7 +41,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 - `agent_policies` has grant but no revoke-grant endpoint (only whole-agent `deprovision`) — not required by Phase 4, deliberately deferred (ADR 0006).
 - `audit_records` are individually signed, not hash-chained (no cross-row tamper detection) — deferred hardening, not required by Phase 4 (ADR 0006).
 - `@custos/sdk` has no request timeout (a hung service hangs the caller) and requires all three service URLs even for an agent-only process that needs just the vault — kept minimal, revisit on demand.
-- **Agent credentials are bearer credentials** (a copied `agent.json` acts as the agent) and **control-plane endpoints are unauthenticated** — both scheduled as Phase 5b (ADR 0007; ADR 0008 pending). README warns; `agent.json` gitignored.
+- **`agent.json` is still a bearer credential until Phase 5b step 3** (proof of possession on `POST /tokens`) — the agent now holds its key (`agent.key`) but the vault doesn't yet demand it. **Control-plane endpoints, and `POST /agents`, are unauthenticated** — step 4 (ADR 0008 pending). README states both.
 - Vault: a stored tool secret that fails to decrypt (e.g. vault restarted with a different `VAULT_MASTER_KEY`) surfaces as an unhandled 500 `invalid tag` on `/call` — fails closed, but should be a clean error code. Re-seeding the tool fixes it (upsert).
 - Stripe connector verified to reach the correct real endpoint (placeholder key → Stripe's own 401), but never with a real `sk_test_` key — a successful real call is unproven.
 - `Connector.dataCategories` is a static per-tool declaration, not per-response data classification (PII detection etc. is explicitly out of scope until a later phase — CLAUDE.md §2).
@@ -50,6 +53,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 - `pnpm test` requires the Compose stack up (`pnpm dev`) plus `pnpm migrate`; the `.husky/pre-push` gate runs lint + typecheck + test, so a push fails on a stopped Docker daemon. `test:e2e` is deliberately not in that gate — slowest layer; run it by hand for cross-service changes.
 - Docker Desktop doesn't auto-start with `pnpm dev` — start it first.
 - pnpm installed via `npm install -g pnpm@9.15.0` (`corepack enable` hit `EPERM` in this environment).
+- `services/identity` refuses to boot without `IDENTITY_ISSUER_SEED` (64 hex, no default); keep the same seed across restarts or every issued credential stops verifying. Tests don't need it — they pass `issuerKey` directly.
 - `services/vault` refuses to boot without `VAULT_MASTER_KEY` (32-byte hex, no default) — export it first when running standalone.
 - **Turborepo 2.x strict env mode**: a task only sees env vars listed in `turbo.json`'s `env`/`globalEnv`. `DATABASE_URL`/`REDIS_URL`/`VAULT_MASTER_KEY` are declared for `test`/`test:e2e` — **any new env var a test needs must be added there too**, or it silently falls back to a hardcoded default instead of failing loudly. To check: point `DATABASE_URL` at a dead port and run `npx turbo run test --force --filter=<pkg>` — it must **fail**; if it passes, the var isn't reaching the task.
 - Root `eslint.config.js` has a `**/*.mjs` override adding Node globals — needed for plain Node scripts (e.g. `services/vault/scripts/seed-credential.mjs`) outside the TS project.

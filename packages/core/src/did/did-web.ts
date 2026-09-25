@@ -1,4 +1,5 @@
 import * as base58btc from "base58-universal";
+import { err, ok, type Result } from "../result.js";
 
 const MULTIBASE_BASE58BTC_PREFIX = "z";
 // multicodec ed25519-pub varint header, per the Ed25519VerificationKey2020 spec
@@ -15,6 +16,42 @@ export function publicKeyToMultibase(publicKey: Uint8Array): string {
   prefixed.set(MULTICODEC_ED25519_PUB_HEADER, 0);
   prefixed.set(publicKey, MULTICODEC_ED25519_PUB_HEADER.length);
   return MULTIBASE_BASE58BTC_PREFIX + base58btc.encode(prefixed);
+}
+
+// A 34-byte multicodec-prefixed key is 46–48 base58 characters; anything
+// far longer is refused before decoding (untrusted input).
+const MAX_MULTIBASE_KEY_LENGTH = 64;
+
+/**
+ * Inverse of `publicKeyToMultibase`, for untrusted input (e.g. a key an agent
+ * submits at registration): fails as a value on anything that is not exactly
+ * a base58btc, ed25519-pub-prefixed, 32-byte key.
+ */
+export function multibaseToPublicKey(
+  multibase: string,
+): Result<Uint8Array, { readonly code: "MALFORMED_PUBLIC_KEY" }> {
+  const malformed = err({ code: "MALFORMED_PUBLIC_KEY" as const });
+  if (
+    multibase.length > MAX_MULTIBASE_KEY_LENGTH ||
+    !multibase.startsWith(MULTIBASE_BASE58BTC_PREFIX)
+  ) {
+    return malformed;
+  }
+  let decoded: Uint8Array | undefined;
+  try {
+    decoded = base58btc.decode(multibase.slice(MULTIBASE_BASE58BTC_PREFIX.length));
+  } catch {
+    return malformed;
+  }
+  const headerLength = MULTICODEC_ED25519_PUB_HEADER.length;
+  if (
+    decoded?.length !== headerLength + 32 ||
+    decoded[0] !== MULTICODEC_ED25519_PUB_HEADER[0] ||
+    decoded[1] !== MULTICODEC_ED25519_PUB_HEADER[1]
+  ) {
+    return malformed;
+  }
+  return ok(decoded.slice(headerLength));
 }
 
 export interface Ed25519VerificationMethod2020 {

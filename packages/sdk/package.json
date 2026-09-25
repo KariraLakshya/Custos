@@ -21,11 +21,11 @@
   },
   "dependencies": {
     "@custos/contracts": "workspace:*",
+    "@custos/core": "workspace:*",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@custos/connectors": "workspace:*",
-    "@custos/core": "workspace:*",
     "@custos/identity": "workspace:*",
     "@custos/revocation": "workspace:*",
     "@custos/tsconfig": "workspace:*",

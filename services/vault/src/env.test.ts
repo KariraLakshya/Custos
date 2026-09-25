@@ -12,6 +12,21 @@ describe("vault env", () => {
     expect(loadVaultEnv({ PORT: "5000", VAULT_MASTER_KEY: validMasterKey }).PORT).toBe(5000);
   });
 
+  it("defaults the trusted issuer to the local identity service's DID", () => {
+    expect(loadVaultEnv({ VAULT_MASTER_KEY: validMasterKey }).VAULT_TRUSTED_ISSUER_DID).toBe(
+      "did:web:localhost%3A4001",
+    );
+  });
+
+  it("accepts a configured trusted issuer DID", () => {
+    expect(
+      loadVaultEnv({
+        VAULT_MASTER_KEY: validMasterKey,
+        VAULT_TRUSTED_ISSUER_DID: "did:web:identity.custos.example",
+      }).VAULT_TRUSTED_ISSUER_DID,
+    ).toBe("did:web:identity.custos.example");
+  });
+
   it("refuses to boot without VAULT_MASTER_KEY", () => {
     expect(() => loadVaultEnv({})).toThrow();
   });
