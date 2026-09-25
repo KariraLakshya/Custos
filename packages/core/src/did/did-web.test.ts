@@ -5,6 +5,7 @@ import {
   buildDidWebDocument,
   didWebFromDomain,
   didWebToResolutionUrl,
+  multibaseToPublicKey,
   publicKeyToMultibase,
 } from "./did-web.js";
 
@@ -61,6 +62,39 @@ describe("publicKeyToMultibase", () => {
       const reference = await Ed25519VerificationKey2020.generate({ seed: secretKey });
       expect(publicKeyToMultibase(publicKey)).toBe(reference.publicKeyMultibase);
     }
+  });
+});
+
+describe("multibaseToPublicKey", () => {
+  it("round-trips a public key through publicKeyToMultibase", () => {
+    const { publicKey } = generateKeyPair();
+    expect(multibaseToPublicKey(publicKeyToMultibase(publicKey))).toEqual({
+      ok: true,
+      value: publicKey,
+    });
+  });
+
+  it("decodes the reference Ed25519VerificationKey2020 encoding", async () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const reference = await Ed25519VerificationKey2020.generate({ seed: secretKey });
+    expect(multibaseToPublicKey(reference.publicKeyMultibase)).toEqual({
+      ok: true,
+      value: publicKey,
+    });
+  });
+
+  // Untrusted input (an agent submits its key at registration): every
+  // malformation is a value, never a throw.
+  it.each([
+    ["an empty string", ""],
+    ["a non-base58btc multibase prefix", "m7QHRlc3Q"],
+    ["characters outside base58", "z0OIl"],
+    ["a key with the wrong multicodec header", `z${"1".repeat(46)}`],
+    ["a truncated key", publicKeyToMultibase(new Uint8Array(32)).slice(0, -4)],
+    ["an oversized input", `z${"2".repeat(5000)}`],
+  ])("rejects %s", (_label, input) => {
+    const result = multibaseToPublicKey(input);
+    expect(result.ok).toBe(false);
   });
 });
 

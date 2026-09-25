@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { generateKeyPair, sign, verify } from "./ed25519.js";
+import { generateKeyPair, publicKeyFromSecretKey, sign, verify } from "./ed25519.js";
 
 describe("ed25519", () => {
   it("generates a 32-byte public key and 32-byte secret key", () => {
     const keyPair = generateKeyPair();
     expect(keyPair.publicKey).toHaveLength(32);
     expect(keyPair.secretKey).toHaveLength(32);
+  });
+
+  it("derives the same public key from a secret key that generateKeyPair() returned with it", () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    expect(publicKeyFromSecretKey(secretKey)).toEqual(publicKey);
   });
 
   it("generates a different key pair on every call", () => {

@@ -19,6 +19,11 @@ export function generateKeyPair(): Ed25519KeyPair {
   return { publicKey, secretKey };
 }
 
+/** An Ed25519 secret key is its 32-byte seed; the public key is derived from it. */
+export function publicKeyFromSecretKey(secretKey: Uint8Array): Uint8Array {
+  return ed25519.getPublicKey(secretKey);
+}
+
 export function sign(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
   return ed25519.sign(message, secretKey);
 }
