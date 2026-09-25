@@ -1,0 +1,15 @@
+# Gitleaks configuration. Extends the default rules; the allowlist below is
+# deliberately narrow — exact public constants only, never paths or patterns
+# that could hide a real secret.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public identifiers that match generic-api-key but are not secrets"
+regexTarget = "secret"
+regexes = [
+  # AWS KMS key spec name for Ed25519 signing keys (ADR 0007): a public enum
+  # value, flagged only because it sits after `KeySpec:`.
+  '''^ECC_NIST_EDWARDS25519$''',
+]
