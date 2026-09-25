@@ -14,6 +14,8 @@ import { err, ok, type Result } from "../result.js";
  * accepted where a token-request proof is expected.
  */
 export const REGISTRATION_PROOF_TYPE = "custos-registration-proof";
+/** A token request to the vault (ADR 0007 decision 3); `aud` is the vault's `/tokens` URL. */
+export const TOKEN_REQUEST_PROOF_TYPE = "custos-token-request-proof";
 
 export interface PossessionProofClaims {
   /** Which kind of proof this is; see `REGISTRATION_PROOF_TYPE`. */
@@ -153,4 +155,30 @@ export async function buildRegistrationRequest(params: {
     secretKey,
     body: { publicKey: publicKeyToMultibase(publicKey), proof: proof.value },
   };
+}
+
+/**
+ * Proof that accompanies every `POST /tokens` (ADR 0007 decision 3): made with
+ * the agent's own key, addressed to the vault's `/tokens` URL, fresh, and
+ * single-use (the vault remembers `jti`s). Without it, a copied credential
+ * gets no tokens.
+ */
+export async function buildTokenRequestProof(params: {
+  readonly audience: string;
+  readonly secretKey: Uint8Array;
+  readonly now: Date;
+  readonly jti?: string;
+}): Promise<string> {
+  const proof = await issuePossessionProof({
+    claims: {
+      typ: TOKEN_REQUEST_PROOF_TYPE,
+      aud: params.audience,
+      iat: Math.floor(params.now.getTime() / 1000),
+      jti: params.jti ?? crypto.randomUUID(),
+    },
+    sign: async (data) => sign(data, params.secretKey),
+  });
+  // Signing with an in-memory key cannot fail short of a programmer error.
+  if (!proof.ok) throw new Error(proof.error.reason);
+  return proof.value;
 }

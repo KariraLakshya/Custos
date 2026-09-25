@@ -15,6 +15,12 @@ export const envSchema = baseEnvSchema.extend({
   // DID of the identity service, the only issuer whose agent credentials this
   // vault accepts (ADR 0007). Must match IDENTITY_DID_DOMAIN there.
   VAULT_TRUSTED_ISSUER_DID: z.string().min(1).default("did:web:localhost%3A4001"),
+  // This vault's public base URL as agents reach it; token-request proofs
+  // must be addressed to <VAULT_PUBLIC_URL>/tokens (ADR 0007).
+  VAULT_PUBLIC_URL: z.string().url().default("http://localhost:4002"),
+  // Freshness window for a token-request proof: |now - iat|. Explicit
+  // configuration, never an accident (CLAUDE.md section 3).
+  VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS: z.coerce.number().int().positive().default(60),
   // Bounded staleness (CLAUDE.md section 3): if no resync has succeeded
   // within this window the vault denies calls rather than trusting a stale
   // allow list. Explicit configuration, never an accident.

@@ -6,8 +6,10 @@ export { generateKeyPair, sign } from "./crypto/ed25519.js";
 export { didWebFromDomain, publicKeyToMultibase } from "./did/did-web.js";
 export {
   buildRegistrationRequest,
+  buildTokenRequestProof,
   issuePossessionProof,
   REGISTRATION_PROOF_TYPE,
+  TOKEN_REQUEST_PROOF_TYPE,
   type PossessionProofClaims,
   type RegistrationRequest,
 } from "./proof/possession.js";
