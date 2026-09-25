@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 5 — Developer surface & clean demo ★** — built; its DONE check (non-author README run) follows **Phase 5b — Auth hardening**, which is next.
+> **CURRENT: Phase 5b — Auth hardening** (in progress). Phase 5 is built; its DONE check (non-author README run) follows 5b.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
