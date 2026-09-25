@@ -10,6 +10,7 @@ import Fastify from "fastify";
 import { z } from "zod";
 import { storeToolCredential } from "./credentials/store.js";
 import { issueToolToken } from "./tokens/issue.js";
+import { createTrustedIssuer } from "./tokens/trusted-issuer.js";
 import { invokeTool } from "./calls/invoke.js";
 import { grantToolAccess } from "./policy/policy.js";
 import { createRevocationCache, type RevocationCache } from "./revocation/cache.js";
@@ -81,6 +82,11 @@ export async function buildServer(options: {
   readonly clock?: { now(): Date };
   readonly revocation?: RevocationCache;
   readonly revocationIssuerDid?: string;
+  /**
+   * DID of the identity service — the only issuer whose agent credentials
+   * this vault accepts (ADR 0007). Must match `IDENTITY_DID_DOMAIN` there.
+   */
+  readonly trustedIssuerDid?: string;
   readonly revocationUrl?: string;
   readonly revocationMaxStalenessMs?: number;
   /** Omitted in tests, which drive the cache directly and deterministically. */
@@ -96,6 +102,9 @@ export async function buildServer(options: {
   );
   const keyProvider = options.keyProvider ?? createLocalKeyProvider();
   const clock = options.clock ?? { now: () => new Date() };
+  const trustedIssuer = createTrustedIssuer({
+    did: options.trustedIssuerDid ?? "did:web:localhost%3A4001",
+  });
   const { keyId: signingKeyId, publicKey: vaultPublicKey } = await keyProvider.createKeyPair();
   const auditReporter =
     options.auditReporter ??
@@ -209,6 +218,7 @@ export async function buildServer(options: {
       action: body.data.action,
       now: clock.now(),
       revocation,
+      trustedIssuer,
     });
     if (!result.ok) {
       // Only these two codes are genuine authorization decisions about a

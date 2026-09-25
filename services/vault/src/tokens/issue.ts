@@ -1,8 +1,6 @@
 import {
-  didWebToResolutionUrl,
   issueScopedToken,
   verifyCredential,
-  type DidWebDocument,
   type KeyProvider,
   type SignedCredential,
 } from "@custos/core";
@@ -10,6 +8,7 @@ import { err, ok, type Result } from "@custos/contracts";
 import { toolCredentialExists } from "../credentials/store.js";
 import { isToolAllowed } from "../policy/policy.js";
 import type { VaultDb } from "../db/client.js";
+import type { TrustedIssuer } from "./trusted-issuer.js";
 
 const DEFAULT_TTL_SECONDS = 60;
 
@@ -25,35 +24,23 @@ export interface IssuedToolToken {
   readonly expiresAt: string;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /**
- * Resolves and returns the issuer's DID document fresh over HTTP — the same
- * independent-verification pattern as `apps/cli`'s `verify` command (see
- * CLAUDE.md section 3): the vault shares no state with whatever issued this
- * credential. This is the cold path (token issuance, not the per-call hot
- * path), so a network call here is fine.
+ * The agent's identity is the credential's subject, not its issuer (ADR 0007
+ * decision 2: the issuer is the identity service, the same for every agent).
+ * Read only after the credential has verified — before that, it is a claim.
  */
-async function resolveAgentDidDocument(issuer: string): Promise<Result<DidWebDocument, string>> {
-  const resolutionUrl = didWebToResolutionUrl(issuer);
-  let response: Response;
-  try {
-    response = await fetch(resolutionUrl);
-  } catch (error) {
-    return err(`could not reach issuer DID document (${resolutionUrl}): ${errorMessage(error)}`);
-  }
-  if (!response.ok) {
-    return err(`could not resolve issuer DID document (${resolutionUrl}): HTTP ${response.status}`);
-  }
-  return ok((await response.json()) as DidWebDocument);
+function subjectOf(credential: SignedCredential): string | null {
+  const subject = credential.credentialSubject as { id?: unknown } | undefined;
+  return typeof subject?.id === "string" && subject.id.length > 0 ? subject.id : null;
 }
 
 /**
  * Issues a 60s-default scoped token (CLAUDE.md section 4) for a verified
- * agent, bound to one tool and one action. Requires: the tool has a stored
- * credential, and the agent's identity credential independently verifies.
+ * agent, bound to one tool and one action. Requires: the credential was
+ * issued by the pinned trusted issuer and verifies against its published key,
+ * the tool has a stored credential, the agent is not revoked, and it holds a
+ * grant for the tool — in that order, so nothing is decided about an
+ * identity before that identity is cryptographically confirmed.
  */
 export async function issueToolToken(params: {
   readonly db: VaultDb;
@@ -65,6 +52,7 @@ export async function issueToolToken(params: {
   readonly now: Date;
   readonly ttlSeconds?: number;
   readonly revocation: { isRevoked(agentDid: string): boolean };
+  readonly trustedIssuer: TrustedIssuer;
 }): Promise<Result<IssuedToolToken, IssueToolTokenError>> {
   const {
     db,
@@ -75,44 +63,57 @@ export async function issueToolToken(params: {
     action,
     now,
     revocation,
+    trustedIssuer,
     ttlSeconds = DEFAULT_TTL_SECONDS,
   } = params;
 
-  // Checked before anything expensive: a revoked agent gets no new tokens,
-  // so revocation closes the issuance path as well as the call path.
-  if (revocation.isRevoked(agentCredential.issuer)) {
-    return err({ code: "AGENT_REVOKED", agentId: agentCredential.issuer });
+  // A credential from any issuer but the pinned one is refused outright —
+  // including a self-issued one, which anyone with a keypair can produce.
+  if (agentCredential.issuer !== trustedIssuer.did) {
+    return err({ code: "INVALID_AGENT_CREDENTIAL", reason: "UNTRUSTED_ISSUER" });
   }
 
   if (!(await toolCredentialExists(db, tool))) {
     return err({ code: "UNKNOWN_TOOL", tool });
   }
 
-  const didDocument = await resolveAgentDidDocument(agentCredential.issuer);
-  if (!didDocument.ok) {
-    return err({ code: "INVALID_AGENT_CREDENTIAL", reason: didDocument.error });
+  const issuerDocument = await trustedIssuer.resolveDidDocument();
+  if (!issuerDocument.ok) {
+    return err({ code: "INVALID_AGENT_CREDENTIAL", reason: issuerDocument.error });
   }
 
   const verified = await verifyCredential({
     credential: agentCredential,
-    didDocument: didDocument.value,
+    didDocument: issuerDocument.value,
   });
   if (!verified.ok) {
     return err({ code: "INVALID_AGENT_CREDENTIAL", reason: verified.error.code });
   }
 
-  // Authorization is checked only now that the agent's identity is
-  // cryptographically confirmed — an allow/deny decision means nothing
-  // against an unverified claimant (build plan Phase 4: "simple allowlists
-  // per agent × tool"). Fail closed: no grant row means denied.
-  if (!(await isToolAllowed(db, agentCredential.issuer, tool))) {
-    return err({ code: "POLICY_DENIED", agentId: agentCredential.issuer, tool });
+  const agentId = subjectOf(agentCredential);
+  if (agentId === null) {
+    return err({ code: "INVALID_AGENT_CREDENTIAL", reason: "MISSING_SUBJECT" });
+  }
+
+  // Revocation and authorization are decided only now that the agent's
+  // identity is cryptographically confirmed — a decision about an unverified
+  // claimant means nothing, and would put its claimed name in the audit log.
+  // A revoked agent gets no new tokens: revocation closes the issuance path
+  // as well as the call path.
+  if (revocation.isRevoked(agentId)) {
+    return err({ code: "AGENT_REVOKED", agentId });
+  }
+
+  // Build plan Phase 4: "simple allowlists per agent × tool". Fail closed:
+  // no grant row means denied.
+  if (!(await isToolAllowed(db, agentId, tool))) {
+    return err({ code: "POLICY_DENIED", agentId, tool });
   }
 
   const iat = Math.floor(now.getTime() / 1000);
   const exp = iat + ttlSeconds;
   const issued = await issueScopedToken({
-    claims: { sub: agentCredential.issuer, tool, action, iat, exp },
+    claims: { sub: agentId, tool, action, iat, exp },
     signer: { sign: (data) => keyProvider.sign(signingKeyId, data) },
   });
   if (!issued.ok) {

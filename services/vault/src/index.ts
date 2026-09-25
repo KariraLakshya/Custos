@@ -23,6 +23,7 @@ const app = await buildServer({
   connectors,
   revocationUrl: env.REVOCATION_URL,
   revocationIssuerDid: env.REVOCATION_ISSUER_DID,
+  trustedIssuerDid: env.VAULT_TRUSTED_ISSUER_DID,
   revocationMaxStalenessMs: env.REVOCATION_MAX_STALENESS_MS,
   revocationResyncIntervalMs: env.REVOCATION_RESYNC_INTERVAL_MS,
   auditUrl: env.AUDIT_URL,
