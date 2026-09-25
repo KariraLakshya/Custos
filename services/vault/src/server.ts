@@ -10,6 +10,7 @@ import Fastify from "fastify";
 import { z } from "zod";
 import { storeToolCredential } from "./credentials/store.js";
 import { issueToolToken } from "./tokens/issue.js";
+import { createInMemoryReplayCache } from "./tokens/replay-cache.js";
 import { createTrustedIssuer } from "./tokens/trusted-issuer.js";
 import { invokeTool } from "./calls/invoke.js";
 import { grantToolAccess } from "./policy/policy.js";
@@ -30,6 +31,8 @@ const issueTokenSchema = z.object({
   tool: z.string().min(1),
   action: z.string().min(1),
   credential: z.object({ issuer: z.string().min(1) }).passthrough(),
+  // Proof of possession of the agent's key (ADR 0007). Bounded before parsing.
+  proof: z.string().min(1).max(4096),
 });
 
 const callSchema = z.object({
@@ -51,6 +54,7 @@ function statusFor(code: string): number {
   if (code === "UNKNOWN_TOOL") return 404;
   if (
     code === "INVALID_AGENT_CREDENTIAL" ||
+    code === "INVALID_PROOF_OF_POSSESSION" ||
     code === "INVALID_TOKEN" ||
     code === "ACTION_MISMATCH"
   ) {
@@ -87,6 +91,13 @@ export async function buildServer(options: {
    * this vault accepts (ADR 0007). Must match `IDENTITY_DID_DOMAIN` there.
    */
   readonly trustedIssuerDid?: string;
+  /**
+   * This vault's public base URL, as agents reach it. A token-request proof
+   * must name `<publicUrl>/tokens`. Taken from configuration, never from the
+   * request's Host header, which a client or proxy controls.
+   */
+  readonly publicUrl?: string;
+  readonly tokenProofMaxSkewSeconds?: number;
   readonly revocationUrl?: string;
   readonly revocationMaxStalenessMs?: number;
   /** Omitted in tests, which drive the cache directly and deterministically. */
@@ -102,6 +113,9 @@ export async function buildServer(options: {
   );
   const keyProvider = options.keyProvider ?? createLocalKeyProvider();
   const clock = options.clock ?? { now: () => new Date() };
+  const tokensAudience = new URL("/tokens", options.publicUrl ?? "http://localhost:4002").href;
+  const tokenProofMaxSkewSeconds = options.tokenProofMaxSkewSeconds ?? 60;
+  const replayCache = createInMemoryReplayCache();
   const trustedIssuer = createTrustedIssuer({
     did: options.trustedIssuerDid ?? "did:web:localhost%3A4001",
   });
@@ -219,6 +233,12 @@ export async function buildServer(options: {
       now: clock.now(),
       revocation,
       trustedIssuer,
+      proofOfPossession: {
+        proof: body.data.proof,
+        audience: tokensAudience,
+        maxSkewSeconds: tokenProofMaxSkewSeconds,
+        replayCache,
+      },
     });
     if (!result.ok) {
       // Only these two codes are genuine authorization decisions about a
