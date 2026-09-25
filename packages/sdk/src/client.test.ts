@@ -311,11 +311,11 @@ describe("connect(...).call", () => {
   });
 
   it("throws on transport failure — an unreachable vault is not a denial", async () => {
-    const { url } = await stubServices({});
-    await new Promise((resolve) => server?.close(resolve));
-    server = undefined;
-
-    await expect(custosAt(url).connect(agent, "stripe").call("list-customers")).rejects.toThrow();
+    // Port 1: nothing listens there. (Closing a port-0 server and reusing its
+    // port raced — a parallel test process could bind the freed port first.)
+    await expect(
+      custosAt("http://127.0.0.1:1").connect(agent, "stripe").call("list-customers"),
+    ).rejects.toThrow();
   });
 });
 
