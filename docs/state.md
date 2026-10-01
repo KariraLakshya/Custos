@@ -12,6 +12,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [ ] **This docs branch** (`docs/phase-5b-step4-decisions`) isn't pushed yet: push it and open a PR once #47 is merged.
 - [ ] **Ask the user to decide ADR 0008's open items 3 and 4** (audit-log read access; shared key table vs signed tokens) before building step 4.
 - [ ] Don't start step 4 code until the three items above are done.
+- [ ] **Knowledge graph:** last full refresh **2026-10-01**, from Phase 5b steps 1–3 code (1,744 nodes, 139 communities, 150 wiki articles; vault pruned). If `main` has moved since (it has #48's dependency bump: no structural change), or any code changed, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
 **Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented and verified (1–2 merged to `main` via #41; **step 3 only reaches `main` when PR #47 merges** — it was stranded when #43 merged into #41's branch after #41 had merged). Step 4 (control-plane auth) designed in ADR 0008, **not started**. Phase 5's DONE check (non-author README run) follows 5b.
 **Last updated:** 2026-10-01
