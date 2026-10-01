@@ -351,7 +351,7 @@ show it.
 
 **Every session orients through the knowledge graph before reading source files.** This repo is a monorepo with four services, seven packages, and an app; opening files one at a time to work out how they relate is the expensive, slow way to learn it, and it is what the graph exists to replace. Follow this order.
 
-**1. `docs/state.md`** — current phase, what exists, known issues, environment gotchas. Always first. It tells you _where the project is_; everything below tells you _how it is built_.
+**1. `docs/state.md`** — current phase, what exists, known issues, environment gotchas. Always first, starting with its **Read first** checklist. It tells you _where the project is_; everything below tells you _how it is built_. What is remembered where, and why no automatic memory tools are used, is in `instructions.md` §6 (Memory and session continuity) — follow it when updating any of those files.
 
 **2. The graph artifacts in `graphify-out/`** — for structure, before any raw file:
 

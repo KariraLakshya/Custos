@@ -4,6 +4,15 @@ _The handover between sessions. Read it first. Update it before finishing any ph
 
 _Write for a future Claude reading cold — state what exists, not what was intended. Git history and `docs/adr/` are the changelog and rationale; this is not a narrative retelling of either. One line per package/service. For a plain-language log aimed at the founder, see `docs/progress.md` — update both, they serve different readers._
 
+## Read first
+
+Keep this to what the next session must act on before anything else. Clear items as they're done.
+
+- [ ] **PR #47** (step 3 + real-KMS record → `main`) is CI-green: confirm it's merged.
+- [ ] **This docs branch** (`docs/phase-5b-step4-decisions`) isn't pushed yet: push it and open a PR once #47 is merged.
+- [ ] **Ask the user to decide ADR 0008's open items 3 and 4** (audit-log read access; shared key table vs signed tokens) before building step 4.
+- [ ] Don't start step 4 code until the three items above are done.
+
 **Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented and verified (1–2 merged to `main` via #41; **step 3 only reaches `main` when PR #47 merges** — it was stranded when #43 merged into #41's branch after #41 had merged). Step 4 (control-plane auth) designed in ADR 0008, **not started**. Phase 5's DONE check (non-author README run) follows 5b.
 **Last updated:** 2026-10-01
 
