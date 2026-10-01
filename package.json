@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Custos \u2014 a trust layer for AI agents",
+  "description": "Custos — a trust layer for AI agents",
   "engines": {
     "node": ">=22"
   },
@@ -50,7 +50,10 @@
       "fast-uri@<3.1.6": ">=3.1.6",
       "fast-uri@>=4.0.0 <4.1.3": ">=4.1.3",
       "js-yaml@<3.15.2": "3.15.2",
-      "js-yaml@>=4.0.0 <4.3.2": "4.3.2"
+      "js-yaml@>=4.0.0 <4.3.2": "4.3.2",
+      "undici@>=6.7.0 <6.28.1": "^6.28.1",
+      "brace-expansion@<1.1.20": "^1.1.20",
+      "brace-expansion@>=5.0.0 <5.0.11": "^5.0.11"
     }
   }
 }
