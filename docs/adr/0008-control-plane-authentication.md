@@ -1,6 +1,6 @@
 # 0008: Control-plane authentication — operators and services
 
-**Status:** Proposed, 2026-10-01. Phase 5b step 4 in `docs/build-plan.md`. Builds on the design discussion in Notion, "12 — Auth security review", and corrects it where noted.
+**Status:** Partly accepted, 2026-10-01. Decisions on **agent registration requiring an operator key** (§3, `agents:register`) and **service-to-service authentication** (§1, §3: `audit:write`, `status:allocate`) are **accepted**. The two items under "Open" (audit-log read access, and §5's shared key table vs signed tokens) await the founder's decision. **Not yet implemented.** Phase 5b step 4 in `docs/build-plan.md`. Builds on the design discussion in Notion, "12 — Auth security review", and corrects it where noted.
 
 ## Context
 
@@ -116,6 +116,8 @@ Each needs its own dependency justification when built.
 - The forged-audit-record hole closes. The audit trail becomes evidence of something.
 
 ## Open (not decided here)
+
+- **§5, one shared key table vs signed tokens:** proposed above (shared table), awaiting the founder's confirmation before step 4 is built.
 
 - **Should the audit log be readable without a key?** It names agents and tools, but not data. The live dashboard reads it from the browser today. For DPDP-style deployments it probably shouldn't be public. Proposed: keep it open now, and add an `audit:read` scope when the dashboard gets operator login (SSO).
 - **Open-source vs proprietary** is still undecided (`docs/state.md`). It affects how much the mTLS/SSO sample configs need to cover, not the design.
