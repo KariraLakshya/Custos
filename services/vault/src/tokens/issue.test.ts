@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   buildDidWebDocument,
   buildRegistrationRequest,
+  buildTokenRequestProof,
   createLocalKeyProvider,
   createLocalSecretCipher,
   generateKeyPair,
@@ -16,6 +17,7 @@ import { storeToolCredential } from "../credentials/store.js";
 import { grantToolAccess } from "../policy/policy.js";
 import { createDb } from "../db/client.js";
 import { issueToolToken } from "./issue.js";
+import { createInMemoryReplayCache, type ReplayCache } from "./replay-cache.js";
 import { createTrustedIssuer, type TrustedIssuer } from "./trusted-issuer.js";
 
 /** Nobody revoked — the baseline these tests assume. */
@@ -36,6 +38,8 @@ const vaultDb = createDb(databaseUrl);
 const identityDb = createIdentityDb(databaseUrl);
 const cipher = createLocalSecretCipher(new Uint8Array(32).fill(3));
 const ISSUER_SEED = new Uint8Array(32).fill(11);
+const TOKENS_URL = "https://vault.custos.example/tokens";
+const MAX_SKEW = 60;
 
 afterAll(async () => {
   await vaultDb.$client.end();
@@ -57,6 +61,8 @@ function identityServer(domain: string, seed: Uint8Array = ISSUER_SEED) {
 interface Registered {
   readonly credential: SignedCredential;
   readonly agentDid: string;
+  /** The agent's private key — only the agent has it. */
+  readonly secretKey: Uint8Array;
 }
 
 async function registerOn(
@@ -69,7 +75,7 @@ async function registerOn(
   });
   const response = await app.inject({ method: "POST", url: "/agents", payload: request.body });
   const body = response.json() as { credential: SignedCredential; did: string };
-  return { credential: body.credential, agentDid: body.did };
+  return { credential: body.credential, agentDid: body.did, secretKey: request.secretKey };
 }
 
 /**
@@ -112,9 +118,64 @@ async function toolWithSecret(): Promise<string> {
   return tool;
 }
 
+/** A valid proof that the caller holds `secretKey`, addressed to this vault's /tokens. */
+async function proofCheck(
+  secretKey: Uint8Array,
+  options: { now?: Date; audience?: string; replayCache?: ReplayCache } = {},
+) {
+  return {
+    proof: await buildTokenRequestProof({
+      audience: options.audience ?? TOKENS_URL,
+      secretKey,
+      now: options.now ?? new Date(),
+    }),
+    audience: TOKENS_URL,
+    maxSkewSeconds: MAX_SKEW,
+    replayCache: options.replayCache ?? createInMemoryReplayCache(),
+  };
+}
+
 function claimsOf(token: string): Record<string, unknown> {
   const [claims] = token.split(".");
   return JSON.parse(Buffer.from(claims ?? "", "base64url").toString("utf8"));
+}
+
+/** A granted agent and tool, ready for token requests; `request` defaults to a valid proof. */
+async function withGrantedAgent<T>(
+  port: number,
+  run: (ctx: {
+    readonly agent: Registered;
+    readonly trustedIssuer: TrustedIssuer;
+    readonly tool: string;
+    readonly request: (overrides?: {
+      proofOfPossession?: Awaited<ReturnType<typeof proofCheck>>;
+      revocation?: { isRevoked(did: string): boolean };
+      now?: Date;
+    }) => ReturnType<typeof issueToolToken>;
+  }) => Promise<T>,
+): Promise<T> {
+  return withTrustedIdentity(port, async ({ agent, trustedIssuer }) => {
+    const tool = await toolWithSecret();
+    await grantToolAccess(vaultDb, agent.agentDid, tool);
+    const signing = await vaultSigningKey();
+    return run({
+      agent,
+      trustedIssuer,
+      tool,
+      request: async (overrides = {}) =>
+        issueToolToken({
+          db: vaultDb,
+          ...signing,
+          agentCredential: agent.credential,
+          tool,
+          action: "list-customers",
+          now: overrides.now ?? new Date(),
+          revocation: overrides.revocation ?? neverRevoked,
+          trustedIssuer,
+          proofOfPossession: overrides.proofOfPossession ?? (await proofCheck(agent.secretKey)),
+        }),
+    });
+  });
 }
 
 describe("issueToolToken", () => {
@@ -122,7 +183,7 @@ describe("issueToolToken", () => {
     await withTrustedIdentity(4211, async ({ agent, trustedIssuer }) => {
       const tool = await toolWithSecret();
       await grantToolAccess(vaultDb, agent.agentDid, tool);
-      const now = new Date("2026-01-01T00:00:00Z");
+      const now = new Date();
 
       const result = await issueToolToken({
         db: vaultDb,
@@ -133,11 +194,13 @@ describe("issueToolToken", () => {
         now,
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(agent.secretKey, { now }),
       });
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      expect(result.value.expiresAt).toBe("2026-01-01T00:01:00.000Z");
+      const iat = Math.floor(now.getTime() / 1000);
+      expect(result.value.expiresAt).toBe(new Date((iat + 60) * 1000).toISOString());
       expect(claimsOf(result.value.token).sub).toBe(agent.agentDid);
       expect(claimsOf(result.value.token).sub).not.toBe(trustedIssuer.did);
     });
@@ -156,6 +219,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(agent.secretKey),
       });
 
       expect(result).toEqual({ ok: false, error: { code: "UNKNOWN_TOOL", tool: unknownTool } });
@@ -175,6 +239,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(agent.secretKey),
       });
 
       expect(result).toEqual({
@@ -198,6 +263,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(agent.secretKey),
       });
 
       expect(result.ok === false && result.error.code).toBe("POLICY_DENIED");
@@ -211,23 +277,24 @@ describe("issueToolToken", () => {
       await grantToolAccess(vaultDb, agent.agentDid, tool);
       await grantToolAccess(vaultDb, other.agentDid, tool);
       const revocation = { isRevoked: (did: string) => did === agent.agentDid };
-      const request = async (credential: SignedCredential) =>
+      const request = async (who: Registered) =>
         issueToolToken({
           db: vaultDb,
           ...(await vaultSigningKey()),
-          agentCredential: credential,
+          agentCredential: who.credential,
           tool,
           action: "list-customers",
           now: new Date(),
           revocation,
           trustedIssuer,
+          proofOfPossession: await proofCheck(who.secretKey),
         });
 
-      expect(await request(agent.credential)).toEqual({
+      expect(await request(agent)).toEqual({
         ok: false,
         error: { code: "AGENT_REVOKED", agentId: agent.agentDid },
       });
-      expect((await request(other.credential)).ok).toBe(true);
+      expect((await request(other)).ok).toBe(true);
     });
   });
 
@@ -248,6 +315,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(agent.secretKey),
       });
 
       expect(result).toEqual({
@@ -273,6 +341,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(foreign.secretKey),
       });
 
       expect(result).toEqual({
@@ -312,6 +381,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(secretKey),
       });
 
       expect(result).toEqual({
@@ -339,13 +409,17 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(forged.secretKey),
       });
 
       expect(result.ok === false && result.error.code).toBe("INVALID_AGENT_CREDENTIAL");
     });
   });
 
-  it("rejects a trusted-issuer credential with no subject", async () => {
+  it.each([
+    ["no subject", { name: "nobody" }, "MISSING_SUBJECT"],
+    ["no embedded agent key", { id: "did:web:x:agents:no-key" }, "MISSING_AGENT_KEY"],
+  ])("rejects a trusted-issuer credential with %s", async (_label, credentialSubject, reason) => {
     await withTrustedIdentity(4221, async ({ trustedIssuer, domain }) => {
       const tool = await toolWithSecret();
       const keyProvider = createLocalKeyProvider({ importedKeys: { issuer: ISSUER_SEED } });
@@ -356,11 +430,11 @@ describe("issueToolToken", () => {
       const issued = await issueCredential({
         unsignedCredential: {
           "@context": ["https://www.w3.org/ns/credentials/v2"],
-          id: "urn:uuid:no-subject",
+          id: `urn:uuid:${randomUUID()}`,
           type: ["VerifiableCredential"],
           issuer: issuerDoc.id,
           validFrom: new Date().toISOString(),
-          credentialSubject: { name: "nobody" },
+          credentialSubject,
         },
         signer: {
           id: issuerDoc.verificationMethod[0].id,
@@ -378,12 +452,10 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(generateKeyPair().secretKey),
       });
 
-      expect(result).toEqual({
-        ok: false,
-        error: { code: "INVALID_AGENT_CREDENTIAL", reason: "MISSING_SUBJECT" },
-      });
+      expect(result).toEqual({ ok: false, error: { code: "INVALID_AGENT_CREDENTIAL", reason } });
     });
   });
 
@@ -404,6 +476,7 @@ describe("issueToolToken", () => {
       now: new Date(),
       revocation: neverRevoked,
       trustedIssuer: unreachable,
+      proofOfPossession: await proofCheck(generateKeyPair().secretKey),
     });
 
     expect(result.ok === false && result.error.code).toBe("INVALID_AGENT_CREDENTIAL");
@@ -429,11 +502,141 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
+        proofOfPossession: await proofCheck(agent.secretKey),
       });
 
       expect(result).toEqual({
         ok: false,
         error: { code: "SIGNING_FAILED", reason: "kms unreachable" },
+      });
+    });
+  });
+});
+
+describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
+  it("refuses a copied credential presented without the agent's private key", async () => {
+    await withGrantedAgent(4222, async ({ request }) => {
+      const thief = generateKeyPair();
+
+      const result = await request({ proofOfPossession: await proofCheck(thief.secretKey) });
+
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "INVALID_PROOF_OF_POSSESSION", reason: "SIGNATURE_INVALID" },
+      });
+    });
+  });
+
+  it("refuses a replayed proof", async () => {
+    await withGrantedAgent(4223, async ({ agent, request }) => {
+      const replayCache = createInMemoryReplayCache();
+      const once = await proofCheck(agent.secretKey, { replayCache });
+
+      expect((await request({ proofOfPossession: once })).ok).toBe(true);
+      expect(await request({ proofOfPossession: once })).toEqual({
+        ok: false,
+        error: { code: "INVALID_PROOF_OF_POSSESSION", reason: "REPLAYED" },
+      });
+    });
+  });
+
+  it("accepts a fresh proof for every request", async () => {
+    await withGrantedAgent(4224, async ({ agent, request }) => {
+      const replayCache = createInMemoryReplayCache();
+
+      expect(
+        (await request({ proofOfPossession: await proofCheck(agent.secretKey, { replayCache }) }))
+          .ok,
+      ).toBe(true);
+      expect(
+        (await request({ proofOfPossession: await proofCheck(agent.secretKey, { replayCache }) }))
+          .ok,
+      ).toBe(true);
+    });
+  });
+
+  it("refuses a proof addressed to a different vault", async () => {
+    await withGrantedAgent(4225, async ({ agent, request }) => {
+      const result = await request({
+        proofOfPossession: await proofCheck(agent.secretKey, {
+          audience: "https://other-vault.example/tokens",
+        }),
+      });
+
+      expect(result.ok === false && result.error).toEqual({
+        code: "INVALID_PROOF_OF_POSSESSION",
+        reason: "WRONG_AUDIENCE",
+      });
+    });
+  });
+
+  it("refuses a stale proof", async () => {
+    await withGrantedAgent(4226, async ({ agent, request }) => {
+      const result = await request({
+        proofOfPossession: await proofCheck(agent.secretKey, {
+          now: new Date(Date.now() - 5 * 60_000),
+        }),
+      });
+
+      expect(result.ok === false && result.error).toEqual({
+        code: "INVALID_PROOF_OF_POSSESSION",
+        reason: "STALE",
+      });
+    });
+  });
+
+  it("refuses a registration proof presented as a token-request proof", async () => {
+    await withGrantedAgent(4227, async ({ agent, request }) => {
+      const { issuePossessionProof, REGISTRATION_PROOF_TYPE } = await import("@custos/core");
+      const registrationProof = await issuePossessionProof({
+        claims: {
+          typ: REGISTRATION_PROOF_TYPE,
+          aud: TOKENS_URL,
+          iat: Math.floor(Date.now() / 1000),
+          jti: randomUUID(),
+        },
+        sign: async (data) => sign(data, agent.secretKey),
+      });
+      if (!registrationProof.ok) throw new Error("setup");
+
+      const result = await request({
+        proofOfPossession: {
+          proof: registrationProof.value,
+          audience: TOKENS_URL,
+          maxSkewSeconds: MAX_SKEW,
+          replayCache: createInMemoryReplayCache(),
+        },
+      });
+
+      expect(result.ok === false && result.error).toEqual({
+        code: "INVALID_PROOF_OF_POSSESSION",
+        reason: "WRONG_TYPE",
+      });
+    });
+  });
+
+  it("checks possession before revocation — an impostor learns nothing about the agent's status", async () => {
+    await withGrantedAgent(4228, async ({ agent, request }) => {
+      const result = await request({
+        proofOfPossession: await proofCheck(generateKeyPair().secretKey),
+        revocation: { isRevoked: (did) => did === agent.agentDid },
+      });
+
+      expect(result.ok === false && result.error.code).toBe("INVALID_PROOF_OF_POSSESSION");
+    });
+  });
+
+  it("fails closed when the replay cache is full", async () => {
+    await withGrantedAgent(4229, async ({ agent, request }) => {
+      const full: ReplayCache = { record: () => "full" };
+
+      const result = await request({
+        proofOfPossession: await proofCheck(agent.secretKey, { replayCache: full }),
+      });
+
+      expect(result.ok === false && result.error).toEqual({
+        code: "INVALID_PROOF_OF_POSSESSION",
+        reason: "REPLAY_CACHE_FULL",
       });
     });
   });

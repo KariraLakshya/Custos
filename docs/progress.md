@@ -6,6 +6,35 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-09-25 — Phase 5b step 3: a stolen agent ID file is now worthless
+
+**Commits:**
+
+- PR #43 (stacked on PR #41): `05c1fe0`, `313926b`, `35342f1`, `1e14842`, plus this log entry. Pushed to `origin/feat/phase-5b-proof-of-possession`. It merges after #41.
+- PR #42 (`ce37156`): a small fix to the automated secret scanner. It had mistaken a public AWS setting name for a leaked password and was blocking #41.
+
+**Status:** Implemented and passing every local check. It was also tried by hand against the real running system: the real agent works; someone holding a copy of its ID file does not; and a captured request, sent a second time, is refused.
+
+**What this is:** The final piece of the gap found in last week's security review. Previously, anyone who copied an agent's ID file (`agent.json`) could act as that agent. Now every request for access must also be signed, on the spot, with the agent's private key, which never leaves the agent's machine. The ID file alone gets you nothing.
+
+**How it works:**
+
+- Each time an agent asks the vault for an access pass, it attaches a fresh signature made with its private key. The signature is addressed to this specific vault, is only valid for about a minute, and carries a one-time serial number.
+- The vault checks that signature against the public key printed inside the agent's ID card. Only the real agent's private key can produce a matching signature.
+- The vault remembers every serial number it has accepted. Someone who eavesdrops on a real request and sends it again is refused as a replay.
+- An impostor is stopped before the vault reveals anything about the agent: whether it's been revoked, or what it's allowed to use.
+
+**Also found and fixed:**
+
+- **The secret scanner in the automated checks cried wolf.** It flagged the public name of an AWS key type as a leaked password. The exemption is exact, and was tested to still catch a real secret in the same position.
+- **A hidden flaw in one automated test.** Two simulated deployments in a row shared network ports, which made the second one's safety check fail. Custos correctly refused everything, but the test was checking the wrong thing. Each simulated deployment now gets its own ports.
+
+**Why it matters:** "What happens if an attacker steals the agent's credentials?" is one of the first questions a security buyer asks. The answer is now: a copied ID file is useless without a private key that never leaves the agent, and even a recorded request can't be reused. That's a concrete, demonstrable claim, proven by automated tests on every change.
+
+**Next up:** Merge #42, then #41, then #43. Then step 4: logins for administrators, so only authorised operators can store tool passwords, grant access, or revoke agents. Run the real-AWS key check once the account is ready.
+
+---
+
 ## 2026-09-25 — Phase 5b: agents hold their own keys; Custos signs their ID cards
 
 **Commits:** `506f8ff`, `6b646ec`, `7f9398b`, `2a815ef`, `b4d68ba`, `ac5b089` (plus this log entry). Pushed to `origin/feat/phase-5b-issuer-key`, open as PR #41, awaiting CI and merge. PRs #39 and #40 (Phase 5 build and the Phase 5b design) are merged.

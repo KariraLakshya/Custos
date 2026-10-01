@@ -1,4 +1,4 @@
-import { open, rm, writeFile } from "node:fs/promises";
+import { open, readFile, rm, writeFile } from "node:fs/promises";
 import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
 import { pullAuditLog } from "./audit-log.js";
@@ -16,6 +16,15 @@ const DEFAULT_URLS: CustosConfig = {
  */
 function custos(urls: Partial<CustosConfig>): Custos {
   return createCustos({ ...DEFAULT_URLS, ...urls });
+}
+
+/** Reads an agent key file as `register` writes it: 64 hex characters. */
+async function loadAgentKey(path: string): Promise<string> {
+  const key = (await readFile(path, "utf8")).trim();
+  if (!/^[0-9a-f]{64}$/i.test(key)) {
+    throw new Error(`not an agent key: ${path} (expected 64 hex characters)`);
+  }
+  return key;
 }
 
 /** The agent is the credential's subject; the issuer is the identity service (ADR 0007). */
@@ -103,18 +112,24 @@ export function createCli(): Command {
       "--credential <path>",
       "path to the agent's credential file (from `register --out`)",
     )
+    .option(
+      "--key <path>",
+      "path to the agent's private key (from `register`); proves this is the agent",
+      "agent.key",
+    )
     .option("--vault-url <url>", "vault service base URL", "http://localhost:4002")
     .option("--input <json>", "JSON input for the action", "{}")
     .action(
       async (
         tool: string,
         action: string,
-        opts: { credential: string; vaultUrl: string; input: string },
+        opts: { credential: string; key: string; vaultUrl: string; input: string },
       ) => {
         const credential = await loadCredentialFile(opts.credential);
+        const secretKey = await loadAgentKey(opts.key);
         const input: unknown = JSON.parse(opts.input);
         const outcome = await custos({ vaultUrl: opts.vaultUrl })
-          .connect({ credential }, tool)
+          .connect({ credential, secretKey }, tool)
           .call(action, input);
         if (!outcome.ok) {
           process.stderr.write(`${describeRefusal(outcome.error)}\n`);

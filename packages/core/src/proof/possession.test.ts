@@ -3,6 +3,8 @@ import { generateKeyPair, sign } from "../crypto/ed25519.js";
 import { multibaseToPublicKey } from "../did/did-web.js";
 import {
   buildRegistrationRequest,
+  buildTokenRequestProof,
+  TOKEN_REQUEST_PROOF_TYPE,
   issuePossessionProof,
   REGISTRATION_PROOF_TYPE,
   verifyPossessionProof,
@@ -173,5 +175,49 @@ describe("buildRegistrationRequest", () => {
 
     expect(a.body.publicKey).not.toBe(b.body.publicKey);
     expect(a.body.proof).not.toBe(b.body.proof);
+  });
+});
+
+describe("buildTokenRequestProof", () => {
+  const VAULT_TOKENS = "https://vault.custos.example/tokens";
+
+  it("proves possession for a token request, addressed to the vault's /tokens URL", async () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const proof = await buildTokenRequestProof({
+      audience: VAULT_TOKENS,
+      secretKey,
+      now: NOW,
+      jti: "t-1",
+    });
+
+    const verified = verifyPossessionProof({
+      proof,
+      publicKey,
+      expectedType: TOKEN_REQUEST_PROOF_TYPE,
+      expectedAudience: VAULT_TOKENS,
+      now: NOW,
+      maxSkewSeconds: 60,
+    });
+    expect(verified).toEqual({
+      ok: true,
+      value: { typ: TOKEN_REQUEST_PROOF_TYPE, aud: VAULT_TOKENS, iat: NOW_SECONDS, jti: "t-1" },
+    });
+  });
+
+  it("is not accepted as a registration proof, nor a registration proof as it", async () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const tokenProof = await buildTokenRequestProof({ audience: AUDIENCE, secretKey, now: NOW });
+
+    expect(verifyAgainst(tokenProof, publicKey)).toEqual({
+      ok: false,
+      error: { code: "WRONG_TYPE" },
+    });
+  });
+
+  it("uses a fresh unique id every time", async () => {
+    const { secretKey } = generateKeyPair();
+    const a = await buildTokenRequestProof({ audience: VAULT_TOKENS, secretKey, now: NOW });
+    const b = await buildTokenRequestProof({ audience: VAULT_TOKENS, secretKey, now: NOW });
+    expect(a).not.toBe(b);
   });
 });

@@ -27,6 +27,18 @@ describe("vault env", () => {
     ).toBe("did:web:identity.custos.example");
   });
 
+  it("defaults the public URL and token-proof skew window", () => {
+    const env = loadVaultEnv({ VAULT_MASTER_KEY: validMasterKey });
+    expect(env.VAULT_PUBLIC_URL).toBe("http://localhost:4002");
+    expect(env.VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS).toBe(60);
+  });
+
+  it("refuses a public URL that isn't a URL", () => {
+    expect(() =>
+      loadVaultEnv({ VAULT_MASTER_KEY: validMasterKey, VAULT_PUBLIC_URL: "vault" }),
+    ).toThrow(/VAULT_PUBLIC_URL/);
+  });
+
   it("refuses to boot without VAULT_MASTER_KEY", () => {
     expect(() => loadVaultEnv({})).toThrow();
   });

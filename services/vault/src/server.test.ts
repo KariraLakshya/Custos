@@ -1,7 +1,9 @@
 import type { SignedCredential } from "@custos/core";
 import {
   buildRegistrationRequest,
+  buildTokenRequestProof,
   createLocalKeyProvider,
+  generateKeyPair,
   createLocalSecretCipher,
   ok,
 } from "@custos/core";
@@ -64,6 +66,29 @@ function testIssuerKey() {
   };
 }
 
+/** Each registered credential's private key, held by "the agent" for the tests below. */
+const agentKeys = new WeakMap<SignedCredential, Uint8Array>();
+
+/** The vault's default public /tokens URL — every proof below is addressed to it. */
+const DEFAULT_TOKENS_URL = "http://localhost:4002/tokens";
+
+/** A token request body proving possession of the credential's key, as the SDK sends it. */
+async function tokenRequest(
+  credential: SignedCredential,
+  tool: string,
+  action: string,
+  options: { secretKey?: Uint8Array; audience?: string; now?: Date } = {},
+) {
+  const secretKey = options.secretKey ?? agentKeys.get(credential);
+  if (!secretKey) throw new Error("no key for this credential");
+  const proof = await buildTokenRequestProof({
+    audience: options.audience ?? DEFAULT_TOKENS_URL,
+    secretKey,
+    now: options.now ?? new Date(),
+  });
+  return { tool, action, credential, proof };
+}
+
 /** Registers an agent against the identity service on `port`, proving possession of a fresh key. */
 async function registerAgentAt(port: number): Promise<SignedCredential> {
   const request = await buildRegistrationRequest({
@@ -76,6 +101,7 @@ async function registerAgentAt(port: number): Promise<SignedCredential> {
     body: JSON.stringify(request.body),
   });
   const { credential } = (await response.json()) as { credential: SignedCredential };
+  agentKeys.set(credential, request.secretKey);
   return credential;
 }
 
@@ -212,7 +238,7 @@ describe("vault service", () => {
       const tokenResponse = await app.inject({
         method: "POST",
         url: "/tokens",
-        payload: { tool: "mock-slack", action: "post-message", credential },
+        payload: await tokenRequest(credential, "mock-slack", "post-message", { now: clock.now() }),
       });
       expect(tokenResponse.statusCode).toBe(200);
       const { token, expiresAt } = tokenResponse.json();
@@ -246,7 +272,7 @@ describe("vault service", () => {
       const freshTokenResponse = await app.inject({
         method: "POST",
         url: "/tokens",
-        payload: { tool: "mock-slack", action: "post-message", credential },
+        payload: await tokenRequest(credential, "mock-slack", "post-message", { now: clock.now() }),
       });
       expect(freshTokenResponse.statusCode).toBe(200);
       const freshCall = await app.inject({
@@ -274,7 +300,7 @@ describe("vault service", () => {
       const response = await app.inject({
         method: "POST",
         url: "/tokens",
-        payload: { tool: "no-such-tool", action: "whatever", credential },
+        payload: await tokenRequest(credential, "no-such-tool", "whatever"),
       });
       expect(response.statusCode).toBe(404);
     });
@@ -328,7 +354,7 @@ describe("vault service", () => {
         const response = await app.inject({
           method: "POST",
           url: "/tokens",
-          payload: { tool: "mock-slack", action: "post-message", credential },
+          payload: await tokenRequest(credential, "mock-slack", "post-message"),
         });
         expect(response.statusCode).toBe(403);
         expect(response.json().error).toEqual({
@@ -363,7 +389,7 @@ describe("vault service", () => {
         const response = await app.inject({
           method: "POST",
           url: "/tokens",
-          payload: { tool: "mock-slack", action: "post-message", credential },
+          payload: await tokenRequest(credential, "mock-slack", "post-message"),
         });
         expect(response.statusCode).toBe(200);
       });
@@ -391,7 +417,7 @@ describe("vault service", () => {
         await app.inject({
           method: "POST",
           url: "/tokens",
-          payload: { tool: "mock-slack", action: "post-message", credential },
+          payload: await tokenRequest(credential, "mock-slack", "post-message"),
         });
 
         expect(events).toEqual([
@@ -431,7 +457,7 @@ describe("vault service", () => {
         const tokenResponse = await app.inject({
           method: "POST",
           url: "/tokens",
-          payload: { tool: "mock-slack", action: "post-message", credential },
+          payload: await tokenRequest(credential, "mock-slack", "post-message"),
         });
         const { token } = tokenResponse.json();
 
@@ -491,7 +517,7 @@ describe("vault service", () => {
       const tokenResponse = await app.inject({
         method: "POST",
         url: "/tokens",
-        payload: { tool: "mock-database", action: "query", credential },
+        payload: await tokenRequest(credential, "mock-database", "query"),
       });
       const { token } = tokenResponse.json();
 
@@ -503,6 +529,111 @@ describe("vault service", () => {
 
       expect(callResponse.statusCode).toBe(502);
       expect(callResponse.json().error.code).toBe("UPSTREAM_ERROR");
+    });
+  });
+
+  describe("proof of possession on /tokens (ADR 0007)", () => {
+    async function vaultWithSlack(options: { publicUrl?: string } = {}) {
+      return (credential: SignedCredential) =>
+        buildServer({
+          db: vaultDb,
+          cipher,
+          trustedIssuerDid: credential.issuer,
+          revocation: freshEmptyRevocationCache(),
+          connectors: [createMockSlackConnector()],
+          auditReporter: { report: () => {} },
+          ...options,
+        });
+    }
+
+    async function grantedSlack(
+      app: Awaited<ReturnType<typeof buildServer>>,
+      credential: SignedCredential,
+    ) {
+      await app.inject({
+        method: "POST",
+        url: "/credentials",
+        payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+      });
+      await app.inject({
+        method: "POST",
+        url: "/policies",
+        payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
+      });
+    }
+
+    it("400s a token request with no proof at all", async () => {
+      await withRegisteredAgent(4508, async (credential) => {
+        const app = await (await vaultWithSlack())(credential);
+        const response = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: { tool: "mock-slack", action: "post-message", credential },
+        });
+        expect(response.statusCode).toBe(400);
+      });
+    });
+
+    it("401s a copied credential presented without the agent's private key", async () => {
+      await withRegisteredAgent(4509, async (credential) => {
+        const app = await (await vaultWithSlack())(credential);
+        await grantedSlack(app, credential);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: await tokenRequest(credential, "mock-slack", "post-message", {
+            secretKey: generateKeyPair().secretKey,
+          }),
+        });
+
+        expect(response.statusCode).toBe(401);
+        expect(response.json().error).toEqual({
+          code: "INVALID_PROOF_OF_POSSESSION",
+          reason: "SIGNATURE_INVALID",
+        });
+      });
+    });
+
+    it("401s the same proof sent twice", async () => {
+      await withRegisteredAgent(4510, async (credential) => {
+        const app = await (await vaultWithSlack())(credential);
+        await grantedSlack(app, credential);
+        const payload = await tokenRequest(credential, "mock-slack", "post-message");
+
+        const first = await app.inject({ method: "POST", url: "/tokens", payload });
+        const replayed = await app.inject({ method: "POST", url: "/tokens", payload });
+
+        expect(first.statusCode).toBe(200);
+        expect(replayed.statusCode).toBe(401);
+        expect(replayed.json().error.reason).toBe("REPLAYED");
+      });
+    });
+
+    it("requires proofs addressed to the configured public URL, not the default", async () => {
+      await withRegisteredAgent(4511, async (credential) => {
+        const app = await (
+          await vaultWithSlack({ publicUrl: "https://vault.custos.example" })
+        )(credential);
+        await grantedSlack(app, credential);
+
+        const toDefault = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: await tokenRequest(credential, "mock-slack", "post-message"),
+        });
+        const toConfigured = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: await tokenRequest(credential, "mock-slack", "post-message", {
+            audience: "https://vault.custos.example/tokens",
+          }),
+        });
+
+        expect(toDefault.statusCode).toBe(401);
+        expect(toDefault.json().error.reason).toBe("WRONG_AUDIENCE");
+        expect(toConfigured.statusCode).toBe(200);
+      });
     });
   });
 
@@ -550,7 +681,7 @@ describe("vault service", () => {
             const tokenBefore = await app.inject({
               method: "POST",
               url: "/tokens",
-              payload: { tool: "mock-slack", action: "post-message", credential },
+              payload: await tokenRequest(credential, "mock-slack", "post-message"),
             });
             expect(tokenBefore.statusCode).toBe(200);
 
@@ -576,7 +707,7 @@ describe("vault service", () => {
             const tokenAfter = await app.inject({
               method: "POST",
               url: "/tokens",
-              payload: { tool: "mock-slack", action: "post-message", credential },
+              payload: await tokenRequest(credential, "mock-slack", "post-message"),
             });
             expect(tokenAfter.statusCode).toBe(403);
             expect(tokenAfter.json().error.code).toBe("AGENT_REVOKED");

@@ -1,6 +1,9 @@
 import {
   issueScopedToken,
+  multibaseToPublicKey,
+  TOKEN_REQUEST_PROOF_TYPE,
   verifyCredential,
+  verifyPossessionProof,
   type KeyProvider,
   type SignedCredential,
 } from "@custos/core";
@@ -8,6 +11,7 @@ import { err, ok, type Result } from "@custos/contracts";
 import { toolCredentialExists } from "../credentials/store.js";
 import { isToolAllowed } from "../policy/policy.js";
 import type { VaultDb } from "../db/client.js";
+import type { ReplayCache } from "./replay-cache.js";
 import type { TrustedIssuer } from "./trusted-issuer.js";
 
 const DEFAULT_TTL_SECONDS = 60;
@@ -15,6 +19,7 @@ const DEFAULT_TTL_SECONDS = 60;
 export type IssueToolTokenError =
   | { readonly code: "UNKNOWN_TOOL"; readonly tool: string }
   | { readonly code: "INVALID_AGENT_CREDENTIAL"; readonly reason: string }
+  | { readonly code: "INVALID_PROOF_OF_POSSESSION"; readonly reason: string }
   | { readonly code: "AGENT_REVOKED"; readonly agentId: string }
   | { readonly code: "POLICY_DENIED"; readonly agentId: string; readonly tool: string }
   | { readonly code: "SIGNING_FAILED"; readonly reason: string };
@@ -32,6 +37,23 @@ export interface IssuedToolToken {
 function subjectOf(credential: SignedCredential): string | null {
   const subject = credential.credentialSubject as { id?: unknown } | undefined;
   return typeof subject?.id === "string" && subject.id.length > 0 ? subject.id : null;
+}
+
+/** The agent's own public key, embedded by the issuer (ADR 0007 decision 2). Read only after verification. */
+function agentKeyOf(credential: SignedCredential): Uint8Array | null {
+  const subject = credential.credentialSubject as { publicKeyMultibase?: unknown } | undefined;
+  if (typeof subject?.publicKeyMultibase !== "string") return null;
+  const key = multibaseToPublicKey(subject.publicKeyMultibase);
+  return key.ok ? key.value : null;
+}
+
+/** How to check the proof that the caller holds the agent's private key (ADR 0007 decision 3). */
+export interface ProofCheck {
+  readonly proof: string;
+  /** The vault's own public `/tokens` URL: the only audience a proof may name. */
+  readonly audience: string;
+  readonly maxSkewSeconds: number;
+  readonly replayCache: ReplayCache;
 }
 
 /**
@@ -53,6 +75,7 @@ export async function issueToolToken(params: {
   readonly ttlSeconds?: number;
   readonly revocation: { isRevoked(agentDid: string): boolean };
   readonly trustedIssuer: TrustedIssuer;
+  readonly proofOfPossession: ProofCheck;
 }): Promise<Result<IssuedToolToken, IssueToolTokenError>> {
   const {
     db,
@@ -64,6 +87,7 @@ export async function issueToolToken(params: {
     now,
     revocation,
     trustedIssuer,
+    proofOfPossession,
     ttlSeconds = DEFAULT_TTL_SECONDS,
   } = params;
 
@@ -93,6 +117,38 @@ export async function issueToolToken(params: {
   const agentId = subjectOf(agentCredential);
   if (agentId === null) {
     return err({ code: "INVALID_AGENT_CREDENTIAL", reason: "MISSING_SUBJECT" });
+  }
+  const agentKey = agentKeyOf(agentCredential);
+  if (agentKey === null) {
+    return err({ code: "INVALID_AGENT_CREDENTIAL", reason: "MISSING_AGENT_KEY" });
+  }
+
+  // The credential is genuine; now the caller must prove it holds the key
+  // named in it. A copied credential stops here, before any decision is made
+  // or recorded about the agent it names.
+  const proof = verifyPossessionProof({
+    proof: proofOfPossession.proof,
+    publicKey: agentKey,
+    expectedType: TOKEN_REQUEST_PROOF_TYPE,
+    expectedAudience: proofOfPossession.audience,
+    now,
+    maxSkewSeconds: proofOfPossession.maxSkewSeconds,
+  });
+  if (!proof.ok) {
+    return err({ code: "INVALID_PROOF_OF_POSSESSION", reason: proof.error.code });
+  }
+  // Recorded only once the signature is valid, so nobody but the agent can
+  // spend its proof ids. Kept until the proof would be stale anyway.
+  const replay = proofOfPossession.replayCache.record(
+    `${agentId} ${proof.value.jti}`,
+    (proof.value.iat + proofOfPossession.maxSkewSeconds) * 1000,
+    now.getTime(),
+  );
+  if (replay !== "fresh") {
+    return err({
+      code: "INVALID_PROOF_OF_POSSESSION",
+      reason: replay === "replayed" ? "REPLAYED" : "REPLAY_CACHE_FULL",
+    });
   }
 
   // Revocation and authorization are decided only now that the agent's

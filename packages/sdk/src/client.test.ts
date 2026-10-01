@@ -1,7 +1,9 @@
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  generateKeyPair,
   multibaseToPublicKey,
+  TOKEN_REQUEST_PROOF_TYPE,
   publicKeyFromSecretKey,
   REGISTRATION_PROOF_TYPE,
   verifyPossessionProof,
@@ -59,11 +61,12 @@ function custosAt(url: string) {
 }
 
 const credential = { issuer: "did:web:example:agents:abc", proof: { proofValue: "z123" } };
+const agentKey = generateKeyPair();
 const agent: Agent = {
   id: "abc",
   did: "did:web:example:agents:abc",
   credential,
-  secretKey: "00".repeat(32),
+  secretKey: Buffer.from(agentKey.secretKey).toString("hex"),
 };
 
 const deprovisioned = {
@@ -197,13 +200,53 @@ describe("connect(...).call", () => {
 
     expect(stripe.tool).toBe("stripe");
     expect(outcome).toEqual({ ok: true, value: [{ id: "cus_1" }] });
-    expect(requests).toEqual([
-      {
-        url: "/tokens",
-        body: { tool: "stripe", action: "list-customers", credential: agent.credential },
-      },
-      { url: "/call", body: { token: "tok_abc", action: "list-customers", input: { limit: 5 } } },
-    ]);
+    const { proof, ...tokenBody } = requests[0]?.body as { proof: string };
+    expect(requests[0]?.url).toBe("/tokens");
+    expect(tokenBody).toEqual({ tool: "stripe", action: "list-customers", credential });
+    expect(requests[1]).toEqual({
+      url: "/call",
+      body: { token: "tok_abc", action: "list-customers", input: { limit: 5 } },
+    });
+    // The token request proves possession of the agent's key, addressed to
+    // this vault's /tokens URL (ADR 0007 decision 3).
+    expect(
+      verifyPossessionProof({
+        proof,
+        publicKey: agentKey.publicKey,
+        expectedType: TOKEN_REQUEST_PROOF_TYPE,
+        expectedAudience: new URL("/tokens", url).href,
+        now: new Date(),
+        maxSkewSeconds: 60,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("proves possession afresh for every call — each proof is single-use", async () => {
+    const { url, requests } = await stubServices({
+      "/tokens": { body: { token: "tok_abc" } },
+      "/call": { body: { result: null } },
+    });
+
+    const tool = custosAt(url).connect(agent, "stripe");
+    await tool.call("list-customers");
+    await tool.call("list-customers");
+
+    const proofs = requests
+      .filter((r) => r.url === "/tokens")
+      .map((r) => (r.body as { proof: string }).proof);
+    expect(proofs).toHaveLength(2);
+    expect(proofs[0]).not.toBe(proofs[1]);
+  });
+
+  it("refuses to call with a malformed private key, before contacting the vault", async () => {
+    const { url, requests } = await stubServices({});
+
+    await expect(
+      custosAt(url)
+        .connect({ ...agent, secretKey: "not-hex" }, "stripe")
+        .call("list-customers"),
+    ).rejects.toThrow(/secretKey/);
+    expect(requests).toEqual([]);
   });
 
   it("makes no network request on connect alone", async () => {

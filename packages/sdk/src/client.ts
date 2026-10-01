@@ -1,5 +1,9 @@
 import { err, ok, type Result } from "@custos/contracts";
-import { buildRegistrationRequest, didWebFromDomain } from "@custos/core/possession";
+import {
+  buildRegistrationRequest,
+  buildTokenRequestProof,
+  didWebFromDomain,
+} from "@custos/core/possession";
 import { z } from "zod";
 
 /**
@@ -73,8 +77,11 @@ export interface Custos {
   register(): Promise<Agent>;
   /** Operator action: allowlists `tool` for `agent`. Without it every call is denied. */
   grant(agent: Pick<Agent, "did">, tool: string): Promise<GrantResult>;
-  /** Binds an agent to a tool. No network until `call`. */
-  connect(agent: Pick<Agent, "credential">, tool: string): ToolConnection;
+  /**
+   * Binds an agent to a tool. No network until `call`. Needs the agent's
+   * private key: every token request proves possession of it (ADR 0007).
+   */
+  connect(agent: Pick<Agent, "credential" | "secretKey">, tool: string): ToolConnection;
   /** Revokes the agent everywhere — every tool it can reach cuts it off. */
   deprovision(
     agent: Pick<Agent, "id">,
@@ -131,6 +138,14 @@ function errorCode(body: unknown): string {
     return typeof error.code === "string" ? error.code : "UNKNOWN";
   }
   return "UNKNOWN";
+}
+
+/** Programmer error, not a denial: a key that isn't 32 bytes of hex never reaches the vault. */
+function parseSecretKey(hex: string): Uint8Array {
+  if (!/^[0-9a-f]{64}$/i.test(hex)) {
+    throw new Error("agent secretKey must be 64 hex characters (32 bytes)");
+  }
+  return Uint8Array.from(Buffer.from(hex, "hex"));
 }
 
 function expectOk(what: string, service: string, response: JsonResponse): void {
@@ -192,10 +207,18 @@ export function createCustos(config: CustosConfig): Custos {
         // A fresh scoped token per call: tokens are bound to one action and
         // live 60s, and the agent never holds anything longer-lived.
         async call(action, input) {
-          const tokenResponse = await postJson(new URL("/tokens", vaultUrl), {
+          const tokensUrl = new URL("/tokens", vaultUrl);
+          // A fresh, single-use proof per request, addressed to this vault.
+          const proof = await buildTokenRequestProof({
+            audience: tokensUrl.href,
+            secretKey: parseSecretKey(agent.secretKey),
+            now: new Date(),
+          });
+          const tokenResponse = await postJson(tokensUrl, {
             tool,
             action,
             credential: agent.credential,
+            proof,
           });
           if (!tokenResponse.ok) {
             return err({

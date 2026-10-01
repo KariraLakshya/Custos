@@ -24,6 +24,8 @@ const app = await buildServer({
   revocationUrl: env.REVOCATION_URL,
   revocationIssuerDid: env.REVOCATION_ISSUER_DID,
   trustedIssuerDid: env.VAULT_TRUSTED_ISSUER_DID,
+  publicUrl: env.VAULT_PUBLIC_URL,
+  tokenProofMaxSkewSeconds: env.VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS,
   revocationMaxStalenessMs: env.REVOCATION_MAX_STALENESS_MS,
   revocationResyncIntervalMs: env.REVOCATION_RESYNC_INTERVAL_MS,
   auditUrl: env.AUDIT_URL,
