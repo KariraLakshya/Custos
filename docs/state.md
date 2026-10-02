@@ -12,7 +12,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #49 (ADR 0008 accepted) merged 2026-10-02. It merged before its last two commits (`instructions.md` §7, no AI attribution) landed; they ride on `feat/phase-5b-api-keys` instead.
 - [ ] **`feat/phase-5b-api-keys`** (step 4 part 1): push it and open a PR once the local pre-push gate passes. It is blocked by the WinNAT port reservation (Gotchas).
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
-- [ ] **Knowledge graph:** last full refresh **2026-10-01**, from Phase 5b steps 1–3 code (1,744 nodes, 139 communities, 150 wiki articles; vault pruned). If `main` has moved since (it has #48's dependency bump: no structural change), or any code changed, run the full refresh in `CLAUDE.md` "Keeping it current" first.
+- [ ] **Knowledge graph:** last full refresh **2026-10-02**, from step 4 part 1 code (`packages/control-plane-auth`, `apps/admin`; 144 community notes, vault pruned to 1,272 notes). If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
 **Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented, verified, and on `main` (1–2 via #41, 3 via #47). Step 4 (control-plane auth, ADR 0008): part 1 (API-key layer) built on `feat/phase-5b-api-keys`; part 2 (wiring into routes) next. Phase 5's DONE check (non-author README run) follows 5b.
 **Last updated:** 2026-10-02
