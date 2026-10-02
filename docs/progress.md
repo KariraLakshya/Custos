@@ -6,6 +6,39 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-02 — Proof-of-ownership check is live on main; next-step design pushed for review
+
+**Commits:** PR #47 merged into `main` on 2026-10-01. Branch `docs/phase-5b-step4-decisions` was rebased onto `main` and pushed. It holds the design record ADR 0008 and these documentation updates, and has a pull request open.
+
+**Status:** No new code. Step 3, which checks that whoever presents an agent's ID card actually holds that agent's private key, is now in the main codebase. A stolen ID card on its own no longer gets anyone a tool token.
+
+_Why it matters:_ all three agent-identity steps of this hardening phase are now in one place. The next step puts locks on the administrator and internal doors. The two remaining decisions were made the same day. The audit log stays readable without a key for now; it gets locked once the dashboard has a proper login. Every Custos service checks keys against one shared list, which lets a key be cancelled instantly. The design is now fully approved, so building can start once this documentation is merged.
+
+## 2026-10-01 — Real AWS key verified; next security step designed and approved
+
+**Commits:** `bf98989` (design record ADR 0008) and this documentation update, on branch `docs/phase-5b-step4-decisions`. Local, not yet pushed. **PR #47** is open: it carries step 3 (from the previous entry) into the main codebase. Step 3 had been merged into a side branch by mistake, so it isn't live until #47 merges.
+
+**Status:** No new code. Two things happened: a real-world check, and a design decision.
+
+**1. Custos now works with a real Amazon key vault (AWS KMS).** Until now, the part of Custos that signs every agent's ID card had only been tested against a simulation of Amazon's key service. Today it ran against the real thing, in a fresh AWS account: a real key, locked inside Amazon's hardware, signed an agent's ID card, and Custos's own checks confirmed the signature. All 3 checks passed. The test key was scheduled for deletion straight away, so the cost was about a tenth of a US cent, normally covered by AWS's sign-up credit.
+
+_Why it matters:_ "our signing keys live in hardware that can sign but can never be copied out" is now a demonstrated fact, not a plan.
+
+**2. Locks for the managers' office and the internal mail.** Steps 1–3 gave agents proper ID badges. But the doors used by administrators, and the notes Custos's own parts send each other, still have no locks. The review for this next step found one hole worse than expected: **anyone could insert a fake entry into the audit log, and Custos would stamp it as official.** For a product whose pitch includes trustworthy compliance evidence, that's the hole to close first.
+
+The design (ADR 0008) and two decisions, approved today:
+
+- **Only an administrator can create an agent.** The organisation decides which agents exist, not whoever happens to connect.
+- **Custos's own parts must prove who they are to each other.** Only genuine Custos parts can write to the audit log or to the revocation list.
+
+Two smaller design choices are still open for the founder: whether the audit log stays readable without a login for now, and how keys are checked behind the scenes. Nothing is being built until those are settled, in a fresh session.
+
+**New habit:** features added beyond the original plan are now recorded on a new Notion page, _"13 — Additional features (beyond the original plan)"_, in plain language with a one-line pitch each, so nothing useful gets forgotten when talking to investors. It starts with five entries, two approved today and three already built.
+
+**Next up:** Merge #47. Decide the two open questions. Then build step 4, starting with administrator and service keys.
+
+---
+
 ## 2026-09-25 — Phase 5b step 3: a stolen agent ID file is now worthless
 
 **Commits:**

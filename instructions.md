@@ -87,4 +87,26 @@ These guidelines are general; `CLAUDE.md` is specific to this project. Three pla
 
 ---
 
+## 6. Memory and session continuity
+
+**Curated, not captured.** Every session starts with no memory of the last one. What carries over is a small set of hand-maintained files, each with one job.
+
+| Where                                                    | Remembers                                                                                                                             | Updated                                                                                                                                                             |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/state.md`                                          | Where the project is: phase, what exists, pending PRs, open decisions, known issues, gotchas. Starts with a **Read first** checklist. | At every checkpoint (`CLAUDE.md` §12)                                                                                                                               |
+| `docs/adr/`                                              | Why each consequential decision was made                                                                                              | One ADR per decision                                                                                                                                                |
+| `docs/progress.md`                                       | The plain-language project story, for the founder                                                                                     | After every phase and every push                                                                                                                                    |
+| Notion hub page "13 — Additional features"               | Features added beyond the original plan, with pitch lines                                                                             | When such a feature is approved or ships                                                                                                                            |
+| Claude Code's built-in memory                            | The user's working preferences                                                                                                        | When the user states one                                                                                                                                            |
+| `graphify-out/` (Obsidian vault, wiki, `graphify query`) | Code structure: how the codebase decomposes and connects. A new session orients here before opening source (`CLAUDE.md`, Orientation) | **Full refresh** at the end of any session that changed code (`CLAUDE.md`, "Keeping it current"); last refresh date in `docs/state.md`. The hook alone isn't enough |
+
+Rules:
+
+- **No automatic session-capture memory tools** (e.g. claude-mem) without an ADR. They record tool output automatically, and in this repo tool output can include keys, tokens and cloud-account details, which `CLAUDE.md` §4 forbids storing anywhere. They also inject extra context into every session, which costs tokens (`CLAUDE.md` §11), and they create a second source of truth that can contradict `docs/state.md`.
+- **One fact, one home.** Put each fact in the file whose job it is (table above), not in several. If two sources disagree, `docs/state.md` and the ADRs win; fix the stale one.
+- **Never record secrets** in any of these files: no keys, tokens, credentials or private key material. Record identifiers only (a key ID prefix, a profile name).
+- **If a new session has to re-derive something it should have known,** the fix is a line in the right file above, not a new tool.
+
+---
+
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions arriving before implementation rather than after mistakes.

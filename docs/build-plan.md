@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 5b — Auth hardening** (in progress). Phase 5 is built; its DONE check (non-author README run) follows 5b.
+> **CURRENT: Phase 5b — Auth hardening** (in progress: steps 1–3 done; step 4 designed in ADR 0008 (Accepted 2026-10-02), not started). Phase 5 is built; its DONE check (non-author README run) follows 5b.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
@@ -106,8 +106,10 @@ In order:
 1. **Stable issuer key.** `KeyProvider` can use an existing key by ID; an AWS KMS implementation (Ed25519); a dev implementation keyed from an env var, with no default.
 2. **Agent-held keys + issuer-signed credentials.** The agent generates its own keypair and registration proves possession of it. The identity service signs credentials as issuer, with the agent's public key embedded. Every vault read of agent identity moves from `issuer` to `credentialSubject.id`.
 3. **Proof of possession on `POST /tokens`.** A DPoP-pattern signature over method, URL, timestamp, unique ID and credential hash; bounded skew; a replay cache.
-4. **Operator authentication**, behind one `OperatorAuthenticator` interface, on `/credentials`, `/policies`, and the revocation service's `/revocations`:
-   - scoped API keys first: SHA-256 hashed at rest, constant-time compare, shown once, expiring, every write audited with the operator's identity;
+4. **Control-plane authentication** (ADR 0008), behind one `ControlPlaneAuthenticator` interface that yields a `Principal` (operator or service) with scopes:
+   - **operators** on vault `/credentials` and `/policies`, revocation `/revocations`, and — decided 2026-10-01 — identity `/agents` (registering an agent needs operator approval);
+   - **services** on audit `/records` and revocation `/agents` — decided 2026-10-01 (closes forged-audit-record and status-slot-exhaustion holes);
+   - scoped API keys first: SHA-256 hashed at rest, constant-time compare, shown once, expiring, created only by a local DB-access command, every write audited with its principal;
    - then mTLS;
    - then SSO (OIDC).
 5. SDK, CLI and README updated to the new flow; threat model documented in the repo.
@@ -119,6 +121,8 @@ In order:
 - an identity service restart does not invalidate previously issued credentials;
 - a revoked agent is still denied, keyed on the subject, not the issuer;
 - every control-plane endpoint rejects unauthenticated, wrongly-scoped, and expired operator credentials with one uniform error;
+- an agent can't be registered without an operator key with `agents:register`;
+- an audit record can't be inserted without a service key — a forged record is refused, not signed;
 - mTLS rejects expired, wrong-CA, self-signed, and mismatched-SAN certificates;
 - SSO rejects tokens with a bad signature, issuer, audience or nonce, and expired ones;
 - the full `pnpm test:e2e` lifecycle passes on the new flow.

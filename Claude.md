@@ -351,12 +351,14 @@ show it.
 
 **Every session orients through the knowledge graph before reading source files.** This repo is a monorepo with four services, seven packages, and an app; opening files one at a time to work out how they relate is the expensive, slow way to learn it, and it is what the graph exists to replace. Follow this order.
 
-**1. `docs/state.md`** — current phase, what exists, known issues, environment gotchas. Always first. It tells you _where the project is_; everything below tells you _how it is built_.
+**1. `docs/state.md`** — current phase, what exists, known issues, environment gotchas. Always first, starting with its **Read first** checklist. It tells you _where the project is_; everything below tells you _how it is built_. What is remembered where, and why no automatic memory tools are used, is in `instructions.md` §6 (Memory and session continuity) — follow it when updating any of those files.
 
 **2. The graph artifacts in `graphify-out/`** — for structure, before any raw file:
 
-- **`graphify-out/obsidian/_COMMUNITY_*.md`** — 122 cluster summaries, one per community, each listing its members with cohesion scores. The fastest way to see how the codebase decomposes. Read the community that covers your area before touching it.
-- **`graphify-out/wiki/index.md`** and its 132 articles — the purpose-built agent entry point: per-community articles listing every symbol with its file path and connection count, plus cross-links to related clusters. Reading `wiki/<community>.md` is usually cheaper and more complete than opening the source file it describes.
+**Check it's current first.** `graphify-out/` is local and gitignored; `docs/state.md` records when it was last fully rebuilt. If code has changed since (a merge, a pull, scripted edits), run the full refresh under "Keeping it current" before relying on it — a stale graph is worse than none.
+
+- **`graphify-out/obsidian/_COMMUNITY_*.md`** — one cluster summary per community, each listing its members with cohesion scores. The fastest way to see how the codebase decomposes. Read the community that covers your area before touching it.
+- **`graphify-out/wiki/index.md`** and its articles — the purpose-built agent entry point: per-community articles listing every symbol with its file path and connection count, plus cross-links to related clusters. Reading `wiki/<community>.md` is usually cheaper and more complete than opening the source file it describes.
 - **`graphify query "<question>"`** — targeted questions. `graphify path "<A>" "<B>"` for how two things connect, `graphify explain "<concept>"` for one node and its neighbourhood, `graphify affected "<X>"` for blast radius before a change. These return a scoped subgraph, far smaller than grep output.
 - **`graphify-out/GRAPH_REPORT.md`** — only for broad architecture review, or when the above does not surface enough.
 
@@ -366,12 +368,17 @@ The one exception: a question about a single known file you are already editing.
 
 ### Keeping it current
 
-- After modifying code, run `graphify update .` (AST-only, no API cost). A `PostToolUse` hook does this automatically after `.ts`/`.js` edits, so it is usually already done.
-- `graphify-out/` is **gitignored** — 7.2 MB, entirely derived. Regenerate exports with `graphify export wiki` / `graphify export obsidian` / `graphify export html`.
-- **The Obsidian vault has been deliberately pruned.** 691 notes sourced from `package.json` / `tsconfig.json` / `turbo.json` were deleted because manifest _fields_ (`dependencies`, `compilerOptions`, `scripts`, dependency names) were extracted as first-class nodes and made up 42% of the vault, drowning the architecture in boilerplate. `graph.json` still contains them, so queries are unaffected — only the browsable vault was cleaned. **Re-running `graphify export obsidian` restores all 691.** If you regenerate it, prune again:
+- A `PostToolUse` hook runs `graphify update .` after `.ts`/`.js` edits made **with the Edit/Write tools only**. It does **not** fire for scripted edits, `git pull`/merges, or branch switches, and it **never** refreshes the Obsidian vault or the wiki. Don't assume the graph is current; check (above).
+- **Full refresh** — run at the end of any session that changed code, and record the date in `docs/state.md` ("Gotchas"):
 
   ```bash
+  graphify update .                                      # re-extract code (AST-only, no API cost)
+  rm -rf graphify-out/obsidian graphify-out/wiki
+  graphify export obsidian && graphify export wiki
   cd graphify-out/obsidian && grep -lE '^source_file: ".*(package\.json|tsconfig\.json|turbo\.json|pnpm-workspace\.yaml)"$' *.md | tr '\n' '\0' | xargs -0 rm -f
   ```
 
-  The same noise affects `graphify-out/wiki/` (roughly a third of its 132 articles cluster on manifest fields) and `graphify query` results. Fixing it at the source needs a `.graphifyignore` plus a **full** rebuild — an incremental `update` merges and cannot remove existing nodes.
+  The last line prunes the vault: notes sourced from `package.json` / `tsconfig.json` / `turbo.json` are manifest _fields_ (`dependencies`, `compilerOptions`, scripts) extracted as nodes. They make up ~40% of a raw export and drown the architecture. `graph.json` keeps them, so queries are unaffected.
+
+- `graphify-out/` is **gitignored**: several MB, entirely derived. `graphify export html` gives the interactive view.
+- The same manifest noise affects `graphify-out/wiki/` (roughly a third of its articles cluster on manifest fields) and `graphify query` results. Fixing it at the source needs a `.graphifyignore` plus a **full** rebuild — an incremental `update` merges and cannot remove existing nodes.
