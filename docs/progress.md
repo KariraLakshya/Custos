@@ -6,6 +6,14 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-02 — Proof-of-ownership check is live on main; next-step design pushed for review
+
+**Commits:** PR #47 merged into `main` on 2026-10-01. Branch `docs/phase-5b-step4-decisions` was rebased onto `main` and pushed. It holds the design record ADR 0008 and these documentation updates, and has a pull request open.
+
+**Status:** No new code. Step 3, which checks that whoever presents an agent's ID card actually holds that agent's private key, is now in the main codebase. A stolen ID card on its own no longer gets anyone a tool token.
+
+_Why it matters:_ all three agent-identity steps of this hardening phase are now in one place. The next step puts locks on the administrator and internal doors. It is blocked on two decisions only the founder can make: whether the audit log should stay readable without a key, and whether services should check keys against one shared table or use signed passes they can verify on their own.
+
 ## 2026-10-01 — Real AWS key verified; next security step designed and approved
 
 **Commits:** `bf98989` (design record ADR 0008) and this documentation update, on branch `docs/phase-5b-step4-decisions`. Local, not yet pushed. **PR #47** is open: it carries step 3 (from the previous entry) into the main codebase. Step 3 had been merged into a side branch by mistake, so it isn't live until #47 merges.
