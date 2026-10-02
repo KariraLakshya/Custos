@@ -6,13 +6,31 @@ import {
   createDb as createRevocationDb,
 } from "@custos/revocation";
 import { buildServer as buildVaultServer, createDb as createVaultDb } from "@custos/vault";
-import { afterAll, describe, expect, it } from "vitest";
+import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCustos, type Agent } from "./index.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const identityDb = createIdentityDb(databaseUrl);
 const revocationDb = createRevocationDb(databaseUrl);
 const vaultDb = createVaultDb(databaseUrl);
+
+// Real keys in the real api_keys table, as `custos-admin dev-keys` makes them.
+const controlPlane = createTestControlPlane(identityDb);
+let operatorKey: string;
+let identityServiceKey: string;
+let vaultServiceKey: string;
+
+beforeAll(async () => {
+  operatorKey = await controlPlane.key("operator", [
+    "credentials:write",
+    "policies:write",
+    "agents:revoke",
+    "agents:register",
+  ]);
+  identityServiceKey = await controlPlane.key("service", ["status:allocate"]);
+  vaultServiceKey = await controlPlane.key("service", ["audit:write"]);
+});
 
 afterAll(async () => {
   await identityDb.$client.end();
@@ -43,6 +61,7 @@ async function withStack<T>(
 
   const revocationApp = await buildRevocationServer({
     db: revocationDb,
+    controlPlaneAuth: controlPlane.guard,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
   });
@@ -50,6 +69,8 @@ async function withStack<T>(
 
   const identityApp = await buildIdentityServer({
     db: identityDb,
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: identityServiceKey,
     didDomain: `127.0.0.1:${ports.identity}`,
     issuerKey: {
       keyProvider: createLocalKeyProvider({
@@ -63,6 +84,8 @@ async function withStack<T>(
 
   const vaultApp = await buildVaultServer({
     db: vaultDb,
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: vaultServiceKey,
     cipher: createLocalSecretCipher(new Uint8Array(32).fill(21)),
     connectors: [createMockDatabaseConnector(), createMockSlackConnector()],
     revocationUrl,
@@ -86,7 +109,7 @@ async function withStack<T>(
 async function storeToolSecret(vaultUrl: string, tool: string): Promise<void> {
   const response = await fetch(new URL("/credentials", vaultUrl), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...bearer(operatorKey) },
     body: JSON.stringify({ tool, secret: "unused-by-the-mock" }),
   });
   expect(response.ok).toBe(true);
@@ -97,7 +120,7 @@ describe("@custos/sdk end to end: register → connect → deprovision", () => {
     await withStack(async ({ identityUrl, revocationUrl, vaultUrl }) => {
       await storeToolSecret(vaultUrl, "mock-database");
       await storeToolSecret(vaultUrl, "mock-slack");
-      const custos = createCustos({ identityUrl, revocationUrl, vaultUrl });
+      const custos = createCustos({ identityUrl, revocationUrl, vaultUrl, operatorKey });
 
       const registered = await custos.register();
       // The agent's own process only ever needs this plain data.
@@ -140,7 +163,7 @@ describe("@custos/sdk end to end: register → connect → deprovision", () => {
   it("gives a copied credential nothing without the agent's private key (ADR 0007)", async () => {
     await withStack(async ({ identityUrl, revocationUrl, vaultUrl }) => {
       await storeToolSecret(vaultUrl, "mock-database");
-      const custos = createCustos({ identityUrl, revocationUrl, vaultUrl });
+      const custos = createCustos({ identityUrl, revocationUrl, vaultUrl, operatorKey });
       const agent = await custos.register();
       await custos.grant(agent, "mock-database");
 
@@ -165,7 +188,7 @@ describe("@custos/sdk end to end: register → connect → deprovision", () => {
   it("rejects a tampered credential at token issuance", async () => {
     await withStack(async ({ identityUrl, revocationUrl, vaultUrl }) => {
       await storeToolSecret(vaultUrl, "mock-database");
-      const custos = createCustos({ identityUrl, revocationUrl, vaultUrl });
+      const custos = createCustos({ identityUrl, revocationUrl, vaultUrl, operatorKey });
       const agent = await custos.register();
       await custos.grant(agent, "mock-database");
 
@@ -183,6 +206,49 @@ describe("@custos/sdk end to end: register → connect → deprovision", () => {
         status: 401,
         code: "INVALID_AGENT_CREDENTIAL",
       });
+    });
+  });
+});
+
+describe("@custos/sdk end to end: operator key required (ADR 0008)", () => {
+  it("can't register, grant or deprovision with a wrong or unscoped key; an agent's calls need none", async () => {
+    await withStack(async ({ identityUrl, revocationUrl, vaultUrl }) => {
+      await storeToolSecret(vaultUrl, "mock-database");
+      const operator = createCustos({ identityUrl, revocationUrl, vaultUrl, operatorKey });
+      const agent = await operator.register();
+
+      const revokeOnly = await controlPlane.key("operator", ["agents:revoke"]);
+      const unscoped = createCustos({
+        identityUrl,
+        revocationUrl,
+        vaultUrl,
+        operatorKey: revokeOnly,
+      });
+      await expect(unscoped.register()).rejects.toThrow(
+        /register failed: identity service returned 401/,
+      );
+      await expect(unscoped.grant(agent, "mock-database")).rejects.toThrow(
+        /grant failed: vault returned 401/,
+      );
+
+      const forged = [
+        "custos",
+        "operator",
+        agent.id.replace(/-/g, "").slice(0, 16),
+        "A".repeat(43),
+      ].join("_");
+      const impostor = createCustos({ identityUrl, revocationUrl, vaultUrl, operatorKey: forged });
+      await expect(impostor.deprovision(agent)).rejects.toThrow(
+        /deprovision failed: revocation service returned 401/,
+      );
+
+      // The agent's own process holds no operator key at all.
+      await operator.grant(agent, "mock-database");
+      const agentOnly = createCustos({ identityUrl, revocationUrl, vaultUrl });
+      const result = await agentOnly
+        .connect(agent, "mock-database")
+        .call("query", { table: "customers" });
+      expect(result.ok).toBe(true);
     });
   });
 });

@@ -11,8 +11,17 @@ import {
   sign,
   type UnsignedCredential,
 } from "@custos/core";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCli, runCli } from "./cli.js";
+
+// The stub services accept any key; the real check is proven in the e2e suite.
+beforeEach(() => {
+  vi.stubEnv("CUSTOS_OPERATOR_KEY", "test-operator-key");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("custos CLI", () => {
   it("reports its name and version", () => {
@@ -138,6 +147,42 @@ describe("custos CLI", () => {
 
       const written = JSON.parse(await readFile(outPath, "utf8"));
       expect(written).toEqual({ issuer: "did:web:example" });
+    });
+  });
+
+  describe("operator key (ADR 0008)", () => {
+    let server: Server | undefined;
+
+    afterEach(async () => {
+      if (server) await new Promise((resolve) => server?.close(resolve));
+      server = undefined;
+    });
+
+    it("refuses register, grant and deprovision without CUSTOS_OPERATOR_KEY, sending nothing", async () => {
+      vi.stubEnv("CUSTOS_OPERATOR_KEY", "");
+      let requests = 0;
+      server = createServer((_req, res) => {
+        requests += 1;
+        res.end();
+      });
+      await new Promise<void>((resolve) => server?.listen(4310, "127.0.0.1", resolve));
+      const dir = await mkdtemp(join(tmpdir(), "custos-cli-opkey-"));
+      const keyPath = join(dir, "agent.key");
+      const credentialPath = join(dir, "agent.json");
+      await writeFile(credentialPath, JSON.stringify({ credentialSubject: { id: "did:web:x" } }));
+      const url = "http://127.0.0.1:4310";
+
+      for (const args of [
+        ["register", "--identity-url", url, "--key-out", keyPath],
+        ["grant", "mock-slack", "--credential", credentialPath, "--vault-url", url],
+        ["deprovision", "0f8f6a1e-9c2b-4a3d-8f1e-1b2c3d4e5f60", "--revocation-url", url],
+      ]) {
+        await expect(createCli().parseAsync(args, { from: "user" })).rejects.toThrow(
+          /set CUSTOS_OPERATOR_KEY/,
+        );
+      }
+      expect(requests).toBe(0);
+      await expect(readFile(keyPath, "utf8")).rejects.toThrow(/ENOENT/);
     });
   });
 

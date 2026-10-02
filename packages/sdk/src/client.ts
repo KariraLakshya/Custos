@@ -33,6 +33,12 @@ export interface CustosConfig {
   readonly identityUrl: string;
   readonly vaultUrl: string;
   readonly revocationUrl: string;
+  /**
+   * An operator API key (`custos_operator_…`, ADR 0008), needed by
+   * `register`, `grant` and `deprovision`. An agent-only process that just
+   * calls tools through `connect` doesn't need one and shouldn't hold one.
+   */
+  readonly operatorKey?: string;
 }
 
 /**
@@ -112,12 +118,14 @@ interface JsonResponse {
   readonly body: unknown;
 }
 
-async function postJson(url: URL, body?: unknown): Promise<JsonResponse> {
+async function postJson(url: URL, body?: unknown, operatorKey?: string): Promise<JsonResponse> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (operatorKey !== undefined) headers.authorization = `Bearer ${operatorKey}`;
   const response = await fetch(url, {
     method: "POST",
-    ...(body === undefined
-      ? {}
-      : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
   let parsed: unknown;
@@ -178,25 +186,35 @@ export function createCustos(config: CustosConfig): Custos {
   const vaultUrl = new URL(config.vaultUrl);
   const revocationUrl = new URL(config.revocationUrl);
 
+  /** Programmer error: an operator action with no operator key never leaves the process. */
+  function operatorKey(what: string): string {
+    if (config.operatorKey === undefined) {
+      throw new Error(`${what} needs an operator key: pass operatorKey to createCustos`);
+    }
+    return config.operatorKey;
+  }
+
   return {
     async register() {
+      const key = operatorKey("register");
       const request = await buildRegistrationRequest({
         // The proof names the identity service it is for: its did:web DID,
         // derived from the URL it is reached at.
         audience: didWebFromDomain(identityUrl.host),
         now: new Date(),
       });
-      const response = await postJson(new URL("/agents", identityUrl), request.body);
+      const response = await postJson(new URL("/agents", identityUrl), request.body, key);
       expectOk("register", "identity service", response);
       const registered = parseOrThrow("register", agentSchema, response.body);
       return { ...registered, secretKey: Buffer.from(request.secretKey).toString("hex") };
     },
 
     async grant(agent, tool) {
-      const response = await postJson(new URL("/policies", vaultUrl), {
-        agentId: agent.did,
-        tool,
-      });
+      const response = await postJson(
+        new URL("/policies", vaultUrl),
+        { agentId: agent.did, tool },
+        operatorKey("grant"),
+      );
       expectOk("grant", "vault", response);
       return parseOrThrow("grant", grantSchema, response.body);
     },
@@ -253,6 +271,7 @@ export function createCustos(config: CustosConfig): Custos {
       const response = await postJson(
         new URL("/revocations", revocationUrl),
         reason === undefined ? { agentId: agent.id } : { agentId: agent.id, reason },
+        operatorKey("deprovision"),
       );
       expectOk("deprovision", "revocation service", response);
       return parseOrThrow("deprovision", deprovisionSchema, response.body);

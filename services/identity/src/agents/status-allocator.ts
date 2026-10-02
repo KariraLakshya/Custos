@@ -47,10 +47,12 @@ function isAllocatedStatus(value: unknown): value is AllocatedStatus {
  */
 export function createHttpStatusAllocator(params: {
   readonly revocationUrl: string;
+  /** This service's own key, with `status:allocate` (ADR 0008). Never logged. */
+  readonly serviceKey: string;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
 }): StatusAllocator {
-  const { revocationUrl, fetchImpl = fetch, timeoutMs = 2_000 } = params;
+  const { revocationUrl, serviceKey, fetchImpl = fetch, timeoutMs = 2_000 } = params;
 
   return {
     async allocate({ agentId, agentDid }) {
@@ -58,7 +60,10 @@ export function createHttpStatusAllocator(params: {
       try {
         const response = await fetchImpl(url, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${serviceKey}`,
+          },
           body: JSON.stringify({ agentId, agentDid }),
           signal: AbortSignal.timeout(timeoutMs),
         });

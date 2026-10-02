@@ -32,7 +32,21 @@ pnpm migrate    # create the database tables
 pnpm build
 ```
 
-`pnpm dev` starts only the databases. The Custos services come next.
+`pnpm dev` starts only the databases.
+
+Then create your local keys. Custos only accepts admin actions (registering, granting, revoking, storing tool passwords) from someone holding an **operator key**, and its services only accept each other's calls with a **service key**:
+
+```bash
+pnpm -s custos-admin dev-keys                       # bash / zsh
+```
+
+```powershell
+pnpm -s custos-admin dev-keys --shell powershell    # PowerShell
+```
+
+It prints three lines, each ready to paste, and says which terminal each one goes in: `IDENTITY_SERVICE_KEY` for identity, `VAULT_SERVICE_KEY` for the vault, and `CUSTOS_OPERATOR_KEY` for the terminal you'll run the `custos` commands in. Each key is shown **once**; Custos keeps only a fingerprint of it. Keep the output until step 4. This command talks to the database directly, which is deliberate: there is no web endpoint for creating keys. `pnpm custos-admin key list` shows your keys, and `pnpm custos-admin key revoke <id>` cancels one.
+
+The Custos services come next.
 
 ### 2. Start the services
 
@@ -46,7 +60,7 @@ Custos is four small services plus a dashboard. Open **five terminals** at the r
 | 4   | vault, see below                         | 4002 | Holds the real tool passwords and makes calls on agents' behalf |
 | 5   | `pnpm --filter @custos/dashboard start`  | 4005 | Live view of every decision                                     |
 
-Identity and vault each need a secret key you provide, and refuse to start without one.
+Identity and vault each need two secrets you provide, and refuse to start without them: their own signing or encryption key (below), and the service key from step 1. **Paste that service key line into the terminal first**, then run the commands below. A service started with a missing, revoked or wrongly scoped service key refuses to start.
 
 The identity service signs every agent's credential with its **issuer key**, generated from this seed:
 
@@ -86,6 +100,8 @@ Now open **http://localhost:4005** and keep it visible. Every allow and deny bel
 
 ### 3. Give the vault the tool passwords
 
+Use a new terminal for this step and step 4, and paste the `CUSTOS_OPERATOR_KEY` line from step 1 into it first: storing a password is an admin action.
+
 The vault holds the real credentials for each tool. Agents never see them. This walkthrough uses two built-in stand-in tools that accept any secret:
 
 ```bash
@@ -100,6 +116,8 @@ pnpm --filter @custos/vault seed mock-slack any-placeholder-secret
 | `stripe`        | `list-customers` | `{}`. Needs a real Stripe **test-mode** key (`sk_test_…`) seeded instead of a placeholder |
 
 ### 4. Walk through an agent's life with the CLI
+
+Stay in the terminal from step 3: `register`, `grant` and `deprovision` read your operator key from `CUSTOS_OPERATOR_KEY`. (They read it only from the environment, never a command-line flag, so it stays out of your shell history.) Using a tool doesn't need it: an agent never holds an operator key.
 
 Make `custos` a shortcut for this terminal:
 
@@ -187,6 +205,7 @@ const custos = createCustos({
   identityUrl: "http://localhost:4001",
   vaultUrl: "http://localhost:4002",
   revocationUrl: "http://localhost:4003",
+  operatorKey: process.env.CUSTOS_OPERATOR_KEY, // for register, grant, deprovision
 });
 
 const agent = await custos.register(); // plain JSON: { id, did, credential }
@@ -200,9 +219,11 @@ else console.log(`denied: ${result.error.code}`); // POLICY_DENIED, AGENT_REVOKE
 await custos.deprovision(agent, { reason: "compromised" });
 ```
 
+An agent's own process passes no `operatorKey`: `connect(...).call(...)` doesn't need one, so a compromised agent can't grant itself tools.
+
 A refused call **returns** `{ ok: false, error }` rather than throwing, so a denial can't be mistaken for a network hiccup and retried. The SDK throws only when a service is unreachable or sends a response it can't validate.
 
-That exact flow is runnable (with the services from step 2 running and `mock-database` seeded in step 3):
+That exact flow is runnable (with the services from step 2 running, `mock-database` seeded in step 3, and `CUSTOS_OPERATOR_KEY` set):
 
 ```bash
 node packages/sdk/examples/quickstart.mjs
@@ -227,6 +248,9 @@ Stop each service with Ctrl+C, then `pnpm dev:down` to stop the databases. Data 
 | `pnpm dev` fails with `failed to connect to the docker API`                 | Docker Desktop isn't running. Start it and wait until it's ready.                                                                                                                                                                                                                                                                              |
 | Identity exits with `IDENTITY_ISSUER_SEED … expected string`                | Set the seed in the **same terminal** before starting identity (step 2).                                                                                                                                                                                                                                                                       |
 | Vault exits with `VAULT_MASTER_KEY … must be 64 hex characters`             | Set the key in the **same terminal** before starting the vault (step 2).                                                                                                                                                                                                                                                                       |
+| Identity or vault exits with `IDENTITY_SERVICE_KEY` / `VAULT_SERVICE_KEY`   | The service key is missing, mistyped, revoked or expired, or it's another service's key. Paste the right line from `pnpm -s custos-admin dev-keys` into that terminal, or run it again for a fresh set.                                                                                                                                        |
+| `set CUSTOS_OPERATOR_KEY to an operator key`                                | Paste the `CUSTOS_OPERATOR_KEY` line from `dev-keys` into this terminal.                                                                                                                                                                                                                                                                       |
+| A command fails with `401` and `UNAUTHORIZED`                               | The operator key was refused: mistyped, revoked, expired, or from another database. Every reason gives the same answer on purpose. Check `pnpm custos-admin key list`; after 10 failures in 5 minutes your address is also locked out for 15 minutes.                                                                                          |
 | `custos register` fails with `refusing to overwrite existing key file`      | An `agent.key` from an earlier registration is in the way. Move it, or pass `--key-out <path>` for the new agent.                                                                                                                                                                                                                              |
 | Every call denied with `INVALID_AGENT_CREDENTIAL` after restarting identity | Identity was restarted with a **different** `IDENTITY_ISSUER_SEED`, so earlier credentials no longer verify. Restart it with the original seed, or register agents again.                                                                                                                                                                      |
 | `use` denied with `INVALID_PROOF_OF_POSSESSION`                             | Either the key doesn't match the credential (the wrong `agent.key` for this `agent.json`), or the vault's `VAULT_PUBLIC_URL` isn't the address you're calling. Requests are signed for the exact URL used, so `localhost` and `127.0.0.1` count as different. Use `--vault-url` matching `VAULT_PUBLIC_URL` (default `http://localhost:4002`). |

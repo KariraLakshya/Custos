@@ -12,7 +12,8 @@ import {
   type SignedCredential,
 } from "@custos/core";
 import { buildServer as buildIdentityServer, createDb as createIdentityDb } from "@custos/identity";
-import { afterAll, describe, expect, it } from "vitest";
+import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { storeToolCredential } from "../credentials/store.js";
 import { grantToolAccess } from "../policy/policy.js";
 import { createDb } from "../db/client.js";
@@ -41,6 +42,13 @@ const ISSUER_SEED = new Uint8Array(32).fill(11);
 const TOKENS_URL = "https://vault.custos.example/tokens";
 const MAX_SKEW = 60;
 
+const controlPlane = createTestControlPlane(identityDb);
+let operatorKey: string;
+
+beforeAll(async () => {
+  operatorKey = await controlPlane.key("operator", ["agents:register"]);
+});
+
 afterAll(async () => {
   await vaultDb.$client.end();
   await identityDb.$client.end();
@@ -49,6 +57,7 @@ afterAll(async () => {
 function identityServer(domain: string, seed: Uint8Array = ISSUER_SEED) {
   return buildIdentityServer({
     db: identityDb,
+    controlPlaneAuth: controlPlane.guard,
     didDomain: domain,
     issuerKey: {
       keyProvider: createLocalKeyProvider({ importedKeys: { issuer: seed } }),
@@ -73,7 +82,12 @@ async function registerOn(
     audience: `did:web:${encodeURIComponent(domain)}`,
     now: new Date(),
   });
-  const response = await app.inject({ method: "POST", url: "/agents", payload: request.body });
+  const response = await app.inject({
+    method: "POST",
+    url: "/agents",
+    headers: bearer(operatorKey),
+    payload: request.body,
+  });
   const body = response.json() as { credential: SignedCredential; did: string };
   return { credential: body.credential, agentDid: body.did, secretKey: request.secretKey };
 }

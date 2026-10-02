@@ -4,6 +4,11 @@ import {
   createMockSlackConnector,
   createStripeConnector,
 } from "@custos/connectors";
+import {
+  checkServiceKey,
+  createApiKeyStore,
+  createControlPlaneGuard,
+} from "@custos/control-plane-auth";
 import { createDb } from "./db/client.js";
 import { loadVaultEnv } from "./env.js";
 import { buildServer } from "./server.js";
@@ -17,8 +22,25 @@ const connectors = [
   createMockDatabaseConnector(),
 ];
 
+const controlPlaneAuth = createControlPlaneGuard({
+  keys: createApiKeyStore(db),
+  clock: { now: () => new Date() },
+});
+
+// Refuse to boot on a service key that can't do its job (ADR 0008 §6).
+const serviceKeyCheck = await checkServiceKey({
+  ...controlPlaneAuth,
+  token: env.VAULT_SERVICE_KEY,
+  scope: "audit:write",
+});
+if (!serviceKeyCheck.ok) {
+  throw new Error(`VAULT_SERVICE_KEY: ${serviceKeyCheck.error}`);
+}
+
 const app = await buildServer({
   db,
+  controlPlaneAuth,
+  serviceKey: env.VAULT_SERVICE_KEY,
   cipher,
   connectors,
   revocationUrl: env.REVOCATION_URL,

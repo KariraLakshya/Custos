@@ -1,3 +1,4 @@
+import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { buildDidWebDocument, createLocalKeyProvider, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
@@ -40,6 +41,8 @@ function statusFor(code: string): number {
  */
 export async function buildServer(options: {
   readonly db: RevocationDb;
+  /** Required, no default: allocation and revocation are never open (ADR 0008). */
+  readonly controlPlaneAuth: ControlPlaneGuard;
   readonly didDomain?: string;
   readonly keyProvider?: KeyProvider;
   readonly broadcaster?: TombstoneBroadcaster;
@@ -77,7 +80,10 @@ export async function buildServer(options: {
   // Called by the identity service during registration, before it issues the
   // agent's credential — the returned index is embedded in that credential's
   // `credentialStatus`.
-  app.post("/agents", async (request, reply) => {
+  // Service key only (`status:allocate`): an open endpoint let anyone
+  // exhaust the status list's slots (ADR 0008).
+  const allocateGuard = requireScope({ ...options.controlPlaneAuth, scope: "status:allocate" });
+  app.post("/agents", { preHandler: allocateGuard }, async (request, reply) => {
     const body = allocateSchema.safeParse(request.body);
     if (!body.success) {
       reply.code(400);
@@ -96,7 +102,8 @@ export async function buildServer(options: {
     return { ...result.value, statusListCredential: statusListCredentialUrl };
   });
 
-  app.post("/revocations", async (request, reply) => {
+  const revokeGuard = requireScope({ ...options.controlPlaneAuth, scope: "agents:revoke" });
+  app.post("/revocations", { preHandler: revokeGuard }, async (request, reply) => {
     const body = revokeSchema.safeParse(request.body);
     if (!body.success) {
       reply.code(400);

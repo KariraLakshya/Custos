@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { buildDidWebDocument, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
@@ -28,6 +29,21 @@ function statusFor(code: RegisterAgentError["code"]): number {
   return 502;
 }
 
+function defaultStatusAllocator(options: {
+  readonly revocationUrl?: string;
+  readonly serviceKey?: string;
+}): StatusAllocator {
+  // Programmer or configuration error: without a key every registration
+  // would fail at the revocation service, so refuse to build instead.
+  if (options.serviceKey === undefined) {
+    throw new Error("identity: serviceKey is required when statusAllocator is not injected");
+  }
+  return createHttpStatusAllocator({
+    revocationUrl: options.revocationUrl ?? "http://localhost:4003",
+    serviceKey: options.serviceKey,
+  });
+}
+
 /**
  * `issuerKey` is required, with no default: the identity service signs every
  * agent credential as issuer, and those credentials outlive the process, so
@@ -37,9 +53,13 @@ function statusFor(code: RegisterAgentError["code"]): number {
  */
 export async function buildServer(options: {
   readonly db: IdentityDb;
+  /** Required, no default: registering an agent needs an operator key (ADR 0008). */
+  readonly controlPlaneAuth: ControlPlaneGuard;
   readonly didDomain?: string;
   readonly issuerKey: { readonly keyProvider: KeyProvider; readonly keyId: string };
   readonly revocationUrl?: string;
+  /** This service's key for the revocation service; required unless `statusAllocator` is injected. */
+  readonly serviceKey?: string;
   readonly statusAllocator?: StatusAllocator;
   readonly clock?: { now(): Date };
   readonly registrationProofMaxSkewSeconds?: number;
@@ -62,15 +82,14 @@ export async function buildServer(options: {
     keyProvider: issuerKey.keyProvider,
     keyId: issuerKey.keyId,
   };
-  const statusAllocator =
-    options.statusAllocator ??
-    createHttpStatusAllocator({ revocationUrl: options.revocationUrl ?? "http://localhost:4003" });
+  const statusAllocator = options.statusAllocator ?? defaultStatusAllocator(options);
 
   app.get("/health", async () => ({ status: "ok", service: "identity" }));
 
   app.get("/.well-known/did.json", async () => issuerDidDocument);
 
-  app.post("/agents", async (request, reply) => {
+  const registerGuard = requireScope({ ...options.controlPlaneAuth, scope: "agents:register" });
+  app.post("/agents", { preHandler: registerGuard }, async (request, reply) => {
     const body = registerAgentSchema.safeParse(request.body);
     if (!body.success) {
       reply.code(400);

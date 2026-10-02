@@ -12,13 +12,21 @@ import {
   type DidWebDocument,
   type SignedCredential,
 } from "@custos/core";
-import { afterAll, describe, expect, it } from "vitest";
+import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "./db/client.js";
 import { buildServer } from "./server.js";
 import type { StatusAllocator } from "./agents/status-allocator.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const db = createDb(databaseUrl);
+
+const controlPlane = createTestControlPlane(db);
+let operatorKey: string;
+
+beforeAll(async () => {
+  operatorKey = await controlPlane.key("operator", ["agents:register"]);
+});
 
 afterAll(async () => {
   await db.$client.end();
@@ -65,6 +73,7 @@ function buildTestServer(
 ) {
   return buildServer({
     db,
+    controlPlaneAuth: controlPlane.guard,
     didDomain: options.didDomain ?? DOMAIN,
     issuerKey: issuerKey(options.seed),
     statusAllocator: options.statusAllocator ?? fakeStatusAllocator(),
@@ -80,7 +89,12 @@ interface TamperableCredential {
 }
 
 async function register(app: App, body: unknown) {
-  return app.inject({ method: "POST", url: "/agents", payload: body as object });
+  return app.inject({
+    method: "POST",
+    url: "/agents",
+    headers: bearer(operatorKey),
+    payload: body as object,
+  });
 }
 
 async function validRequest(overrides: { audience?: string; now?: Date } = {}) {
@@ -225,7 +239,11 @@ describe("identity service", () => {
   describe("registration rejects", () => {
     it("a request with no body", async () => {
       const app = await buildTestServer();
-      const response = await app.inject({ method: "POST", url: "/agents" });
+      const response = await app.inject({
+        method: "POST",
+        url: "/agents",
+        headers: bearer(operatorKey),
+      });
 
       expect(response.statusCode).toBe(400);
       expect(response.json().error.code).toBe("INVALID_INPUT");
@@ -282,6 +300,7 @@ describe("identity service", () => {
       const serverNow = new Date("2026-09-25T12:00:00Z");
       const app = await buildServer({
         db,
+        controlPlaneAuth: controlPlane.guard,
         didDomain: DOMAIN,
         issuerKey: issuerKey(),
         statusAllocator: fakeStatusAllocator(),
@@ -380,5 +399,44 @@ describe("identity service", () => {
 
   it("uses REGISTRATION_PROOF_TYPE for registration proofs", () => {
     expect(REGISTRATION_PROOF_TYPE).toBe("custos-registration-proof");
+  });
+});
+
+describe("identity registration authentication (ADR 0008)", () => {
+  it("can't register an agent without an operator key holding agents:register", async () => {
+    const allocator = fakeStatusAllocator();
+    const app = await buildTestServer({ statusAllocator: allocator });
+    const keys = [
+      undefined,
+      await controlPlane.key("operator", ["policies:write", "credentials:write", "agents:revoke"]),
+      await controlPlane.key("service", ["status:allocate", "audit:write"]),
+      await controlPlane.key("operator", ["agents:register"], {
+        expiresAt: new Date("2020-01-01T00:00:00Z"),
+      }),
+    ];
+    for (const key of keys) {
+      const request = await validRequest();
+      const response = await app.inject({
+        method: "POST",
+        url: "/agents",
+        ...(key ? { headers: bearer(key) } : {}),
+        payload: request.body as object,
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({ error: { code: "UNAUTHORIZED" } });
+    }
+    // Refused before any work: no status slot was reserved.
+    expect(allocator.allocations).toBe(0);
+  });
+
+  it("refuses to build without a service key when no allocator is injected", async () => {
+    await expect(
+      buildServer({
+        db,
+        controlPlaneAuth: controlPlane.guard,
+        didDomain: DOMAIN,
+        issuerKey: issuerKey(),
+      }),
+    ).rejects.toThrow("serviceKey is required");
   });
 });

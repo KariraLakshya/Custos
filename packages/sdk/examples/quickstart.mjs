@@ -1,7 +1,7 @@
 // One agent's full lifecycle through @custos/sdk, against the local stack.
 // Run from the repo root: node packages/sdk/examples/quickstart.mjs
-// Prerequisites (see README): services running, `pnpm build`, and a
-// `mock-database` secret stored in the vault.
+// Prerequisites (see README): services running, `pnpm build`, a
+// `mock-database` secret stored in the vault, and CUSTOS_OPERATOR_KEY set.
 import { performance } from "node:perf_hooks";
 import { createCustos } from "@custos/sdk";
 
@@ -9,6 +9,8 @@ const custos = createCustos({
   identityUrl: "http://localhost:4001",
   vaultUrl: "http://localhost:4002",
   revocationUrl: "http://localhost:4003",
+  // register, grant and deprovision are operator actions (ADR 0008).
+  operatorKey: process.env.CUSTOS_OPERATOR_KEY,
 });
 
 const agent = await custos.register();

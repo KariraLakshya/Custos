@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-02 — The locks are on: admin actions and internal calls now need a key
+
+**Commits:** branch `feat/phase-5b-control-plane-wiring`, with a pull request open. The previous step's key machinery reached the main codebase as PR #51.
+
+**What shipped:** the keys built earlier today are now required on every door that matters.
+
+- **Admin actions need an operator key:** registering an agent, granting it a tool, storing a tool's password, and revoking an agent. Without a valid key with the right permission, every one is refused with the same "unauthorized" answer.
+- **Custos's own parts prove who they are to each other.** The identity service needs its own key to reserve a revocation slot for a new agent. The vault needs its own key to write to the audit log. Each service checks its key when it starts, and refuses to start with a missing, cancelled or wrong one, rather than failing quietly later.
+- **The forged-audit-record hole is closed.** Writing to the audit log now needs a key that only the vault holds. Tested live: a fake record sent straight to the audit service was refused and never stored. This was the hole found last week; it's the reason this step was prioritised.
+- **Agents still need no admin key.** An agent using its tools needs only its own identity, so a compromised agent can't grant itself extra tools.
+- **One command for local setup.** `pnpm custos-admin dev-keys` makes the three keys a developer needs. The quickstart guide was updated and the whole walkthrough was run live against real running services, from registration through revocation to the signed audit trail.
+
+_Why it matters:_ until today, anyone who could reach Custos's network could register agents, grant permissions or revoke agents. Now every one of those actions needs a key, which can be issued, given an expiry date and cancelled. The next piece makes every admin action show up in the audit log with who did it, so the trail covers the administrators as well as the agents.
+
 ## 2026-10-02 — Keys for administrators and services (built, not yet switched on)
 
 **Commits:** `9585ef1` and follow-up doc commits on branch `feat/phase-5b-api-keys`, pushed 2026-10-02 with a pull request open. The push was briefly held up because Windows had reserved a block of network ports one older test needs; releasing them fixed it, and every automated check then passed.

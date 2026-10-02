@@ -5,6 +5,7 @@ import {
   type SignedCredential,
 } from "@custos/core";
 import type { Connector } from "@custos/connectors";
+import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -78,8 +79,26 @@ function statusFor(code: string): number {
  * published did:web document (nothing outside this process verifies these
  * tokens today).
  */
+function defaultAuditReporter(
+  options: { readonly auditUrl?: string; readonly serviceKey?: string },
+  app: { readonly log: { warn(obj: object, msg: string): void } },
+): AuditReporter {
+  // Without a key every report would be refused by the audit service, and
+  // audit loss is a bug (CLAUDE.md section 3), so refuse to build instead.
+  if (options.serviceKey === undefined) {
+    throw new Error("vault: serviceKey is required when auditReporter is not injected");
+  }
+  return createHttpAuditReporter({
+    auditUrl: options.auditUrl ?? "http://localhost:4004",
+    serviceKey: options.serviceKey,
+    onError: (error) => app.log.warn({ err: error }, "audit report failed"),
+  });
+}
+
 export async function buildServer(options: {
   readonly db: VaultDb;
+  /** Required, no default: `/credentials` and `/policies` are never open (ADR 0008). */
+  readonly controlPlaneAuth: ControlPlaneGuard;
   readonly cipher: SecretCipher;
   readonly connectors?: readonly Connector[];
   readonly keyProvider?: KeyProvider;
@@ -103,6 +122,8 @@ export async function buildServer(options: {
   /** Omitted in tests, which drive the cache directly and deterministically. */
   readonly revocationResyncIntervalMs?: number;
   readonly auditUrl?: string;
+  /** This vault's key for the audit service; required unless `auditReporter` is injected. */
+  readonly serviceKey?: string;
   /** Injectable for tests; defaults to a fire-and-forget HTTP push (see ./audit/report.ts). */
   readonly auditReporter?: AuditReporter;
 }): Promise<ReturnType<typeof Fastify>> {
@@ -120,12 +141,7 @@ export async function buildServer(options: {
     did: options.trustedIssuerDid ?? "did:web:localhost%3A4001",
   });
   const { keyId: signingKeyId, publicKey: vaultPublicKey } = await keyProvider.createKeyPair();
-  const auditReporter =
-    options.auditReporter ??
-    createHttpAuditReporter({
-      auditUrl: options.auditUrl ?? "http://localhost:4004",
-      onError: (error) => app.log.warn({ err: error }, "audit report failed"),
-    });
+  const auditReporter = options.auditReporter ?? defaultAuditReporter(options, app);
 
   const revocation =
     options.revocation ??
@@ -191,7 +207,11 @@ export async function buildServer(options: {
     return { revoked: accepted.value };
   });
 
-  app.post("/credentials", async (request, reply) => {
+  const credentialsGuard = requireScope({
+    ...options.controlPlaneAuth,
+    scope: "credentials:write",
+  });
+  app.post("/credentials", { preHandler: credentialsGuard }, async (request, reply) => {
     const body = storeCredentialSchema.safeParse(request.body);
     if (!body.success) {
       reply.code(400);
@@ -206,7 +226,8 @@ export async function buildServer(options: {
   // agent × tool"). Deliberately no revoke-grant route yet — not required by
   // this phase's DONE criteria, and adding it speculatively would be exactly
   // the scope creep CLAUDE.md section 2 warns against.
-  app.post("/policies", async (request, reply) => {
+  const policiesGuard = requireScope({ ...options.controlPlaneAuth, scope: "policies:write" });
+  app.post("/policies", { preHandler: policiesGuard }, async (request, reply) => {
     const body = grantPolicySchema.safeParse(request.body);
     if (!body.success) {
       reply.code(400);

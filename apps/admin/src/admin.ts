@@ -1,4 +1,10 @@
-import { ALL_SCOPES, type ApiKeyStore, type PrincipalKind } from "@custos/control-plane-auth";
+import {
+  ALL_SCOPES,
+  OPERATOR_SCOPES,
+  type ApiKeyStore,
+  type PrincipalKind,
+  type Scope,
+} from "@custos/control-plane-auth";
 import { Command, InvalidArgumentError } from "commander";
 
 const DURATION = /^([1-9][0-9]{0,4})([dh])$/;
@@ -95,7 +101,76 @@ export function createAdminCli(deps: AdminDeps): Command {
       deps.out(`revoked ${id}`);
     });
 
+  program
+    .command("dev-keys")
+    .description(
+      "Create a local development key set: one operator key and the identity and vault service keys",
+    )
+    .option("--shell <shell>", "bash or powershell", parseShell, "bash")
+    .option(
+      "--expires-in <duration>",
+      "lifetime, e.g. 90d or 12h",
+      parseDuration,
+      parseDuration("90d"),
+    )
+    .action(async (options: { shell: Shell; expiresIn: number }) => {
+      const now = deps.clock.now();
+      const expiresAt = new Date(now.getTime() + options.expiresIn);
+      deps.out("# Custos development keys. Each is shown once; set each in the terminal named.");
+      for (const key of DEV_KEYS) {
+        const result = await deps.store.create({ ...key, expiresAt, now });
+        if (!result.ok) throw new Error(`dev key ${key.name} not created — ${result.error.code}`);
+        deps.out(`# ${key.usedBy}`);
+        deps.out(assignment(options.shell, key.variable, result.token));
+      }
+    });
+
   return program;
+}
+
+type Shell = "bash" | "powershell";
+
+function parseShell(value: string): Shell {
+  if (value !== "bash" && value !== "powershell") {
+    throw new InvalidArgumentError(`expected bash or powershell, got "${value}"`);
+  }
+  return value;
+}
+
+/** Which key each local process needs (ADR 0008 §3, §6). */
+const DEV_KEYS: readonly {
+  readonly variable: string;
+  readonly usedBy: string;
+  readonly kind: PrincipalKind;
+  readonly name: string;
+  readonly scopes: readonly Scope[];
+}[] = [
+  {
+    variable: "CUSTOS_OPERATOR_KEY",
+    usedBy: "the terminal you run the custos CLI, the SDK or the vault seed command in",
+    kind: "operator",
+    name: "dev-operator",
+    scopes: OPERATOR_SCOPES,
+  },
+  {
+    variable: "IDENTITY_SERVICE_KEY",
+    usedBy: "the identity service's terminal",
+    kind: "service",
+    name: "dev-identity",
+    scopes: ["status:allocate"],
+  },
+  {
+    variable: "VAULT_SERVICE_KEY",
+    usedBy: "the vault's terminal",
+    kind: "service",
+    name: "dev-vault",
+    scopes: ["audit:write"],
+  },
+];
+
+function assignment(shell: Shell, variable: string, value: string): string {
+  // Keys are [A-Za-z0-9_-] only, so no quoting or escaping is ever needed.
+  return shell === "bash" ? `export ${variable}=${value}` : `$env:${variable} = "${value}"`;
 }
 
 /** Runs the CLI; failures print one `error:` line and set exit code 1. */

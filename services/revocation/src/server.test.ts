@@ -8,13 +8,23 @@ import {
   type SignedCredential,
 } from "@custos/core";
 import { fixedClock } from "@custos/testing";
-import { afterAll, describe, expect, it } from "vitest";
+import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "./db/client.js";
 import { buildServer } from "./server.js";
 import type { BroadcastOutcome, TombstoneBroadcaster } from "./broadcast.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const db = createDb(databaseUrl);
+
+const controlPlane = createTestControlPlane(db);
+let serviceKey: string;
+let operatorKey: string;
+
+beforeAll(async () => {
+  serviceKey = await controlPlane.key("service", ["status:allocate"]);
+  operatorKey = await controlPlane.key("operator", ["agents:revoke"]);
+});
 
 afterAll(async () => {
   await db.$client.end();
@@ -66,6 +76,7 @@ function decodeBase58(input: string): Uint8Array {
 async function buildTestServer(broadcaster?: TombstoneBroadcaster) {
   return buildServer({
     db,
+    controlPlaneAuth: controlPlane.guard,
     didDomain: "127.0.0.1:4503",
     clock: fixedClock("2026-09-07T10:00:00.000Z"),
     ...(broadcaster ? { broadcaster } : {}),
@@ -79,6 +90,7 @@ async function allocate(
   const response = await app.inject({
     method: "POST",
     url: "/agents",
+    headers: bearer(serviceKey),
     payload: { agentId, agentDid: `did:web:127.0.0.1%3A4501:agents:${agentId}` },
   });
   expect(response.statusCode).toBe(201);
@@ -110,6 +122,7 @@ describe("revocation service", () => {
       const response = await app.inject({
         method: "POST",
         url: "/agents",
+        headers: bearer(serviceKey),
         payload: { agentId, agentDid: `did:web:127.0.0.1%3A4501:agents:${agentId}` },
       });
       expect(response.statusCode).toBe(201);
@@ -143,6 +156,7 @@ describe("revocation service", () => {
       const response = await app.inject({
         method: "POST",
         url: "/agents",
+        headers: bearer(serviceKey),
         payload: { agentId: "not-a-uuid", agentDid: "did:web:example" },
       });
       expect(response.statusCode).toBe(400);
@@ -159,6 +173,7 @@ describe("revocation service", () => {
       const response = await app.inject({
         method: "POST",
         url: "/revocations",
+        headers: bearer(operatorKey),
         payload: { agentId, reason: "suspected compromise" },
       });
       expect(response.statusCode).toBe(200);
@@ -192,6 +207,7 @@ describe("revocation service", () => {
       const response = await app.inject({
         method: "POST",
         url: "/revocations",
+        headers: bearer(operatorKey),
         payload: { agentId: randomUUID() },
       });
       expect(response.statusCode).toBe(404);
@@ -203,6 +219,7 @@ describe("revocation service", () => {
       const response = await app.inject({
         method: "POST",
         url: "/revocations",
+        headers: bearer(operatorKey),
         payload: { agentId: "not-a-uuid" },
       });
       expect(response.statusCode).toBe(400);
@@ -219,11 +236,13 @@ describe("revocation service", () => {
       const first = await app.inject({
         method: "POST",
         url: "/revocations",
+        headers: bearer(operatorKey),
         payload: { agentId },
       });
       const second = await app.inject({
         method: "POST",
         url: "/revocations",
+        headers: bearer(operatorKey),
         payload: { agentId },
       });
 
@@ -241,7 +260,12 @@ describe("revocation service", () => {
       const app = await buildTestServer();
       const agentId = randomUUID();
       await allocate(app, agentId);
-      await app.inject({ method: "POST", url: "/revocations", payload: { agentId } });
+      await app.inject({
+        method: "POST",
+        url: "/revocations",
+        headers: bearer(operatorKey),
+        payload: { agentId },
+      });
 
       const response = await app.inject({ method: "GET", url: "/revocations" });
       expect(response.statusCode).toBe(200);
@@ -266,7 +290,12 @@ describe("revocation service", () => {
       const activeId = randomUUID();
       const revokedIndex = await allocate(app, revokedId);
       const activeIndex = await allocate(app, activeId);
-      await app.inject({ method: "POST", url: "/revocations", payload: { agentId: revokedId } });
+      await app.inject({
+        method: "POST",
+        url: "/revocations",
+        headers: bearer(operatorKey),
+        payload: { agentId: revokedId },
+      });
 
       const response = await app.inject({ method: "GET", url: "/status/revocation" });
       expect(response.statusCode).toBe(200);
@@ -296,6 +325,7 @@ describe("revocation service", () => {
     it("publishes an explicit staleness bound when configured", async () => {
       const app = await buildServer({
         db,
+        controlPlaneAuth: controlPlane.guard,
         didDomain: "127.0.0.1:4503",
         statusTtlMs: 30_000,
         clock: fixedClock("2026-09-07T10:00:00.000Z"),
@@ -304,5 +334,67 @@ describe("revocation service", () => {
       const credential = response.json() as SignedCredential;
       expect((credential.credentialSubject as { ttl: number }).ttl).toBe(30_000);
     });
+  });
+});
+
+describe("revocation control-plane authentication (ADR 0008)", () => {
+  const UNAUTHORIZED = { error: { code: "UNAUTHORIZED" } };
+
+  it("refuses to allocate a status slot without a status:allocate service key", async () => {
+    const app = await buildTestServer();
+    const keys = [
+      undefined,
+      await controlPlane.key("operator", ["agents:revoke", "agents:register"]),
+      await controlPlane.key("service", ["audit:write"]),
+      await controlPlane.key("service", ["status:allocate"], {
+        expiresAt: new Date("2020-01-01T00:00:00Z"),
+      }),
+    ];
+    for (const key of keys) {
+      const agentId = randomUUID();
+      const response = await app.inject({
+        method: "POST",
+        url: "/agents",
+        ...(key ? { headers: bearer(key) } : {}),
+        payload: { agentId, agentDid: `did:web:127.0.0.1%3A4501:agents:${agentId}` },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual(UNAUTHORIZED);
+    }
+  });
+
+  it("refuses to revoke without an agents:revoke operator key, broadcasting nothing", async () => {
+    const broadcaster = recordingBroadcaster();
+    const app = await buildTestServer(broadcaster);
+    const agentId = randomUUID();
+    await allocate(app, agentId);
+    const keys = [
+      undefined,
+      await controlPlane.key("operator", ["policies:write"]),
+      await controlPlane.key("operator", ["agents:revoke"], {
+        expiresAt: new Date("2020-01-01T00:00:00Z"),
+      }),
+    ];
+    for (const key of keys) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/revocations",
+        ...(key ? { headers: bearer(key) } : {}),
+        payload: { agentId },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual(UNAUTHORIZED);
+    }
+    expect(broadcaster.sent).toEqual([]);
+    // Tombstones are encoded, so decode them rather than search the raw text.
+    const status = await app.inject({ method: "GET", url: "/revocations" });
+    const didResponse = await app.inject({ method: "GET", url: "/.well-known/did.json" });
+    const publicKey = publicKeyFrom(didResponse.json() as DidWebDocument);
+    const revokedDids = (status.json() as { tombstones: string[] }).tombstones.map((tombstone) => {
+      const verified = verifyRevocationTombstone({ tombstone, publicKey });
+      return verified.ok ? verified.value.agentDid : "unverifiable";
+    });
+    expect(revokedDids.some((did) => did.endsWith(agentId))).toBe(false);
+    expect(revokedDids).not.toContain("unverifiable");
   });
 });

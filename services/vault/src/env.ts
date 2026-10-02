@@ -1,4 +1,5 @@
 import { baseEnvSchema, loadEnv } from "@custos/config";
+import { parseApiKey } from "@custos/control-plane-auth";
 import { z } from "zod";
 
 export const envSchema = baseEnvSchema.extend({
@@ -27,6 +28,11 @@ export const envSchema = baseEnvSchema.extend({
   REVOCATION_MAX_STALENESS_MS: z.coerce.number().int().positive().default(30_000),
   REVOCATION_RESYNC_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
   AUDIT_URL: z.string().min(1).default("http://localhost:4004"),
+  // This vault's own key for the audit service (`audit:write`, ADR 0008).
+  // No default; checked against the key table at boot.
+  VAULT_SERVICE_KEY: z
+    .string()
+    .refine((value) => parseApiKey(value)?.kind === "service", "must be a custos_service_ key"),
 });
 
 export type Env = z.infer<typeof envSchema>;

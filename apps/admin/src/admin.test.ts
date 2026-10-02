@@ -164,3 +164,72 @@ describe("parseDuration", () => {
     expect(() => parseDuration(value)).toThrow(/expected a duration/);
   });
 });
+
+describe("custos-admin dev-keys", () => {
+  async function devKeys(...args: string[]): Promise<Map<string, string>> {
+    const { lines } = await run("dev-keys", ...args);
+    expect(process.exitCode).toBeUndefined();
+    const assignments = new Map<string, string>();
+    for (const line of lines) {
+      const match = /^(?:export (\w+)=(\S+)|\$env:(\w+) = "(\S+)")$/.exec(line);
+      if (match) assignments.set((match[1] ?? match[3])!, (match[2] ?? match[4])!);
+      else expect(line.startsWith("# ")).toBe(true);
+    }
+    return assignments;
+  }
+
+  it("creates an operator key and the two service keys, each with exactly its scopes", async () => {
+    const keys = await devKeys();
+    expect([...keys.keys()]).toEqual([
+      "CUSTOS_OPERATOR_KEY",
+      "IDENTITY_SERVICE_KEY",
+      "VAULT_SERVICE_KEY",
+    ]);
+    const authenticator = createApiKeyAuthenticator({ keys: store, clock });
+    const scopesOf = async (variable: string) => {
+      const result = await authenticator.authenticate({
+        headers: { authorization: `Bearer ${keys.get(variable)}` },
+      });
+      if (!result.ok) throw new Error(`${variable} did not authenticate`);
+      return { kind: result.value.kind, scopes: [...result.value.scopes].sort() };
+    };
+    expect(await scopesOf("CUSTOS_OPERATOR_KEY")).toEqual({
+      kind: "operator",
+      scopes: ["agents:register", "agents:revoke", "credentials:write", "policies:write"],
+    });
+    expect(await scopesOf("IDENTITY_SERVICE_KEY")).toEqual({
+      kind: "service",
+      scopes: ["status:allocate"],
+    });
+    expect(await scopesOf("VAULT_SERVICE_KEY")).toEqual({
+      kind: "service",
+      scopes: ["audit:write"],
+    });
+  });
+
+  it("prints PowerShell assignments on request", async () => {
+    const keys = await devKeys("--shell", "powershell");
+    expect(keys.get("VAULT_SERVICE_KEY")).toMatch(/^custos_service_/);
+  });
+
+  it("rejects an unknown shell", async () => {
+    await run("dev-keys", "--shell", "fish");
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("reports a key the store refuses", async () => {
+    const lines: string[] = [];
+    let stderr = "";
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr += String(chunk);
+      return true;
+    });
+    await runAdminCli(["node", "custos-admin", "dev-keys"], {
+      store: { ...store, create: async () => ({ ok: false, error: { code: "NO_SCOPES" } }) },
+      clock,
+      out: (line) => lines.push(line),
+    });
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toContain("dev key dev-operator not created — NO_SCOPES");
+  });
+});
