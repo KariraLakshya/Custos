@@ -10,7 +10,7 @@ Keep this to what the next session must act on before anything else. Clear items
 
 - [x] **PR #47** merged to `main` 2026-10-01 (step 3 + real-KMS record).
 - [x] PR #49 (ADR 0008 accepted) merged 2026-10-02. It merged before its last two commits (`instructions.md` §7, no AI attribution) landed; they ride on `feat/phase-5b-api-keys` instead.
-- [ ] **`feat/phase-5b-api-keys`** (step 4 part 1): push it and open a PR once the local pre-push gate passes. It is blocked by the WinNAT port reservation (Gotchas).
+- [ ] **`feat/phase-5b-api-keys`** (step 4 part 1) is pushed with its PR open: confirm it's merged before starting part 2.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [ ] **Knowledge graph:** last full refresh **2026-10-02**, from step 4 part 1 code (`packages/control-plane-auth`, `apps/admin`; 144 community notes, vault pruned to 1,272 notes). If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
@@ -34,7 +34,7 @@ Keep this to what the next session must act on before anything else. Clear items
 
 ## In progress / not yet merged
 
-- **`feat/phase-5b-api-keys`**: Phase 5b step 4 part 1 (API-key layer) plus `instructions.md` §7. Not yet pushed.
+- **`feat/phase-5b-api-keys`**: Phase 5b step 4 part 1 (API-key layer) plus `instructions.md` §7. Pushed 2026-10-02; PR open.
 - **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
 **Ideas to discuss with the user (raised 2026-10-02, not approved, don't build):**
@@ -46,7 +46,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Next up
 
-1. Push and merge `feat/phase-5b-api-keys`.
+1. Merge `feat/phase-5b-api-keys`.
 2. **Phase 5b step 4 part 2:** `custos-admin dev-keys` (DB-access command — never an HTTP bootstrap endpoint); `requireScope` wired into vault `/credentials` `/policies`, revocation `/revocations` + `/agents`, identity `/agents`, audit `/records`; audit records gain a principal; service keys via env (boot refuses without); SDK/CLI `operatorKey` / `CUSTOS_OPERATOR_KEY`; README. Then mTLS, then SSO (OIDC). Then step 5 (docs/threat model), then Phase 5's non-author README run, then Phase 6.
 
 ## Known issues, debt, and deviations
@@ -76,7 +76,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 - Native Windows Postgres already owns port 5432 — Compose Postgres is on **5433** (`infra/docker/docker-compose.yml`, `.env.example`, `drizzle.config.ts`). Don't "fix" this back to 5432.
 - On Windows, WinNAT/Hyper-V periodically grabs a dynamic port range covering 5433 (seen as `5433-5532`), and Compose then fails with `bind: An attempt was made to access a socket in a way forbidden by its access permissions` — note that this is **not** "port already in use"; nothing is listening. Fixed once, persistently, by reserving the single port from an elevated shell: `net stop winnat` → `netsh int ipv4 add excludedportrange protocol=tcp startport=5433 numberofports=1 store=persistent` → `net start winnat`. The narrow `5433-5433` exclusion that this leaves behind is the fix, not the problem: it only removes the port from the ephemeral pool, and an explicit bind still succeeds. Restarting WinNAT briefly disrupts Docker networking for every running container.
 - `pnpm test` requires the Compose stack up (`pnpm dev`) plus `pnpm migrate`; the `.husky/pre-push` gate runs lint + typecheck + test, so a push fails on a stopped Docker daemon. `test:e2e` is deliberately not in that gate — slowest layer; run it by hand for cross-service changes.
-- WinNAT can also reserve ranges that cover test ports. On 2026-10-02 it reserved **4105–4204**, and `apps/cli/src/verify.test.ts` (port 4201) failed with `listen EACCES` (3 tests time out at 30 s). CI is unaffected. Check with `netsh int ipv4 show excludedportrange protocol=tcp`. Releasing it takes the elevated `net stop winnat` / `net start winnat` described above, which briefly disrupts Docker networking.
+- WinNAT can also reserve ranges that cover test ports. On 2026-10-02 it reserved **4105–4204**, and `apps/cli/src/verify.test.ts` (port 4201) failed with `listen EACCES` (3 tests time out at 30 s). CI is unaffected. Check with `netsh int ipv4 show excludedportrange protocol=tcp`. Releasing it takes the elevated `net stop winnat` / `net start winnat` described above, which briefly disrupts Docker networking. Done 2026-10-02, after which the full pre-push gate passed.
 - Docker Desktop doesn't auto-start with `pnpm dev` — start it first.
 - pnpm installed via `npm install -g pnpm@9.15.0` (`corepack enable` hit `EPERM` in this environment).
 - `services/identity` refuses to boot without `IDENTITY_ISSUER_SEED` (64 hex, no default); keep the same seed across restarts or every issued credential stops verifying. Tests don't need it — they pass `issuerKey` directly.

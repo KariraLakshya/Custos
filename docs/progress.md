@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-02 — Keys for administrators and services (built, not yet switched on)
 
-**Commits:** branch `feat/phase-5b-api-keys`, not yet pushed. The local safety check that runs before a push currently fails for a reason unrelated to this work: Windows has reserved a block of network ports that one older test needs (details in `docs/state.md`).
+**Commits:** `9585ef1` and follow-up doc commits on branch `feat/phase-5b-api-keys`, pushed 2026-10-02 with a pull request open. The push was briefly held up because Windows had reserved a block of network ports one older test needs; releasing them fixed it, and every automated check then passed.
 
 **What shipped:** the machinery for the "locks on the administrator and internal doors" step designed last week.
 
