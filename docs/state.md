@@ -10,8 +10,8 @@ Keep this to what the next session must act on before anything else. Clear items
 
 - [x] **PR #47** merged to `main` 2026-10-01 (step 3 + real-KMS record).
 - [ ] **This docs branch** (`docs/phase-5b-step4-decisions`) rebased onto `main` and pushed 2026-10-02: confirm its PR is merged.
-- [ ] **Ask the user to decide ADR 0008's open items 3 and 4** (audit-log read access; shared key table vs signed tokens) before building step 4.
-- [ ] Don't start step 4 code until the three items above are done.
+- [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
+- [ ] Don't start step 4 code until this docs PR (#49) is merged.
 - [ ] **Knowledge graph:** last full refresh **2026-10-01**, from Phase 5b steps 1–3 code (1,744 nodes, 139 communities, 150 wiki articles; vault pruned). If `main` has moved since (it has #48's dependency bump: no structural change), or any code changed, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
 **Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented, verified, and on `main` (1–2 via #41, 3 via #47). Step 4 (control-plane auth) designed in ADR 0008, **not started**. Phase 5's DONE check (non-author README run) follows 5b.
@@ -33,16 +33,15 @@ Keep this to what the next session must act on before anything else. Clear items
 
 ## In progress / not yet merged
 
-- **`docs/phase-5b-step4-decisions`** (this branch, on `main`): ADR 0008 (status: decisions 1–2 accepted, 3–4 open) + these doc updates. Pushed, PR open.
-- **ADR 0008 decisions (2026-10-01):** **accepted to build:** (1) agent registration (`POST /agents` on identity) requires an operator key with `agents:register`; (2) service-to-service auth — vault/identity/revocation get service keys; audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`) require them. **Not yet decided — ask the user:** (3) audit log stays readable without a key for now; (4) all services check keys in one shared `api_keys` table vs signed offline-verifiable tokens. The user explicitly said **don't build any of 1–4 yet**; start fresh in a new session.
+- **`docs/phase-5b-step4-decisions`** (this branch, on `main`): ADR 0008 (Accepted) + these doc updates. PR #49.
+- **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
 Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's close (incl. `zod` 3→4, `@noble/*` bumps under `packages/core`) — re-check before assuming still open.
 
 ## Next up
 
 1. Merge this docs branch's PR.
-2. Get the user's answer on ADR 0008 decisions 3 and 4, then mark ADR 0008 Accepted.
-3. **Phase 5b step 4**, API-key layer first: `packages/control-plane-auth` (`ControlPlaneAuthenticator` → `Principal`, scopes, Fastify hook), `api_keys` table + migration, `custos-admin key create|list|revoke` + `dev-keys` (DB-access command — never an HTTP bootstrap endpoint), wire into vault `/credentials` `/policies`, revocation `/revocations` + `/agents`, identity `/agents`, audit `/records`; audit records gain a principal; brute-force lockout; SDK/CLI `operatorKey` / `CUSTOS_OPERATOR_KEY`; README. Then mTLS, then SSO (OIDC). Then step 5 (docs/threat model), then Phase 5's non-author README run, then Phase 6.
+2. **Phase 5b step 4**, API-key layer first: `packages/control-plane-auth` (`ControlPlaneAuthenticator` → `Principal`, scopes, Fastify hook), `api_keys` table + migration, `custos-admin key create|list|revoke` + `dev-keys` (DB-access command — never an HTTP bootstrap endpoint), wire into vault `/credentials` `/policies`, revocation `/revocations` + `/agents`, identity `/agents`, audit `/records`; audit records gain a principal; brute-force lockout; SDK/CLI `operatorKey` / `CUSTOS_OPERATOR_KEY`; README. Then mTLS, then SSO (OIDC). Then step 5 (docs/threat model), then Phase 5's non-author README run, then Phase 6.
 
 ## Known issues, debt, and deviations
 

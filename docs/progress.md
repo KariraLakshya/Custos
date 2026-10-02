@@ -12,7 +12,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **Status:** No new code. Step 3, which checks that whoever presents an agent's ID card actually holds that agent's private key, is now in the main codebase. A stolen ID card on its own no longer gets anyone a tool token.
 
-_Why it matters:_ all three agent-identity steps of this hardening phase are now in one place. The next step puts locks on the administrator and internal doors. It is blocked on two decisions only the founder can make: whether the audit log should stay readable without a key, and whether services should check keys against one shared table or use signed passes they can verify on their own.
+_Why it matters:_ all three agent-identity steps of this hardening phase are now in one place. The next step puts locks on the administrator and internal doors. The two remaining decisions were made the same day. The audit log stays readable without a key for now; it gets locked once the dashboard has a proper login. Every Custos service checks keys against one shared list, which lets a key be cancelled instantly. The design is now fully approved, so building can start once this documentation is merged.
 
 ## 2026-10-01 — Real AWS key verified; next security step designed and approved
 

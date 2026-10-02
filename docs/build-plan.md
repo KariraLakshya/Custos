@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 5b — Auth hardening** (in progress: steps 1–3 done; step 4 designed in ADR 0008, not started). Phase 5 is built; its DONE check (non-author README run) follows 5b.
+> **CURRENT: Phase 5b — Auth hardening** (in progress: steps 1–3 done; step 4 designed in ADR 0008 (Accepted 2026-10-02), not started). Phase 5 is built; its DONE check (non-author README run) follows 5b.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
