@@ -11,6 +11,8 @@ const SECRET_FIELD_NAMES = [
   "password",
   "credential",
   "credentials",
+  // Control-plane API keys travel as `Authorization: Bearer ...` (ADR 0008).
+  "authorization",
 ];
 
 export const redactionPaths = SECRET_FIELD_NAMES.flatMap((field) => [

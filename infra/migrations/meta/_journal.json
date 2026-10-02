@@ -43,6 +43,13 @@
       "when": 1790286794167,
       "tag": "0005_petite_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790941502565,
+      "tag": "0006_massive_beyonder",
+      "breakpoints": true
     }
   ]
 }

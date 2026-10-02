@@ -1,0 +1,36 @@
+{
+  "name": "@custos/control-plane-auth",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@custos/contracts": "workspace:*",
+    "@noble/hashes": "^2.4.0",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.12.5"
+  },
+  "devDependencies": {
+    "@custos/testing": "workspace:*",
+    "@custos/tsconfig": "workspace:*",
+    "@custos/vitest-config": "workspace:*",
+    "@types/pg": "^8.11.10",
+    "pg": "^8.13.1",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
+  }
+}

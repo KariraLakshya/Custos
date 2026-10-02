@@ -7,6 +7,7 @@ export default defineConfig({
     "./services/vault/src/db/schema.ts",
     "./services/revocation/src/db/schema.ts",
     "./services/audit/src/db/schema.ts",
+    "./packages/control-plane-auth/src/schema.ts",
   ],
   out: "./infra/migrations",
   dbCredentials: {

@@ -6,6 +6,19 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-02 — Keys for administrators and services (built, not yet switched on)
+
+**Commits:** branch `feat/phase-5b-api-keys`, not yet pushed. The local safety check that runs before a push currently fails for a reason unrelated to this work: Windows has reserved a block of network ports that one older test needs (details in `docs/state.md`).
+
+**What shipped:** the machinery for the "locks on the administrator and internal doors" step designed last week.
+
+- **Keys.** Each administrator and each Custos component can be given its own key, a long random string starting `custos_operator_` or `custos_service_`. That prefix lets GitHub's leak scanners spot one that is accidentally published. Custos keeps only a fingerprint of each key, not the key itself, so even a stolen database copy doesn't give an attacker working keys. A key is shown once, when created, and every key has an expiry date (90 days by default).
+- **Permissions.** Each key carries a list of what it may do, for example "register agents" or "write audit records". Administrator keys can never hold the two permissions reserved for Custos's own components, so an administrator can't, for example, forge audit records.
+- **One answer for every refusal.** A missing key, a wrong key, an expired key and a key without the right permission all get the same "unauthorized" reply, so someone probing can't learn which check they failed. After 10 failed attempts in 5 minutes from one address, that address is shut out for 15 minutes.
+- **`custos-admin`.** A command for creating, listing and cancelling keys. It works only with direct access to Custos's database, the same level of access needed to set Custos up, so there is no web page an attacker could use to create the first key.
+
+_Why it matters:_ this is the half of the audit-log fix that does the checking. The next piece puts these locks on the actual doors: registering agents, granting permissions, revoking agents, and above all writing audit records, which anyone can still do today. That is when the audit trail becomes trustworthy evidence.
+
 ## 2026-10-02 — Proof-of-ownership check is live on main; next-step design pushed for review
 
 **Commits:** PR #47 merged into `main` on 2026-10-01. Branch `docs/phase-5b-step4-decisions` was rebased onto `main` and pushed. It holds the design record ADR 0008 and these documentation updates, and has a pull request open.
