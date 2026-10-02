@@ -12,8 +12,11 @@ const fieldsSchema = baseEnvSchema.extend({
   // its credential, and fails closed if this service is unreachable — an
   // un-revokable agent is worse than a failed registration.
   REVOCATION_URL: z.string().min(1).default("http://localhost:4003"),
-  // This service's own key for the revocation service (`status:allocate`,
-  // ADR 0008). No default; checked against the key table at boot.
+  // Its control-plane writes are reported here (ADR 0008 §7).
+  AUDIT_URL: z.string().min(1).default("http://localhost:4004"),
+  // This service's own key: `status:allocate` for the revocation service and
+  // `audit:write` for the audit service (ADR 0008). No default; checked
+  // against the key table at boot.
   IDENTITY_SERVICE_KEY: z
     .string()
     .refine((value) => parseApiKey(value)?.kind === "service", "must be a custos_service_ key"),

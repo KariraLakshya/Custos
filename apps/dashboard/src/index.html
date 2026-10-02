@@ -136,7 +136,7 @@
     <h2>Live action feed</h2>
     <table>
       <thead>
-        <tr><th>Time</th><th>Agent</th><th>Tool</th><th>Action</th><th>Decision</th><th>Rule</th><th>Reason</th></tr>
+        <tr><th>Time</th><th>Who</th><th>Tool</th><th>Action</th><th>Decision</th><th>Rule</th><th>Reason</th></tr>
       </thead>
       <tbody id="feed-body">
         <tr><td colspan="7" class="empty">Waiting for data…</td></tr>
@@ -198,6 +198,14 @@
     const parts = did.split(":");
     const last = parts[parts.length - 1] || did;
     return last.length > 14 ? last.slice(0, 6) + "…" + last.slice(-4) : last;
+  }
+
+  // An admin record names the operator or service that acted (and the agent
+  // it acted on, if any); an agent record names the agent.
+  function actorOf(claims) {
+    if (!claims.principal) return shortDid(claims.agentDid);
+    const who = claims.principal.kind + " " + claims.principal.name;
+    return claims.agentDid ? who + " → " + shortDid(claims.agentDid) : who;
   }
 
   function el(tag, className, text) {
@@ -270,7 +278,7 @@
       if (claims.policy && claims.policy.decision === "allow") allowed += 1;
       else denied += 1;
 
-      const key = [claims.recordedAt, claims.agentDid, claims.tool, claims.action].join("|");
+      const key = [claims.recordedAt, claims.agentDid, claims.principal && claims.principal.id, claims.tool, claims.action].join("|");
       const isNew = !seenRecordKeys.has(key);
       if (isNew) {
         seenRecordKeys.add(key);
@@ -282,7 +290,7 @@
       const row = document.createElement("tr");
       if (isNew) row.className = "new-row";
       row.appendChild(el("td", "", new Date(claims.recordedAt).toLocaleTimeString()));
-      row.appendChild(el("td", "agent", shortDid(claims.agentDid)));
+      row.appendChild(el("td", "agent", actorOf(claims)));
       row.appendChild(el("td", "", claims.tool));
       row.appendChild(el("td", "", claims.action));
       const decisionCell = document.createElement("td");

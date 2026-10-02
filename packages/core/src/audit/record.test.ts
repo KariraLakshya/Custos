@@ -158,12 +158,11 @@ describe("verifyAuditRecord", () => {
   // structurally wrong — proving validation is not skipped once the
   // signature checks out.
   it.each([
-    ["missing agentDid", { ...recordFor(), agentDid: undefined }],
+    ["no actor: neither agentDid nor principal", { ...recordFor(), agentDid: undefined }],
     ["empty agentDid", { ...recordFor(), agentDid: "" }],
     ["missing authorityChain", { ...recordFor(), authorityChain: undefined }],
     ["non-array authorityChain", { ...recordFor(), authorityChain: AGENT_DID }],
     ["non-string authorityChain entry", { ...recordFor(), authorityChain: [1] }],
-    ["missing tool", { ...recordFor(), tool: undefined }],
     ["empty tool", { ...recordFor(), tool: "" }],
     ["missing action", { ...recordFor(), action: undefined }],
     ["empty action", { ...recordFor(), action: "" }],
@@ -175,6 +174,16 @@ describe("verifyAuditRecord", () => {
     ["non-object policy", { ...recordFor(), policy: "allow" }],
     ["missing policy.rule", { ...recordFor(), policy: { decision: "allow" } }],
     ["invalid policy.decision", { ...recordFor(), policy: { rule: "x", decision: "maybe" } }],
+    ["non-object principal", { ...recordFor(), principal: "lakshya" }],
+    [
+      "unknown principal kind",
+      { ...recordFor(), principal: { kind: "agent", id: "a", name: "b" } },
+    ],
+    ["principal without id", { ...recordFor(), principal: { kind: "operator", name: "b" } }],
+    [
+      "principal with empty name",
+      { ...recordFor(), principal: { kind: "operator", id: "a", name: "" } },
+    ],
     ["null claims", null],
     ["array claims", []],
     ["string claims", "audited"],
@@ -184,6 +193,58 @@ describe("verifyAuditRecord", () => {
     const result = verifyAuditRecord({ record, publicKey });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("MALFORMED_RECORD");
+  });
+
+  it("verifies a control-plane record: a principal, no agent, an empty authority chain", async () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const record: AuditRecord = {
+      principal: { kind: "operator", id: "0123456789abcdef", name: "lakshya" },
+      authorityChain: [],
+      tool: "stripe",
+      action: "credentials.store",
+      dataCategories: [],
+      policy: { rule: "control-plane-scope:credentials:write", decision: "allow" },
+      recordedAt: "2026-10-02T10:00:00.000Z",
+    };
+    const issued = await issueAuditRecord({ record, signer: signerFor(secretKey) });
+    if (!issued.ok) throw new Error("expected issuance to succeed");
+    const result = verifyAuditRecord({ record: issued.value, publicKey });
+    expect(result).toEqual({ ok: true, value: record });
+  });
+
+  it("verifies a control-plane record about an agent, with no tool", async () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const record: AuditRecord = {
+      agentDid: AGENT_DID,
+      principal: { kind: "operator", id: "0123456789abcdef", name: "lakshya" },
+      authorityChain: [],
+      action: "agents.revoke",
+      dataCategories: [],
+      policy: { rule: "control-plane-scope:agents:revoke", decision: "allow" },
+      recordedAt: "2026-10-02T10:00:00.000Z",
+    };
+    const issued = await issueAuditRecord({ record, signer: signerFor(secretKey) });
+    if (!issued.ok) throw new Error("expected issuance to succeed");
+    expect(verifyAuditRecord({ record: issued.value, publicKey })).toEqual({
+      ok: true,
+      value: record,
+    });
+  });
+
+  it("rejects a tampered principal", async () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const record = recordFor({
+      principal: { kind: "operator", id: "0123456789abcdef", name: "lakshya" },
+      authorityChain: [],
+    });
+    const issued = await issueAuditRecord({ record, signer: signerFor(secretKey) });
+    if (!issued.ok) throw new Error("expected issuance to succeed");
+    const [, signature] = issued.value.split(".") as [string, string];
+    const forged = { ...record, principal: { ...record.principal!, name: "someone-else" } };
+    const encoded = Buffer.from(JSON.stringify(forged), "utf8").toString("base64url");
+    const result = verifyAuditRecord({ record: `${encoded}.${signature}`, publicKey });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("SIGNATURE_INVALID");
   });
 
   it("fails closed on a malformed public key instead of throwing", async () => {

@@ -2,7 +2,7 @@ import { verifyScopedToken, type SecretCipher } from "@custos/core";
 import { err, type Result } from "@custos/contracts";
 import type { Connector, ConnectorCallError } from "@custos/connectors";
 import { loadToolCredential } from "../credentials/store.js";
-import type { AuditReporter } from "../audit/report.js";
+import type { AuditReporter } from "@custos/audit-client";
 import type { VaultDb } from "../db/client.js";
 
 export type InvokeToolError =

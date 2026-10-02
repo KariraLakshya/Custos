@@ -1,4 +1,5 @@
 import { baseEnvSchema, loadEnv } from "@custos/config";
+import { parseApiKey } from "@custos/control-plane-auth";
 import { z } from "zod";
 
 export const envSchema = baseEnvSchema.extend({
@@ -25,6 +26,13 @@ export const envSchema = baseEnvSchema.extend({
   // verifier may cache the list before refetching. CLAUDE.md section 3
   // requires this bound be explicit configuration, never an accident.
   REVOCATION_STATUS_TTL_MS: z.coerce.number().int().positive().default(30_000),
+  // Revocations and status allocations are reported here (ADR 0008 §7).
+  AUDIT_URL: z.string().min(1).default("http://localhost:4004"),
+  // This service's own key for the audit service (`audit:write`, ADR 0008).
+  // No default; checked against the key table at boot.
+  REVOCATION_SERVICE_KEY: z
+    .string()
+    .refine((value) => parseApiKey(value)?.kind === "service", "must be a custos_service_ key"),
 });
 
 export type Env = z.infer<typeof envSchema>;

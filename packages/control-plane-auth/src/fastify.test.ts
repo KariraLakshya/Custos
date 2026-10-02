@@ -91,6 +91,42 @@ describe("requireScope", () => {
     expect((await app.inject(post("/policies", valid))).statusCode).toBe(200);
   });
 
+  it("reports an authenticated principal's missing scope, and never an authentication failure", async () => {
+    const valid = generateApiKey("operator");
+    const row: ApiKeyRow = {
+      id: valid.id,
+      kind: "operator",
+      name: "lakshya",
+      scopes: ["policies:write"],
+      secretHash: valid.secretHash,
+      createdAt: new Date("2026-10-01T00:00:00.000Z"),
+      expiresAt: new Date("2026-12-31T00:00:00.000Z"),
+      revokedAt: null,
+    };
+    const authenticator = createApiKeyAuthenticator({
+      keys: { findById: async (id) => (id === row.id ? row : null) },
+      clock,
+    });
+    const denied: string[] = [];
+    const app = Fastify();
+    app.post(
+      "/credentials",
+      {
+        preHandler: requireScope({
+          authenticator,
+          lockout: createLockout({ clock }),
+          scope: "credentials:write",
+          onScopeDenied: (principal) => denied.push(principal.id),
+        }),
+      },
+      async () => ({ stored: true }),
+    );
+    await app.inject(post("/credentials", valid.token));
+    await app.inject(post("/credentials", "garbage"));
+    await app.inject(post("/credentials"));
+    expect(denied).toEqual([valid.id]);
+  });
+
   it("never echoes the presented key in the response", async () => {
     const { app, expired } = setup();
     const response = await app.inject(post("/policies", expired));

@@ -33,7 +33,7 @@ export function createControlPlaneGuard(options: {
 export async function checkServiceKey(options: {
   readonly authenticator: ControlPlaneAuthenticator;
   readonly token: string;
-  readonly scope: Scope;
+  readonly scopes: readonly Scope[];
 }): Promise<Result<Principal, string>> {
   const result = await options.authenticator.authenticate({
     headers: { authorization: `Bearer ${options.token}` },
@@ -44,8 +44,9 @@ export async function checkServiceKey(options: {
   }
   const principal = result.value;
   if (principal.kind !== "service") return err(`key ${principal.id} is not a service key`);
-  if (!principal.scopes.has(options.scope)) {
-    return err(`service key ${principal.id} lacks scope ${options.scope}`);
+  const missing = options.scopes.filter((scope) => !principal.scopes.has(scope));
+  if (missing.length > 0) {
+    return err(`service key ${principal.id} lacks scope ${missing.join(", ")}`);
   }
   return ok(principal);
 }

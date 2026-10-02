@@ -5,7 +5,7 @@ import {
   type SignedCredential,
 } from "@custos/core";
 import type { Connector } from "@custos/connectors";
-import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
+import { principalOf, requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -16,7 +16,11 @@ import { createTrustedIssuer } from "./tokens/trusted-issuer.js";
 import { invokeTool } from "./calls/invoke.js";
 import { grantToolAccess } from "./policy/policy.js";
 import { createRevocationCache, type RevocationCache } from "./revocation/cache.js";
-import { createHttpAuditReporter, type AuditReporter } from "./audit/report.js";
+import {
+  controlPlaneEvent,
+  createHttpAuditReporter,
+  type AuditReporter,
+} from "@custos/audit-client";
 import type { VaultDb } from "./db/client.js";
 
 // Re-exported so other packages' e2e tests can boot a real instance of this
@@ -124,7 +128,7 @@ export async function buildServer(options: {
   readonly auditUrl?: string;
   /** This vault's key for the audit service; required unless `auditReporter` is injected. */
   readonly serviceKey?: string;
-  /** Injectable for tests; defaults to a fire-and-forget HTTP push (see ./audit/report.ts). */
+  /** Injectable for tests; defaults to a fire-and-forget HTTP push (see @custos/audit-client). */
   readonly auditReporter?: AuditReporter;
 }): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({ loggerInstance: createLogger({ level: "silent" }) });
@@ -207,9 +211,21 @@ export async function buildServer(options: {
     return { revoked: accepted.value };
   });
 
+  // Control-plane writes are audited with who made them, allowed or refused
+  // for a missing scope (ADR 0008 §7). A denial names no tool: the body
+  // hasn't been validated, and unvalidated input doesn't go into evidence.
   const credentialsGuard = requireScope({
     ...options.controlPlaneAuth,
     scope: "credentials:write",
+    onScopeDenied: (principal) =>
+      auditReporter.report(
+        controlPlaneEvent({
+          principal,
+          scope: "credentials:write",
+          action: "credentials.store",
+          decision: "deny",
+        }),
+      ),
   });
   app.post("/credentials", { preHandler: credentialsGuard }, async (request, reply) => {
     const body = storeCredentialSchema.safeParse(request.body);
@@ -218,6 +234,15 @@ export async function buildServer(options: {
       return { error: "INVALID_INPUT" };
     }
     await storeToolCredential({ db, cipher, tool: body.data.tool, secret: body.data.secret });
+    auditReporter.report(
+      controlPlaneEvent({
+        principal: principalOf(request),
+        scope: "credentials:write",
+        action: "credentials.store",
+        decision: "allow",
+        tool: body.data.tool,
+      }),
+    );
     reply.code(201);
     return { tool: body.data.tool };
   });
@@ -226,7 +251,19 @@ export async function buildServer(options: {
   // agent × tool"). Deliberately no revoke-grant route yet — not required by
   // this phase's DONE criteria, and adding it speculatively would be exactly
   // the scope creep CLAUDE.md section 2 warns against.
-  const policiesGuard = requireScope({ ...options.controlPlaneAuth, scope: "policies:write" });
+  const policiesGuard = requireScope({
+    ...options.controlPlaneAuth,
+    scope: "policies:write",
+    onScopeDenied: (principal) =>
+      auditReporter.report(
+        controlPlaneEvent({
+          principal,
+          scope: "policies:write",
+          action: "policies.grant",
+          decision: "deny",
+        }),
+      ),
+  });
   app.post("/policies", { preHandler: policiesGuard }, async (request, reply) => {
     const body = grantPolicySchema.safeParse(request.body);
     if (!body.success) {
@@ -234,6 +271,16 @@ export async function buildServer(options: {
       return { error: "INVALID_INPUT" };
     }
     await grantToolAccess(db, body.data.agentId, body.data.tool);
+    auditReporter.report(
+      controlPlaneEvent({
+        principal: principalOf(request),
+        scope: "policies:write",
+        action: "policies.grant",
+        decision: "allow",
+        agentDid: body.data.agentId,
+        tool: body.data.tool,
+      }),
+    );
     reply.code(201);
     return { agentId: body.data.agentId, tool: body.data.tool };
   });

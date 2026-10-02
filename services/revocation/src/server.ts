@@ -1,4 +1,9 @@
-import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
+import {
+  controlPlaneEvent,
+  createHttpAuditReporter,
+  type AuditReporter,
+} from "@custos/audit-client";
+import { principalOf, requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { buildDidWebDocument, createLocalKeyProvider, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
@@ -22,6 +27,22 @@ const revokeSchema = z.object({
   agentId: z.string().uuid(),
   reason: z.string().min(1).optional(),
 });
+
+function defaultAuditReporter(
+  options: { readonly auditUrl?: string; readonly serviceKey?: string },
+  app: { readonly log: { warn(obj: object, msg: string): void } },
+): AuditReporter {
+  // Without a key every report would be refused, and audit loss is a bug
+  // (CLAUDE.md section 3), so refuse to build instead.
+  if (options.serviceKey === undefined) {
+    throw new Error("revocation: serviceKey is required when auditReporter is not injected");
+  }
+  return createHttpAuditReporter({
+    auditUrl: options.auditUrl ?? "http://localhost:4004",
+    serviceKey: options.serviceKey,
+    onError: (error) => app.log.warn({ err: error }, "audit report failed"),
+  });
+}
 
 function statusFor(code: string): number {
   if (code === "UNKNOWN_AGENT") return 404;
@@ -49,6 +70,11 @@ export async function buildServer(options: {
   readonly subscriberUrls?: readonly string[];
   readonly statusTtlMs?: number;
   readonly clock?: { now(): Date };
+  readonly auditUrl?: string;
+  /** This service's key for the audit service; required unless `auditReporter` is injected. */
+  readonly serviceKey?: string;
+  /** Injectable for tests; defaults to a fire-and-forget HTTP push. */
+  readonly auditReporter?: AuditReporter;
 }): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({ loggerInstance: createLogger({ level: "silent" }) });
   const { db } = options;
@@ -57,6 +83,7 @@ export async function buildServer(options: {
   const clock = options.clock ?? { now: () => new Date() };
   const broadcaster =
     options.broadcaster ?? createHttpBroadcaster({ subscriberUrls: options.subscriberUrls ?? [] });
+  const auditReporter = options.auditReporter ?? defaultAuditReporter(options, app);
 
   const { keyId, publicKey } = await keyProvider.createKeyPair();
   const didDocument = buildDidWebDocument({ domain, publicKey });
@@ -82,7 +109,20 @@ export async function buildServer(options: {
   // `credentialStatus`.
   // Service key only (`status:allocate`): an open endpoint let anyone
   // exhaust the status list's slots (ADR 0008).
-  const allocateGuard = requireScope({ ...options.controlPlaneAuth, scope: "status:allocate" });
+  // Both writes are audited with the caller who made them (ADR 0008 §7).
+  const allocateGuard = requireScope({
+    ...options.controlPlaneAuth,
+    scope: "status:allocate",
+    onScopeDenied: (principal) =>
+      auditReporter.report(
+        controlPlaneEvent({
+          principal,
+          scope: "status:allocate",
+          action: "status.allocate",
+          decision: "deny",
+        }),
+      ),
+  });
   app.post("/agents", { preHandler: allocateGuard }, async (request, reply) => {
     const body = allocateSchema.safeParse(request.body);
     if (!body.success) {
@@ -98,11 +138,32 @@ export async function buildServer(options: {
       reply.code(502);
       return { error: result.error };
     }
+    auditReporter.report(
+      controlPlaneEvent({
+        principal: principalOf(request),
+        scope: "status:allocate",
+        action: "status.allocate",
+        decision: "allow",
+        agentDid: body.data.agentDid,
+      }),
+    );
     reply.code(201);
     return { ...result.value, statusListCredential: statusListCredentialUrl };
   });
 
-  const revokeGuard = requireScope({ ...options.controlPlaneAuth, scope: "agents:revoke" });
+  const revokeGuard = requireScope({
+    ...options.controlPlaneAuth,
+    scope: "agents:revoke",
+    onScopeDenied: (principal) =>
+      auditReporter.report(
+        controlPlaneEvent({
+          principal,
+          scope: "agents:revoke",
+          action: "agents.revoke",
+          decision: "deny",
+        }),
+      ),
+  });
   app.post("/revocations", { preHandler: revokeGuard }, async (request, reply) => {
     const body = revokeSchema.safeParse(request.body);
     if (!body.success) {
@@ -121,6 +182,16 @@ export async function buildServer(options: {
       reply.code(statusFor(result.error.code));
       return { error: result.error };
     }
+    auditReporter.report(
+      controlPlaneEvent({
+        principal: principalOf(request),
+        scope: "agents:revoke",
+        action: "agents.revoke",
+        decision: "allow",
+        agentDid: result.value.agentDid,
+        ...(body.data.reason === undefined ? {} : { reason: body.data.reason }),
+      }),
+    );
     return result.value;
   });
 

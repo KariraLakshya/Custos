@@ -29,32 +29,42 @@ function guardWith(kind: PrincipalKind, scopes: string[], expiresAt = "2026-12-3
 describe("checkServiceKey", () => {
   it("accepts a service key with the scope", async () => {
     const { guard, token } = guardWith("service", ["audit:write"]);
-    const result = await checkServiceKey({ ...guard, token, scope: "audit:write" });
+    const result = await checkServiceKey({ ...guard, token, scopes: ["audit:write"] });
     expect(result.ok && result.value.name).toBe("vault");
   });
 
   it("rejects a malformed key without echoing it", async () => {
     const { guard } = guardWith("service", ["audit:write"]);
-    const result = await checkServiceKey({ ...guard, token: "not-a-key", scope: "audit:write" });
+    const result = await checkServiceKey({ ...guard, token: "not-a-key", scopes: ["audit:write"] });
     expect(result).toEqual({ ok: false, error: "service key rejected: MALFORMED" });
   });
 
   it("rejects an expired key, naming its id but not its secret", async () => {
     const { guard, token, id } = guardWith("service", ["audit:write"], "2026-10-01T00:00:00.000Z");
-    const result = await checkServiceKey({ ...guard, token, scope: "audit:write" });
+    const result = await checkServiceKey({ ...guard, token, scopes: ["audit:write"] });
     expect(result).toEqual({ ok: false, error: `service key rejected: EXPIRED (key ${id})` });
     expect(JSON.stringify(result)).not.toContain(token.slice(-43));
   });
 
   it("rejects an operator key in a service's place", async () => {
     const { guard, token, id } = guardWith("operator", ["agents:revoke"]);
-    const result = await checkServiceKey({ ...guard, token, scope: "agents:revoke" });
+    const result = await checkServiceKey({ ...guard, token, scopes: ["agents:revoke"] });
     expect(result).toEqual({ ok: false, error: `key ${id} is not a service key` });
+  });
+
+  it("names every missing scope when several are required", async () => {
+    const { guard, token, id } = guardWith("service", ["status:allocate"]);
+    const result = await checkServiceKey({
+      ...guard,
+      token,
+      scopes: ["status:allocate", "audit:write"],
+    });
+    expect(result).toEqual({ ok: false, error: `service key ${id} lacks scope audit:write` });
   });
 
   it("rejects a service key without the scope", async () => {
     const { guard, token, id } = guardWith("service", ["status:allocate"]);
-    const result = await checkServiceKey({ ...guard, token, scope: "audit:write" });
+    const result = await checkServiceKey({ ...guard, token, scopes: ["audit:write"] });
     expect(result).toEqual({ ok: false, error: `service key ${id} lacks scope audit:write` });
   });
 });

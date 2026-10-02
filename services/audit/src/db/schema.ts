@@ -18,8 +18,14 @@ import { jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
  */
 export const auditRecords = pgTable("audit_records", {
   id: serial("id").primaryKey(),
-  agentDid: text("agent_did").notNull(),
-  tool: text("tool").notNull(),
+  // Null for a control-plane action that names no agent (ADR 0008 §7).
+  agentDid: text("agent_did"),
+  // The operator or service behind a control-plane action; null for an
+  // agent action. Its key id and name, never the key.
+  principalKind: text("principal_kind").$type<"operator" | "service">(),
+  principalId: text("principal_id"),
+  principalName: text("principal_name"),
+  tool: text("tool"),
   action: text("action").notNull(),
   dataCategories: jsonb("data_categories").notNull().$type<readonly string[]>(),
   policyRule: text("policy_rule").notNull(),

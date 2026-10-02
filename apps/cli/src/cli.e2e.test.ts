@@ -73,6 +73,7 @@ const vaultCipher = createLocalSecretCipher(new Uint8Array(32).fill(21));
 const controlPlane = createTestControlPlane(db);
 let operatorKey: string;
 let identityServiceKey: string;
+let revocationServiceKey: string;
 let vaultServiceKey: string;
 
 beforeAll(async () => {
@@ -82,7 +83,8 @@ beforeAll(async () => {
     "agents:revoke",
     "agents:register",
   ]);
-  identityServiceKey = await controlPlane.key("service", ["status:allocate"]);
+  identityServiceKey = await controlPlane.key("service", ["status:allocate", "audit:write"]);
+  revocationServiceKey = await controlPlane.key("service", ["audit:write"]);
   vaultServiceKey = await controlPlane.key("service", ["audit:write"]);
 });
 
@@ -159,6 +161,7 @@ async function withPhase3Stack<T>(
   const revocationApp = await buildRevocationServer({
     db: revocationDb,
     controlPlaneAuth: controlPlane.guard,
+    serviceKey: revocationServiceKey,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
   });
@@ -241,6 +244,8 @@ async function withPhase4Stack<T>(
   const revocationApp = await buildRevocationServer({
     db: revocationDb,
     controlPlaneAuth: controlPlane.guard,
+    serviceKey: revocationServiceKey,
+    auditUrl,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
   });
@@ -250,6 +255,7 @@ async function withPhase4Stack<T>(
     db,
     controlPlaneAuth: controlPlane.guard,
     serviceKey: identityServiceKey,
+    auditUrl,
     issuerKey: testIssuerKey(),
     didDomain: `127.0.0.1:${ports.identity}`,
     revocationUrl,
@@ -555,20 +561,68 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
           // writes never block the caller), so both records may not have
           // landed the instant the HTTP responses above returned — poll
           // briefly rather than assume synchronous delivery.
+          //
+          // The agent's history also holds the control-plane actions taken
+          // on it, each naming who took them (ADR 0008 §7): its status slot
+          // (identity's service key), its registration and its grant (the
+          // operator).
           let entries = await pullAuditLog({ auditUrl, agentDid: registered.did });
-          for (let attempt = 0; entries.length < 2 && attempt < 20; attempt += 1) {
+          for (let attempt = 0; entries.length < 5 && attempt < 20; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 50));
             entries = await pullAuditLog({ auditUrl, agentDid: registered.did });
           }
-          expect(entries).toHaveLength(2);
+          expect(entries).toHaveLength(5);
           expect(entries.every((entry) => entry.verified)).toBe(true);
 
-          const decisions = entries.map((entry) => ({
-            tool: entry.record!.tool,
-            decision: entry.record!.policy.decision,
-          }));
-          expect(decisions).toContainEqual({ tool: "mock-slack", decision: "allow" });
-          expect(decisions).toContainEqual({ tool: "stripe", decision: "deny" });
+          const agentActions = entries
+            .filter((entry) => entry.record!.principal === undefined)
+            .map((entry) => ({
+              tool: entry.record!.tool,
+              decision: entry.record!.policy.decision,
+              authorityChain: entry.record!.authorityChain,
+            }));
+          expect(agentActions).toContainEqual({
+            tool: "mock-slack",
+            decision: "allow",
+            authorityChain: [registered.did],
+          });
+          expect(agentActions).toContainEqual({
+            tool: "stripe",
+            decision: "deny",
+            authorityChain: [registered.did],
+          });
+
+          const controlPlaneActions = entries
+            .filter((entry) => entry.record!.principal !== undefined)
+            .map((entry) => ({
+              action: entry.record!.action,
+              by: entry.record!.principal!.kind,
+              keyId: entry.record!.principal!.id,
+              authorityChain: entry.record!.authorityChain,
+            }));
+          expect(controlPlaneActions).toEqual(
+            expect.arrayContaining([
+              {
+                action: "status.allocate",
+                by: "service",
+                keyId: identityServiceKey.split("_")[2],
+                authorityChain: [],
+              },
+              {
+                action: "agents.register",
+                by: "operator",
+                keyId: operatorKey.split("_")[2],
+                authorityChain: [],
+              },
+              {
+                action: "policies.grant",
+                by: "operator",
+                keyId: operatorKey.split("_")[2],
+                authorityChain: [],
+              },
+            ]),
+          );
+          expect(controlPlaneActions).toHaveLength(3);
         },
       );
     },

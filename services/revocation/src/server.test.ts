@@ -8,6 +8,7 @@ import {
   type SignedCredential,
 } from "@custos/core";
 import { fixedClock } from "@custos/testing";
+import type { AuditEvent, AuditReporter } from "@custos/audit-client";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "./db/client.js";
@@ -73,9 +74,10 @@ function decodeBase58(input: string): Uint8Array {
   return Uint8Array.from(bytes.reverse());
 }
 
-async function buildTestServer(broadcaster?: TombstoneBroadcaster) {
+async function buildTestServer(broadcaster?: TombstoneBroadcaster, auditReporter?: AuditReporter) {
   return buildServer({
     db,
+    auditReporter: auditReporter ?? { report: () => {} },
     controlPlaneAuth: controlPlane.guard,
     didDomain: "127.0.0.1:4503",
     clock: fixedClock("2026-09-07T10:00:00.000Z"),
@@ -325,6 +327,7 @@ describe("revocation service", () => {
     it("publishes an explicit staleness bound when configured", async () => {
       const app = await buildServer({
         db,
+        auditReporter: { report: () => {} },
         controlPlaneAuth: controlPlane.guard,
         didDomain: "127.0.0.1:4503",
         statusTtlMs: 30_000,
@@ -396,5 +399,62 @@ describe("revocation control-plane authentication (ADR 0008)", () => {
     });
     expect(revokedDids.some((did) => did.endsWith(agentId))).toBe(false);
     expect(revokedDids).not.toContain("unverifiable");
+  });
+});
+
+describe("revocation control-plane auditing (ADR 0008 §7)", () => {
+  it("audits an allocation and a revocation with their callers, and a scope denial", async () => {
+    const events: AuditEvent[] = [];
+    const app = await buildTestServer(undefined, { report: (event) => events.push(event) });
+    const agentId = randomUUID();
+    await allocate(app, agentId);
+    const agentDid = `did:web:127.0.0.1%3A4501:agents:${agentId}`;
+
+    const policiesOnly = await controlPlane.key("operator", ["policies:write"]);
+    await app.inject({
+      method: "POST",
+      url: "/revocations",
+      headers: bearer(policiesOnly),
+      payload: { agentId },
+    });
+    // Unauthenticated: logged, never audited.
+    await app.inject({ method: "POST", url: "/revocations", payload: { agentId } });
+    const revoked = await app.inject({
+      method: "POST",
+      url: "/revocations",
+      headers: bearer(operatorKey),
+      payload: { agentId, reason: "compromised" },
+    });
+    expect(revoked.statusCode).toBe(200);
+
+    expect(events).toEqual([
+      {
+        principal: { kind: "service", id: serviceKey.split("_")[2], name: "test-service" },
+        action: "status.allocate",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:status:allocate", decision: "allow" },
+        agentDid,
+      },
+      {
+        principal: { kind: "operator", id: policiesOnly.split("_")[2], name: "test-operator" },
+        action: "agents.revoke",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:agents:revoke", decision: "deny" },
+      },
+      {
+        principal: { kind: "operator", id: operatorKey.split("_")[2], name: "test-operator" },
+        action: "agents.revoke",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:agents:revoke", decision: "allow" },
+        agentDid,
+        reason: "compromised",
+      },
+    ]);
+  });
+
+  it("refuses to build without a service key when no audit reporter is injected", async () => {
+    await expect(buildServer({ db, controlPlaneAuth: controlPlane.guard })).rejects.toThrow(
+      "serviceKey is required when auditReporter is not injected",
+    );
   });
 });

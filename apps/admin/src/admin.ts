@@ -104,7 +104,7 @@ export function createAdminCli(deps: AdminDeps): Command {
   program
     .command("dev-keys")
     .description(
-      "Create a local development key set: one operator key and the identity and vault service keys",
+      "Create a local development key set: one operator key and the identity, revocation and vault service keys",
     )
     .option("--shell <shell>", "bash or powershell", parseShell, "bash")
     .option(
@@ -157,7 +157,14 @@ const DEV_KEYS: readonly {
     usedBy: "the identity service's terminal",
     kind: "service",
     name: "dev-identity",
-    scopes: ["status:allocate"],
+    scopes: ["status:allocate", "audit:write"],
+  },
+  {
+    variable: "REVOCATION_SERVICE_KEY",
+    usedBy: "the revocation service's terminal",
+    kind: "service",
+    name: "dev-revocation",
+    scopes: ["audit:write"],
   },
   {
     variable: "VAULT_SERVICE_KEY",

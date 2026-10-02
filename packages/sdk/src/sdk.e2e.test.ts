@@ -19,6 +19,7 @@ const vaultDb = createVaultDb(databaseUrl);
 const controlPlane = createTestControlPlane(identityDb);
 let operatorKey: string;
 let identityServiceKey: string;
+let revocationServiceKey: string;
 let vaultServiceKey: string;
 
 beforeAll(async () => {
@@ -28,7 +29,8 @@ beforeAll(async () => {
     "agents:revoke",
     "agents:register",
   ]);
-  identityServiceKey = await controlPlane.key("service", ["status:allocate"]);
+  identityServiceKey = await controlPlane.key("service", ["status:allocate", "audit:write"]);
+  revocationServiceKey = await controlPlane.key("service", ["audit:write"]);
   vaultServiceKey = await controlPlane.key("service", ["audit:write"]);
 });
 
@@ -62,6 +64,7 @@ async function withStack<T>(
   const revocationApp = await buildRevocationServer({
     db: revocationDb,
     controlPlaneAuth: controlPlane.guard,
+    serviceKey: revocationServiceKey,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
   });
