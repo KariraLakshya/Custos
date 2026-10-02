@@ -5,8 +5,6 @@ export const baseEnvSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 });
 
-export type BaseEnv = z.infer<typeof baseEnvSchema>;
-
 export function loadEnv<T extends z.ZodType>(
   schema: T,
   source: Record<string, string | undefined> = process.env,

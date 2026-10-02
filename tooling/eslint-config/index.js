@@ -16,5 +16,3 @@ export const baseConfig = tseslint.config(
     ignores: ["dist/**", "coverage/**", ".turbo/**"],
   },
 );
-
-export default baseConfig;
