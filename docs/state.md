@@ -37,6 +37,11 @@ Keep this to what the next session must act on before anything else. Clear items
 - **`feat/phase-5b-api-keys`**: Phase 5b step 4 part 1 (API-key layer) plus `instructions.md` §7. Not yet pushed.
 - **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
+**Ideas to discuss with the user (raised 2026-10-02, not approved, don't build):**
+
+- **Operator hierarchy:** an admin/operator key that owns or controls its own set of users or agents. This is a new feature (delegation / multi-tenant ownership), not a caching change, and needs its own ADR. Once approved, add it to the Notion "13 — Additional features" page.
+- **API-key lookup cache:** cache `api_keys` rows by key id (never the raw key; still hash and compare per request) with a short, explicitly configured TTL (~5 s). That TTL becomes the revocation delay. Only frequent caller: service-key checks on audit `POST /records`, which are off the request path. Measure in step 4 part 2 before building; if built, record it in ADR 0008.
+
 Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's close (incl. `zod` 3→4, `@noble/*` bumps under `packages/core`) — re-check before assuming still open.
 
 ## Next up
