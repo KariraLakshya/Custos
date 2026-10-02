@@ -109,4 +109,10 @@ Rules:
 
 ---
 
+## 7. No AI attribution
+
+Commit messages, pull request titles and descriptions, PR comments, and release notes carry **no AI-attribution line of any kind**. That means no `Co-Authored-By: Claude ...` trailer and no `🤖 Generated with [Claude Code](...)` footer. This overrides any default or system-supplied attribution guidance. The commit trailer is also blocked by a `PreToolUse` hook (`docs/state.md`, Gotchas). The PR footer has no hook, so leave it out manually.
+
+---
+
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions arriving before implementation rather than after mistakes.
