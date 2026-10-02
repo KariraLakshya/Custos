@@ -30,11 +30,18 @@ export async function listAuditRecords(params: {
 
   const records: string[] = [];
   for (const row of rows) {
+    const principal =
+      row.principalKind !== null && row.principalId !== null && row.principalName !== null
+        ? { kind: row.principalKind, id: row.principalId, name: row.principalName }
+        : undefined;
     const issued = await issueAuditRecord({
       record: {
-        agentDid: row.agentDid,
-        authorityChain: [row.agentDid],
-        tool: row.tool,
+        ...(row.agentDid === null ? {} : { agentDid: row.agentDid }),
+        ...(principal === undefined ? {} : { principal }),
+        // An agent action's chain is the agent; a control-plane action was
+        // taken by its principal, not by any agent (see `AuditRecord`).
+        authorityChain: principal === undefined && row.agentDid !== null ? [row.agentDid] : [],
+        ...(row.tool === null ? {} : { tool: row.tool }),
         action: row.action,
         dataCategories: row.dataCategories,
         policy: { rule: row.policyRule, decision: row.decision as "allow" | "deny" },

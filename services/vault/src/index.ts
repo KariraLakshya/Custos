@@ -31,7 +31,7 @@ const controlPlaneAuth = createControlPlaneGuard({
 const serviceKeyCheck = await checkServiceKey({
   ...controlPlaneAuth,
   token: env.VAULT_SERVICE_KEY,
-  scope: "audit:write",
+  scopes: ["audit:write"],
 });
 if (!serviceKeyCheck.ok) {
   throw new Error(`VAULT_SERVICE_KEY: ${serviceKeyCheck.error}`);

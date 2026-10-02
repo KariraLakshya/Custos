@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
+import {
+  controlPlaneEvent,
+  createHttpAuditReporter,
+  type AuditReporter,
+} from "@custos/audit-client";
+import { principalOf, requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { buildDidWebDocument, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
@@ -44,6 +49,22 @@ function defaultStatusAllocator(options: {
   });
 }
 
+function defaultAuditReporter(
+  options: { readonly auditUrl?: string; readonly serviceKey?: string },
+  app: { readonly log: { warn(obj: object, msg: string): void } },
+): AuditReporter {
+  // Without a key every report would be refused, and audit loss is a bug
+  // (CLAUDE.md section 3), so refuse to build instead.
+  if (options.serviceKey === undefined) {
+    throw new Error("identity: serviceKey is required when auditReporter is not injected");
+  }
+  return createHttpAuditReporter({
+    auditUrl: options.auditUrl ?? "http://localhost:4004",
+    serviceKey: options.serviceKey,
+    onError: (error) => app.log.warn({ err: error }, "audit report failed"),
+  });
+}
+
 /**
  * `issuerKey` is required, with no default: the identity service signs every
  * agent credential as issuer, and those credentials outlive the process, so
@@ -58,9 +79,15 @@ export async function buildServer(options: {
   readonly didDomain?: string;
   readonly issuerKey: { readonly keyProvider: KeyProvider; readonly keyId: string };
   readonly revocationUrl?: string;
-  /** This service's key for the revocation service; required unless `statusAllocator` is injected. */
+  /**
+   * This service's key, with `status:allocate` and `audit:write`; required
+   * unless both `statusAllocator` and `auditReporter` are injected.
+   */
   readonly serviceKey?: string;
   readonly statusAllocator?: StatusAllocator;
+  readonly auditUrl?: string;
+  /** Injectable for tests; defaults to a fire-and-forget HTTP push. */
+  readonly auditReporter?: AuditReporter;
   readonly clock?: { now(): Date };
   readonly registrationProofMaxSkewSeconds?: number;
 }): Promise<ReturnType<typeof Fastify>> {
@@ -83,12 +110,26 @@ export async function buildServer(options: {
     keyId: issuerKey.keyId,
   };
   const statusAllocator = options.statusAllocator ?? defaultStatusAllocator(options);
+  const auditReporter = options.auditReporter ?? defaultAuditReporter(options, app);
 
   app.get("/health", async () => ({ status: "ok", service: "identity" }));
 
   app.get("/.well-known/did.json", async () => issuerDidDocument);
 
-  const registerGuard = requireScope({ ...options.controlPlaneAuth, scope: "agents:register" });
+  // Registration is audited with the operator who approved it (ADR 0008 §7).
+  const registerGuard = requireScope({
+    ...options.controlPlaneAuth,
+    scope: "agents:register",
+    onScopeDenied: (principal) =>
+      auditReporter.report(
+        controlPlaneEvent({
+          principal,
+          scope: "agents:register",
+          action: "agents.register",
+          decision: "deny",
+        }),
+      ),
+  });
   app.post("/agents", { preHandler: registerGuard }, async (request, reply) => {
     const body = registerAgentSchema.safeParse(request.body);
     if (!body.success) {
@@ -109,6 +150,15 @@ export async function buildServer(options: {
       reply.code(statusFor(result.error.code));
       return { error: result.error };
     }
+    auditReporter.report(
+      controlPlaneEvent({
+        principal: principalOf(request),
+        scope: "agents:register",
+        action: "agents.register",
+        decision: "allow",
+        agentDid: result.value.did,
+      }),
+    );
     reply.code(201);
     return result.value;
   });

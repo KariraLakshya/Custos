@@ -14,6 +14,7 @@
     "seed": "node scripts/seed-credential.mjs"
   },
   "dependencies": {
+    "@custos/audit-client": "workspace:*",
     "@custos/config": "workspace:*",
     "@custos/connectors": "workspace:*",
     "@custos/contracts": "workspace:*",

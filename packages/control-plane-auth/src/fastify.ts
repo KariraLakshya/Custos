@@ -25,11 +25,18 @@ function refuse(reply: FastifyReply): FastifyReply {
  * 401 — the reason is logged by key id, never the response or the secret.
  * Only authentication failures count towards the lockout; a valid key
  * lacking a scope is not a guess.
+ *
+ * `onScopeDenied` fires only for that second case — an authenticated
+ * principal refused for a missing scope — so the service can audit it (ADR
+ * 0008 §7). Failed authentication is logged, never audited: there is no
+ * principal to attribute it to, and letting unauthenticated traffic write
+ * to the evidence log would let anyone flood it.
  */
 export function requireScope(options: {
   readonly authenticator: ControlPlaneAuthenticator;
   readonly lockout: Lockout;
   readonly scope: Scope;
+  readonly onScopeDenied?: (principal: Principal) => void;
 }): preHandlerAsyncHookHandler {
   return async (request, reply) => {
     const source = request.ip;
@@ -54,6 +61,7 @@ export function requireScope(options: {
         { keyId: principal.id, scope: options.scope },
         "control-plane request refused: missing scope",
       );
+      options.onScopeDenied?.(principal);
       return refuse(reply);
     }
     principals.set(request, principal);

@@ -11,11 +11,12 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] **PR #47** merged to `main` 2026-10-01 (step 3 + real-KMS record).
 - [x] PR #49 (ADR 0008 accepted) merged 2026-10-02. It merged before its last two commits (`instructions.md` §7, no AI attribution) landed; they ride on `feat/phase-5b-api-keys` instead.
 - [x] PR #51 (step 4 part 1, API-key layer) merged 2026-10-02.
-- [ ] **`feat/phase-5b-control-plane-wiring`** (step 4 part 2a) is pushed with its PR open: confirm it's merged before starting part 2b.
+- [x] PR #52 (step 4 part 2a, keys enforced) merged 2026-10-02.
+- [ ] **`feat/phase-5b-audit-principal`** (step 4 part 2b) is pushed with its PR open: confirm it's merged before starting mTLS.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
-- [ ] **Knowledge graph:** last full refresh **2026-10-02**, from step 4 part 2a code (control-plane wiring across all four services). If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
+- [ ] **Knowledge graph:** last full refresh **2026-10-02**, from step 4 part 2b code (`packages/audit-client`, audit principal across all four services). If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
-**Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented, verified, and on `main` (1–2 via #41, 3 via #47). Step 4 (control-plane auth, ADR 0008): part 1 (API-key layer) on `main` via #51; part 2a (keys enforced on every control-plane route) on `feat/phase-5b-control-plane-wiring`; part 2b (principal on audit records) next. Phase 5's DONE check (non-author README run) follows 5b.
+**Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented, verified, and on `main` (1–2 via #41, 3 via #47). Step 4 (control-plane auth, ADR 0008): part 1 (API-key layer) on `main` via #51; part 2a (keys enforced on every control-plane route) on `main` via #52; part 2b (control-plane writes audited with their principal) on `feat/phase-5b-audit-principal`; then mTLS, then SSO. Phase 5's DONE check (non-author README run) follows 5b.
 **Last updated:** 2026-10-02
 
 ## Implemented, by phase
@@ -33,10 +34,11 @@ Keep this to what the next session must act on before anything else. Clear items
   - **Step 3, proof of possession on `POST /tokens`.** `packages/core` `buildTokenRequestProof`/`TOKEN_REQUEST_PROOF_TYPE`. `services/vault`: `/tokens` requires `proof` (aud = `VAULT_PUBLIC_URL`/tokens, ±`VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS`), checked against the credential's embedded key after verification and before revocation/allowlist; `tokens/replay-cache.ts` (in-memory, bounded, fail-closed). SDK `connect()` needs `secretKey`; CLI `use --key` (default `agent.key`). Verified live: owner allowed; thief with own key, and a replayed captured request, refused (`INVALID_PROOF_OF_POSSESSION`).
   - **Step 4, part 1: API-key layer.** `packages/control-plane-auth`: `custos_<kind>_<id>_<secret>` keys stored as a SHA-256 hash and compared in constant time; scopes, with service-only scopes refused on operator keys at creation and again at authentication; `createApiKeyAuthenticator` returns `Result<Principal, AuthenticationFailure>`; in-memory `createLockout` (10 failures per 5 min locks the source for 15 min); Fastify `requireScope` (uniform `401 UNAUTHORIZED`) and `principalOf`. `api_keys` table (migration `0006`). `apps/admin`: `pnpm custos-admin key create|list|revoke`, direct DB access only. `@custos/contracts` gains `UNAUTHORIZED`; the logger redacts `authorization`. Smoke-tested against the dev DB. ADR 0008 "Implementation notes".
   - **Step 4, part 2a: keys enforced.** Each guarded `buildServer` requires `controlPlaneAuth: ControlPlaneGuard` (no default). `requireScope` on vault `/credentials` (`credentials:write`) and `/policies` (`policies:write`), revocation `/revocations` (`agents:revoke`) and `/agents` (`status:allocate`), identity `/agents` (`agents:register`), audit `POST /records` (`audit:write`). `GET`s stay open. Vault `POST /revocations` (tombstone push) stays keyless: it is authenticated by the tombstone's signature. Outgoing calls send service keys: identity → revocation (`IDENTITY_SERVICE_KEY`), vault → audit (`VAULT_SERVICE_KEY`). Both are required env vars, checked at boot by `checkServiceKey` (kind + scope against the table), so boot fails on a bad key. `custos-admin dev-keys [--shell powershell]`. SDK `operatorKey` (needed by register/grant/deprovision; `connect().call()` needs none). CLI and `seed` read `CUSTOS_OPERATOR_KEY` from env only. `@custos/testing/control-plane` (`createTestControlPlane`, `bearer`); `control-plane-auth` no longer depends on `@custos/testing` (cycle). README walkthrough updated and run live end to end.
+  - **Step 4, part 2b: control-plane writes audited.** `@custos/core` `AuditRecord` gains optional `principal` `{ kind, id, name }`; `agentDid` and `tool` become optional; every record must name an `agentDid` or a `principal`. Control-plane records have `authorityChain: []` (the principal acted, not an agent); agent records are unchanged. `@custos/contracts` `auditEventSchema` (bounded; shared by reporters and the audit service). New `packages/audit-client`: `createHttpAuditReporter` (moved from the vault) and `controlPlaneEvent`. `requireScope` gains `onScopeDenied`. Audited, allow on success and deny on missing scope: vault `credentials.store`, `policies.grant`; identity `agents.register`; revocation `agents.revoke`, `status.allocate`. **Authentication failures are logged, never audited** (no principal; would let anyone flood the evidence log). Revocation now needs `REVOCATION_SERVICE_KEY` (`audit:write`); identity's key needs `status:allocate` + `audit:write`; `checkServiceKey` takes `scopes`; `dev-keys` makes four keys. Migration `0007` (`agent_did`/`tool` nullable, `principal_*` columns). Dashboard shows the actor (`actorOf`). Run live: an agent's log shows its allocation, registration, grant and revocation with who did each.
 
 ## In progress / not yet merged
 
-- **`feat/phase-5b-control-plane-wiring`**: Phase 5b step 4 part 2a (keys enforced on every control-plane route, service keys, `dev-keys`, SDK/CLI/README).
+- **`feat/phase-5b-audit-principal`**: Phase 5b step 4 part 2b (control-plane writes audited with their principal).
 - **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
 **Ideas to discuss with the user (raised 2026-10-02, not approved, don't build):**
@@ -48,8 +50,8 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Next up
 
-1. Merge `feat/phase-5b-control-plane-wiring`.
-2. **Phase 5b step 4 part 2b (ADR 0008 §7):** audit records gain a principal `{ kind, id, name }` (migration; `agentDid` nullable for operator actions with no agent), and every control-plane write is audited, granted or refused: identity `/agents`, vault `/credentials` `/policies`, revocation `/revocations`. Revocation then needs its own service key (`audit:write`); add it to `dev-keys`. Then measure the key-lookup cost (see the idea above). Then mTLS, then SSO (OIDC). Then step 5 (docs/threat model), then Phase 5's non-author README run, then Phase 6.
+1. Merge `feat/phase-5b-audit-principal`.
+2. Measure the key-lookup cost before deciding on the cache idea above. Then mTLS, then SSO (OIDC). Then step 5 (docs/threat model), then Phase 5's non-author README run, then Phase 6.
 
 ## Known issues, debt, and deviations
 
@@ -63,7 +65,8 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 - `agent_policies` has grant but no revoke-grant endpoint (only whole-agent `deprovision`) — not required by Phase 4, deliberately deferred (ADR 0006).
 - `audit_records` are individually signed, not hash-chained (no cross-row tamper detection) — deferred hardening, not required by Phase 4 (ADR 0006).
 - `@custos/sdk` has no request timeout (a hung service hangs the caller) and requires all three service URLs even for an agent-only process that needs just the vault — kept minimal, revisit on demand.
-- Control-plane writes are authenticated (step 4 part 2a), but **not yet audited**: who registered, granted, stored or revoked isn't recorded until part 2b. The audit log still names only agent actions.
+- The audit service doesn't record **which service reported** each event: a service holding `audit:write` attests to its own reports. The principal inside an event is the reporting service's claim. Recording the reporter (from `principalOf` on `POST /records`) is a small later hardening step.
+- The audit service's own scope denials on `POST /records` are logged, not audited (it would be auditing into itself).
 - The README says signing keys are "in memory (a KMS-backed key provider is planned)". That is out of date since step 1 (the issuer key can be KMS). Not fixed here; fold it into step 5's docs pass.
 - AWS: IAM user `custos-dev` (profile `custo`, region `ap-south-1`) was given a **full-KMS inline policy** for the real-KMS test; the user should remove it (the narrow policy already allows GetPublicKey/Sign/ScheduleKeyDeletion). Test key `644e42e3…` is PendingDeletion (deletes 2026-10-08, not billed).
 - Vault proof audience is `VAULT_PUBLIC_URL` exactly: agents calling `127.0.0.1` when it's `localhost` are refused (`WRONG_AUDIENCE`). README troubleshooting covers it.

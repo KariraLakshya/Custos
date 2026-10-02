@@ -1,8 +1,8 @@
+import { auditEventSchema } from "@custos/contracts";
 import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { buildDidWebDocument, createLocalKeyProvider, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
-import { z } from "zod";
 import { appendAuditRecord } from "./records/append.js";
 import { listAuditRecords } from "./records/list.js";
 import type { AuditDb } from "./db/client.js";
@@ -10,15 +10,6 @@ import type { AuditDb } from "./db/client.js";
 // Re-exported so other packages' e2e tests can boot a real instance of this
 // service in-process, matching services/{identity,vault,revocation}/src/server.ts.
 export { createDb } from "./db/client.js";
-
-const reportSchema = z.object({
-  agentDid: z.string().min(1),
-  tool: z.string().min(1),
-  action: z.string().min(1),
-  dataCategories: z.array(z.string()),
-  policy: z.object({ rule: z.string().min(1), decision: z.enum(["allow", "deny"]) }),
-  reason: z.string().min(1).optional(),
-});
 
 /**
  * The append-only audit trail (build plan Phase 4). Its own `did:web`
@@ -58,7 +49,7 @@ export async function buildServer(options: {
   // an open endpoint would let anyone forge evidence (ADR 0008).
   const recordsGuard = requireScope({ ...options.controlPlaneAuth, scope: "audit:write" });
   app.post("/records", { preHandler: recordsGuard }, async (request, reply) => {
-    const body = reportSchema.safeParse(request.body);
+    const body = auditEventSchema.safeParse(request.body);
     if (!body.success) {
       reply.code(400);
       return { error: "INVALID_INPUT" };

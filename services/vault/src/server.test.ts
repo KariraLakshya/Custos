@@ -18,6 +18,7 @@ import {
   createDb as createRevocationDb,
 } from "@custos/revocation";
 import { mutableClock } from "@custos/testing";
+import type { AuditEvent } from "@custos/audit-client";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -37,6 +38,7 @@ const controlPlane = createTestControlPlane(vaultDb);
 let operatorKey: string;
 let vaultServiceKey: string;
 let identityServiceKey: string;
+let revocationServiceKey: string;
 
 beforeAll(async () => {
   operatorKey = await controlPlane.key("operator", [
@@ -46,7 +48,8 @@ beforeAll(async () => {
     "agents:register",
   ]);
   vaultServiceKey = await controlPlane.key("service", ["audit:write"]);
-  identityServiceKey = await controlPlane.key("service", ["status:allocate"]);
+  identityServiceKey = await controlPlane.key("service", ["status:allocate", "audit:write"]);
+  revocationServiceKey = await controlPlane.key("service", ["audit:write"]);
 });
 
 afterAll(async () => {
@@ -124,6 +127,11 @@ async function registerAgentAt(port: number): Promise<SignedCredential> {
   return credential;
 }
 
+/** Agent-action audit events, without the control-plane events a test's setup produces. */
+function agentEvents(events: readonly unknown[]): unknown[] {
+  return events.filter((event) => (event as { principal?: unknown }).principal === undefined);
+}
+
 function freshEmptyRevocationCache(): RevocationCache {
   return {
     isRevoked: () => false,
@@ -178,6 +186,7 @@ async function withPhase3Stack<T>(
   const revocationApp: FastifyInstance = await buildRevocationServer({
     controlPlaneAuth: controlPlane.guard,
     db: revocationDb,
+    serviceKey: revocationServiceKey,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
   });
@@ -498,7 +507,8 @@ describe("vault service", () => {
           payload: await tokenRequest(credential, "mock-slack", "post-message"),
         });
 
-        expect(events).toEqual([
+        // Agent actions only; the setup's control-plane writes are covered below.
+        expect(agentEvents(events)).toEqual([
           {
             agentDid: agentDidOf(credential),
             tool: "mock-slack",
@@ -555,7 +565,8 @@ describe("vault service", () => {
           payload: { token, action: "delete-everything", input: {} },
         });
 
-        expect(events).toEqual([
+        // Agent actions only; the setup's control-plane writes are covered below.
+        expect(agentEvents(events)).toEqual([
           {
             agentDid: agentDidOf(credential),
             tool: "mock-slack",
@@ -940,5 +951,74 @@ describe("vault control-plane authentication (ADR 0008)", () => {
     await expect(
       buildServer({ controlPlaneAuth: controlPlane.guard, db: vaultDb, cipher }),
     ).rejects.toThrow("serviceKey is required");
+  });
+});
+
+describe("vault control-plane auditing (ADR 0008 §7)", () => {
+  it("audits a stored credential and a grant with the operator who made them, and a scope denial", async () => {
+    const events: AuditEvent[] = [];
+    const app = await buildServer({
+      controlPlaneAuth: controlPlane.guard,
+      db: vaultDb,
+      cipher,
+      revocation: freshEmptyRevocationCache(),
+      auditReporter: { report: (event) => events.push(event) },
+    });
+    const tool = `audited-tool-${Date.now()}`;
+    const agentDid = `did:web:127.0.0.1%3A4998:agents:${Date.now()}`;
+    await app.inject({
+      method: "POST",
+      url: "/credentials",
+      headers: bearer(operatorKey),
+      payload: { tool, secret: "never-audited-secret" },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/policies",
+      headers: bearer(operatorKey),
+      payload: { agentId: agentDid, tool },
+    });
+    const revokeOnly = await controlPlane.key("operator", ["agents:revoke"]);
+    await app.inject({
+      method: "POST",
+      url: "/credentials",
+      headers: bearer(revokeOnly),
+      payload: { tool, secret: "attacker" },
+    });
+    // Unauthenticated: logged, never audited.
+    await app.inject({ method: "POST", url: "/policies", payload: { agentId: agentDid, tool } });
+
+    const operator = {
+      kind: "operator",
+      id: expect.stringMatching(/^[0-9a-f]{16}$/),
+      name: "test-operator",
+    };
+    expect(events).toEqual([
+      {
+        principal: operator,
+        action: "credentials.store",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:credentials:write", decision: "allow" },
+        tool,
+      },
+      {
+        principal: operator,
+        action: "policies.grant",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:policies:write", decision: "allow" },
+        agentDid,
+        tool,
+      },
+      {
+        principal: operator,
+        action: "credentials.store",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:credentials:write", decision: "deny" },
+      },
+    ]);
+    expect(events[0]!.principal!.id).toBe(operatorKey.split("_")[2]);
+    expect(events[2]!.principal!.id).toBe(revokeOnly.split("_")[2]);
+    expect(JSON.stringify(events)).not.toContain("never-audited-secret");
+    expect(JSON.stringify(events)).not.toContain(operatorKey);
   });
 });

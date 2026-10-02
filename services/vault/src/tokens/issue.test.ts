@@ -56,6 +56,7 @@ afterAll(async () => {
 
 function identityServer(domain: string, seed: Uint8Array = ISSUER_SEED) {
   return buildIdentityServer({
+    auditReporter: { report: () => {} },
     db: identityDb,
     controlPlaneAuth: controlPlane.guard,
     didDomain: domain,

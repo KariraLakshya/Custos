@@ -1,14 +1,11 @@
-export interface AuditEvent {
-  readonly agentDid: string;
-  readonly tool: string;
-  readonly action: string;
-  readonly dataCategories: readonly string[];
-  readonly policy: { readonly rule: string; readonly decision: "allow" | "deny" };
-  readonly reason?: string;
-}
+import type { AuditEvent } from "@custos/contracts";
+
+export type { AuditEvent };
 
 /**
- * Reports one action outcome to the audit service. `report` returns `void`,
+ * Reports one action outcome to the audit service. Shared by every service
+ * that reports: the vault (agent actions and its control-plane writes),
+ * identity and revocation (their control-plane writes). `report` returns `void`,
  * not a `Promise` — deliberately, so nothing can accidentally `await` it and
  * put an audit write on the hot path (CLAUDE.md section 3: "audit writes are
  * asynchronous and non-blocking; no request waits on an audit write").

@@ -1,14 +1,6 @@
+import type { AuditEvent } from "@custos/contracts";
 import { auditRecords } from "../db/schema.js";
 import type { AuditDb } from "../db/client.js";
-
-export interface AuditEventInput {
-  readonly agentDid: string;
-  readonly tool: string;
-  readonly action: string;
-  readonly dataCategories: readonly string[];
-  readonly policy: { readonly rule: string; readonly decision: "allow" | "deny" };
-  readonly reason?: string;
-}
 
 /**
  * Stores one reported event's raw fields — unsigned (see the doc comment on
@@ -18,14 +10,17 @@ export interface AuditEventInput {
  */
 export async function appendAuditRecord(params: {
   readonly db: AuditDb;
-  readonly event: AuditEventInput;
+  readonly event: AuditEvent;
   readonly now: Date;
 }): Promise<void> {
   const { db, event, now } = params;
 
   await db.insert(auditRecords).values({
-    agentDid: event.agentDid,
-    tool: event.tool,
+    agentDid: event.agentDid ?? null,
+    principalKind: event.principal?.kind ?? null,
+    principalId: event.principal?.id ?? null,
+    principalName: event.principal?.name ?? null,
+    tool: event.tool ?? null,
     action: event.action,
     dataCategories: event.dataCategories,
     policyRule: event.policy.rule,

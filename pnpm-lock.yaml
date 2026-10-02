@@ -159,6 +159,25 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@22.20.1)(@vitest/coverage-v8@4.1.11)(vite@7.3.6(@types/node@22.20.1)(yaml@2.9.0))
 
+  packages/audit-client:
+    dependencies:
+      '@custos/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@custos/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@custos/vitest-config':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-config
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@22.20.1)(@vitest/coverage-v8@4.1.11)(vite@7.3.6(@types/node@22.20.1)(yaml@2.9.0))
+
   packages/config:
     dependencies:
       zod:
@@ -440,6 +459,9 @@ importers:
       '@aws-sdk/client-kms':
         specifier: ^3.1140.0
         version: 3.1140.0
+      '@custos/audit-client':
+        specifier: workspace:*
+        version: link:../../packages/audit-client
       '@custos/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -486,6 +508,9 @@ importers:
 
   services/revocation:
     dependencies:
+      '@custos/audit-client':
+        specifier: workspace:*
+        version: link:../../packages/audit-client
       '@custos/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -535,6 +560,9 @@ importers:
 
   services/vault:
     dependencies:
+      '@custos/audit-client':
+        specifier: workspace:*
+        version: link:../../packages/audit-client
       '@custos/config':
         specifier: workspace:*
         version: link:../../packages/config

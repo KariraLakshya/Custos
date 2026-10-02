@@ -19,7 +19,7 @@ const controlPlaneAuth = createControlPlaneGuard({
 const serviceKeyCheck = await checkServiceKey({
   ...controlPlaneAuth,
   token: env.IDENTITY_SERVICE_KEY,
-  scope: "status:allocate",
+  scopes: ["status:allocate", "audit:write"],
 });
 if (!serviceKeyCheck.ok) {
   throw new Error(`IDENTITY_SERVICE_KEY: ${serviceKeyCheck.error}`);
@@ -29,6 +29,7 @@ const app = await buildServer({
   db,
   controlPlaneAuth,
   serviceKey: env.IDENTITY_SERVICE_KEY,
+  auditUrl: env.AUDIT_URL,
   didDomain: env.IDENTITY_DID_DOMAIN,
   revocationUrl: env.REVOCATION_URL,
   issuerKey: createIssuerKey(env),

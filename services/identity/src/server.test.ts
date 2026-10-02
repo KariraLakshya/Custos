@@ -12,6 +12,7 @@ import {
   type DidWebDocument,
   type SignedCredential,
 } from "@custos/core";
+import type { AuditEvent, AuditReporter } from "@custos/audit-client";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "./db/client.js";
@@ -69,9 +70,15 @@ const unreachableStatusAllocator: StatusAllocator = {
 };
 
 function buildTestServer(
-  options: { statusAllocator?: StatusAllocator; seed?: Uint8Array; didDomain?: string } = {},
+  options: {
+    statusAllocator?: StatusAllocator;
+    seed?: Uint8Array;
+    didDomain?: string;
+    auditReporter?: AuditReporter;
+  } = {},
 ) {
   return buildServer({
+    auditReporter: options.auditReporter ?? { report: () => {} },
     db,
     controlPlaneAuth: controlPlane.guard,
     didDomain: options.didDomain ?? DOMAIN,
@@ -299,6 +306,7 @@ describe("identity service", () => {
     it("a stale proof, judged by the injected clock", async () => {
       const serverNow = new Date("2026-09-25T12:00:00Z");
       const app = await buildServer({
+        auditReporter: { report: () => {} },
         db,
         controlPlaneAuth: controlPlane.guard,
         didDomain: DOMAIN,
@@ -438,5 +446,59 @@ describe("identity registration authentication (ADR 0008)", () => {
         issuerKey: issuerKey(),
       }),
     ).rejects.toThrow("serviceKey is required");
+  });
+});
+
+describe("identity registration auditing (ADR 0008 §7)", () => {
+  it("audits a registration with the operator who approved it, and a scope denial", async () => {
+    const events: AuditEvent[] = [];
+    const app = await buildTestServer({ auditReporter: { report: (event) => events.push(event) } });
+
+    const registered = await register(app, (await validRequest()).body);
+    expect(registered.statusCode).toBe(201);
+    const agentDid = (registered.json() as { did: string }).did;
+
+    const policiesOnly = await controlPlane.key("operator", ["policies:write"]);
+    const refused = await app.inject({
+      method: "POST",
+      url: "/agents",
+      headers: bearer(policiesOnly),
+      payload: (await validRequest()).body as object,
+    });
+    expect(refused.statusCode).toBe(401);
+    // Unauthenticated: logged, never audited.
+    await app.inject({
+      method: "POST",
+      url: "/agents",
+      payload: (await validRequest()).body as object,
+    });
+
+    expect(events).toEqual([
+      {
+        principal: { kind: "operator", id: operatorKey.split("_")[2], name: "test-operator" },
+        action: "agents.register",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:agents:register", decision: "allow" },
+        agentDid,
+      },
+      {
+        principal: { kind: "operator", id: policiesOnly.split("_")[2], name: "test-operator" },
+        action: "agents.register",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:agents:register", decision: "deny" },
+      },
+    ]);
+  });
+
+  it("refuses to build without a service key when no audit reporter is injected", async () => {
+    await expect(
+      buildServer({
+        db,
+        controlPlaneAuth: controlPlane.guard,
+        didDomain: DOMAIN,
+        issuerKey: issuerKey(),
+        statusAllocator: fakeStatusAllocator(),
+      }),
+    ).rejects.toThrow("serviceKey is required when auditReporter is not injected");
   });
 });

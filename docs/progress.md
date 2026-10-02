@@ -6,6 +6,19 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-02 — The audit trail now records the administrators too
+
+**Commits:** branch `feat/phase-5b-audit-principal`, with a pull request open. The previous step (keys enforced on every admin action) reached the main codebase as PR #52.
+
+**What shipped:** every admin action now appears in the signed, tamper-evident audit log, naming the key that did it.
+
+- **Who did what to each agent.** An agent's history now shows its registration and who approved it, every tool it was granted and by whom, and who revoked it and why, alongside the agent's own actions. Tested live: one agent's log showed five verified entries: its revocation slot being reserved (by the identity service), registered, granted a tool, using it, and revoked (by the administrator).
+- **Refused attempts are recorded too.** If someone with a valid key tries something their key doesn't allow, for example revoking an agent with a key only meant for granting tools, the attempt is refused and recorded with their name.
+- **What isn't recorded, on purpose:** attempts with no valid key at all. There is no one to attribute them to, and recording them would let anyone fill the evidence log with junk. They are still written to the services' own logs.
+- **The dashboard** now shows who acted, an agent or a named administrator, in its live feed.
+
+_Why it matters:_ for DPDP-style compliance the question isn't only "what did the agent do", it's "who let it". The audit trail now answers both, with every entry signed and checkable by an auditor without trusting Custos. With this, the API-key part of the admin-security step is finished. Next comes certificate-based authentication between services (mTLS), then single sign-on for administrators.
+
 ## 2026-10-02 — The locks are on: admin actions and internal calls now need a key
 
 **Commits:** branch `feat/phase-5b-control-plane-wiring`, with a pull request open. The previous step's key machinery reached the main codebase as PR #51.

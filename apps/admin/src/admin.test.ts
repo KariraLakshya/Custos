@@ -178,11 +178,12 @@ describe("custos-admin dev-keys", () => {
     return assignments;
   }
 
-  it("creates an operator key and the two service keys, each with exactly its scopes", async () => {
+  it("creates an operator key and the three service keys, each with exactly its scopes", async () => {
     const keys = await devKeys();
     expect([...keys.keys()]).toEqual([
       "CUSTOS_OPERATOR_KEY",
       "IDENTITY_SERVICE_KEY",
+      "REVOCATION_SERVICE_KEY",
       "VAULT_SERVICE_KEY",
     ]);
     const authenticator = createApiKeyAuthenticator({ keys: store, clock });
@@ -199,7 +200,11 @@ describe("custos-admin dev-keys", () => {
     });
     expect(await scopesOf("IDENTITY_SERVICE_KEY")).toEqual({
       kind: "service",
-      scopes: ["status:allocate"],
+      scopes: ["audit:write", "status:allocate"],
+    });
+    expect(await scopesOf("REVOCATION_SERVICE_KEY")).toEqual({
+      kind: "service",
+      scopes: ["audit:write"],
     });
     expect(await scopesOf("VAULT_SERVICE_KEY")).toEqual({
       kind: "service",

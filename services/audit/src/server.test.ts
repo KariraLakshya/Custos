@@ -414,3 +414,106 @@ describe("audit POST /records authentication (ADR 0008)", () => {
     expect(response.statusCode).toBe(200);
   });
 });
+
+describe("audit control-plane records (ADR 0008 §7)", () => {
+  async function pullVerified(app: Awaited<ReturnType<typeof buildServer>>, agentDid?: string) {
+    const pulled = await app.inject({
+      method: "GET",
+      url: agentDid === undefined ? "/records" : `/records?agentId=${encodeURIComponent(agentDid)}`,
+    });
+    const { records } = pulled.json() as { records: readonly string[] };
+    const didResponse = await app.inject({ method: "GET", url: "/.well-known/did.json" });
+    const publicKey = publicKeyFrom(didResponse.json() as DidWebDocument);
+    return records.map((record) => {
+      const verified = verifyAuditRecord({ record, publicKey });
+      if (!verified.ok) throw new Error(`record failed verification: ${verified.error.code}`);
+      return verified.value;
+    });
+  }
+
+  it("stores an operator's action on an agent with its principal, verifiable, with no authority chain", async () => {
+    const clock = fixedClock("2026-10-02T10:00:00.000Z");
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4833",
+      clock,
+    });
+    const agentDid = `did:web:127.0.0.1%3A4833:agents:${randomUUID()}`;
+    const principal = { kind: "operator", id: randomUUID().slice(0, 16), name: "lakshya" };
+    const posted = await app.inject({
+      method: "POST",
+      url: "/records",
+      headers: bearer(serviceKey),
+      payload: {
+        agentDid,
+        principal,
+        action: "agents.revoke",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:agents:revoke", decision: "allow" },
+        reason: "compromised",
+      },
+    });
+    expect(posted.statusCode).toBe(201);
+
+    // An operator's action on an agent shows in that agent's own history.
+    expect(await pullVerified(app, agentDid)).toEqual([
+      {
+        agentDid,
+        principal,
+        authorityChain: [],
+        action: "agents.revoke",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:agents:revoke", decision: "allow" },
+        reason: "compromised",
+        recordedAt: "2026-10-02T10:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("stores a control-plane action that names no agent", async () => {
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4834",
+    });
+    const name = `operator-${randomUUID()}`;
+    const posted = await app.inject({
+      method: "POST",
+      url: "/records",
+      headers: bearer(serviceKey),
+      payload: {
+        principal: { kind: "operator", id: "0123456789abcdef", name },
+        tool: "stripe",
+        action: "credentials.store",
+        dataCategories: [],
+        policy: { rule: "control-plane-scope:credentials:write", decision: "allow" },
+      },
+    });
+    expect(posted.statusCode).toBe(201);
+    const mine = (await pullVerified(app)).filter((record) => record.principal?.name === name);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).not.toHaveProperty("agentDid");
+    expect(mine[0]?.authorityChain).toEqual([]);
+  });
+
+  it("400s an event that names neither an agent nor a principal", async () => {
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4835",
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/records",
+      headers: bearer(serviceKey),
+      payload: {
+        tool: "stripe",
+        action: "credentials.store",
+        dataCategories: [],
+        policy: { rule: "x", decision: "allow" },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+});
