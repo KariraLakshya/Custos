@@ -17,6 +17,8 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 - **One answer for every refusal.** A missing key, a wrong key, an expired key and a key without the right permission all get the same "unauthorized" reply, so someone probing can't learn which check they failed. After 10 failed attempts in 5 minutes from one address, that address is shut out for 15 minutes.
 - **`custos-admin`.** A command for creating, listing and cancelling keys. It works only with direct access to Custos's database, the same level of access needed to set Custos up, so there is no web page an attacker could use to create the first key.
 
+- **Leak detection.** GitHub's automated secret scan now recognises a leaked Custos key on its own. Before this change it didn't: a test showed a real key slipping past the standard rules. The scan had also flagged some deliberately fake keys in the tests; those exact fakes are now marked as known-safe.
+
 _Why it matters:_ this is the half of the audit-log fix that does the checking. The next piece puts these locks on the actual doors: registering agents, granting permissions, revoking agents, and above all writing audit records, which anyone can still do today. That is when the audit trail becomes trustworthy evidence.
 
 ## 2026-10-02 — Proof-of-ownership check is live on main; next-step design pushed for review

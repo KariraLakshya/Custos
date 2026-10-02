@@ -5,6 +5,14 @@
 [extend]
 useDefault = true
 
+# Custos control-plane API keys (ADR 0008 §4). The fixed prefix exists so a
+# leaked key is recognisable; the default rules don't know it.
+[[rules]]
+id = "custos-api-key"
+description = "Custos operator or service API key"
+regex = '''custos_(?:operator|service)_[0-9a-f]{16}_[A-Za-z0-9_-]{43}'''
+keywords = ["custos_operator_", "custos_service_"]
+
 [allowlist]
 description = "Public identifiers that match generic-api-key but are not secrets"
 regexTarget = "secret"
@@ -12,4 +20,7 @@ regexes = [
   # AWS KMS key spec name for Ed25519 signing keys (ADR 0007): a public enum
   # value, flagged only because it sits after `KeySpec:`.
   '''^ECC_NIST_EDWARDS25519$''',
+  # Malformed-key test fixtures in packages/control-plane-auth: a fixed fake
+  # key id with no secret attached, so never a usable key.
+  '''^custos_operator_0123456789abcdef_$''',
 ]

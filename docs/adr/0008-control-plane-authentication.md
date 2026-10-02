@@ -134,5 +134,6 @@ Each needs its own dependency justification when built.
 - A locked-out source gets the same `401 UNAUTHORIZED` as every other failure. Only authentication failures count towards the lockout; a valid key that lacks a scope does not.
 - Scopes are checked twice: when a key is created, and again when it authenticates. So an `api_keys` row edited by hand still can't give an operator key a service-only scope.
 - `@custos/observability` now redacts `authorization`.
+- `.gitleaks.toml` has a `custos-api-key` rule. Gitleaks' default rules don't recognise the `custos_` prefix, which was verified: a real generated key passed a default-rules scan. The malformed-key test fixture `custos_operator_0123456789abcdef_` is allowlisted as an exact string.
 - **Deferred to part 2 (the wiring):** `dev-keys`, because which service needs which scope is settled when the routes are wired. Also deferred: putting `requireScope` on each route, adding the principal to audit records, the SDK/CLI `operatorKey`, and the README.
 - `request.ip` is the lockout's source key. Behind a reverse proxy it is the proxy's address unless Fastify's `trustProxy` is configured. This matters for the mTLS deployment and is noted there.
