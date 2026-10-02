@@ -23,6 +23,14 @@ describe("createLogger", () => {
     expect(entry.nested.apiKey).toBe("[REDACTED]");
   });
 
+  it("redacts an authorization header, which carries control-plane API keys", () => {
+    const { stream, lines } = captureStream();
+    const logger = createLogger({}, stream);
+    logger.info({ req: { headers: { authorization: "Bearer custos_operator_x_y" } } }, "test");
+    const [entry] = lines();
+    expect(entry.req.headers.authorization).toBe("[REDACTED]");
+  });
+
   it("builds a working logger when no destination stream is given", () => {
     const logger = createLogger({ level: "silent" });
     expect(logger).toBeDefined();

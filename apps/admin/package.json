@@ -1,0 +1,31 @@
+{
+  "name": "@custos/admin",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "custos-admin": "./dist/bin.js"
+  },
+  "main": "./src/admin.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@custos/control-plane-auth": "workspace:*",
+    "commander": "^12.1.0",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@custos/testing": "workspace:*",
+    "@custos/tsconfig": "workspace:*",
+    "@custos/vitest-config": "workspace:*",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
+  }
+}

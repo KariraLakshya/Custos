@@ -123,3 +123,17 @@ Each needs its own dependency justification when built.
 ## Open (not decided here)
 
 - **Open-source vs proprietary** is still undecided (`docs/state.md`). It affects how much the mTLS/SSO sample configs need to cover, not the design.
+
+## Implementation notes
+
+**Step 4, part 1: the API-key layer (2026-10-02).** Built, not yet wired into any route.
+
+- `packages/control-plane-auth`: key format, generation and parsing (`api-key.ts`); scopes (`scopes.ts`); `ControlPlaneAuthenticator` and `createApiKeyAuthenticator` (`authenticator.ts`); the `api_keys` table and its store (`schema.ts`, `store.ts`); the lockout (`lockout.ts`); and a Fastify `requireScope` preHandler plus `principalOf(request)` (`fastify.ts`). Migration `0006`, which only adds the table; to reverse it, `DROP TABLE api_keys`.
+- `apps/admin` (`pnpm custos-admin key create|list|revoke`) connects to the database directly. It is a separate app rather than part of `apps/cli`, because `apps/cli` talks to services over HTTP and never touches the database.
+- **Deviation:** `authenticate` returns `Result<Principal, AuthenticationFailure>`, not `Principal | null`. Security paths return errors as values (CLAUDE.md §7), and the failure reason plus key id are needed for the log line. Neither ever reaches the response.
+- A locked-out source gets the same `401 UNAUTHORIZED` as every other failure. Only authentication failures count towards the lockout; a valid key that lacks a scope does not.
+- Scopes are checked twice: when a key is created, and again when it authenticates. So an `api_keys` row edited by hand still can't give an operator key a service-only scope.
+- `@custos/observability` now redacts `authorization`.
+- `.gitleaks.toml` has a `custos-api-key` rule. Gitleaks' default rules don't recognise the `custos_` prefix, which was verified: a real generated key passed a default-rules scan. The malformed-key test fixture `custos_operator_0123456789abcdef_` is allowlisted as an exact string.
+- **Deferred to part 2 (the wiring):** `dev-keys`, because which service needs which scope is settled when the routes are wired. Also deferred: putting `requireScope` on each route, adding the principal to audit records, the SDK/CLI `operatorKey`, and the README.
+- `request.ip` is the lockout's source key. Behind a reverse proxy it is the proxy's address unless Fastify's `trustProxy` is configured. This matters for the mTLS deployment and is noted there.
