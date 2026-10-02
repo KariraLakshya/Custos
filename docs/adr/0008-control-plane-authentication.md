@@ -137,3 +137,12 @@ Each needs its own dependency justification when built.
 - `.gitleaks.toml` has a `custos-api-key` rule. Gitleaks' default rules don't recognise the `custos_` prefix, which was verified: a real generated key passed a default-rules scan. The malformed-key test fixture `custos_operator_0123456789abcdef_` is allowlisted as an exact string.
 - **Deferred to part 2 (the wiring):** `dev-keys`, because which service needs which scope is settled when the routes are wired. Also deferred: putting `requireScope` on each route, adding the principal to audit records, the SDK/CLI `operatorKey`, and the README.
 - `request.ip` is the lockout's source key. Behind a reverse proxy it is the proxy's address unless Fastify's `trustProxy` is configured. This matters for the mTLS deployment and is noted there.
+
+**Step 4, part 2a: keys enforced (2026-10-02).**
+
+- Every service's `buildServer` takes a required `controlPlaneAuth` guard, with no default, so a service can't accidentally be built open. `requireScope` sits on every route in the §3 table.
+- The vault's `POST /revocations` (the tombstone push) stays keyless, as before. It isn't in §3: each tombstone is signed by the revocation service and verified against its DID document, which is stronger than a key.
+- Identity and the vault present service keys (`IDENTITY_SERVICE_KEY`, `VAULT_SERVICE_KEY`). Both are required, and checked at boot with `checkServiceKey`: the key must exist, not be revoked or expired, be a service key, and hold the needed scope. The error names the key id, never the secret. Revocation needs no key until part 2b, when it starts auditing.
+- `custos-admin dev-keys` creates the local set: an operator key with every operator scope, `status:allocate` for identity, and `audit:write` for the vault.
+- **Split from §7:** recording the principal on audit records, and auditing every control-plane write, is part 2b. It changes the audit schema and adds audit reporting to identity and revocation. It is self-contained, and nothing in 2a depends on it.
+- The CLI and the `seed` script read the operator key only from `CUSTOS_OPERATOR_KEY`, never a flag, to keep it out of shell history. The SDK takes `operatorKey`; an agent-only process using `connect().call()` needs none.

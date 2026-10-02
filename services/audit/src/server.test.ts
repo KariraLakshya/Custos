@@ -1,12 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { verifyAuditRecord, type DidWebDocument } from "@custos/core";
 import { fixedClock } from "@custos/testing";
-import { afterAll, describe, expect, it } from "vitest";
+import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "./db/client.js";
 import { buildServer } from "./server.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const db = createDb(databaseUrl);
+
+const controlPlane = createTestControlPlane(db);
+let serviceKey: string;
+
+beforeAll(async () => {
+  serviceKey = await controlPlane.key("service", ["audit:write"]);
+});
 
 afterAll(async () => {
   await db.$client.end();
@@ -44,30 +52,52 @@ function decodeBase58(input: string): Uint8Array {
 
 describe("audit service", () => {
   it("responds to /health", async () => {
-    const app = await buildServer({ db, didDomain: "127.0.0.1:4820" });
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4820",
+    });
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok", service: "audit" });
   });
 
   it("publishes its own DID document", async () => {
-    const app = await buildServer({ db, didDomain: "127.0.0.1:4821" });
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4821",
+    });
     const response = await app.inject({ method: "GET", url: "/.well-known/did.json" });
     expect(response.statusCode).toBe(200);
     expect(response.json().id).toBe("did:web:127.0.0.1%3A4821");
   });
 
   it("400s a malformed /records report", async () => {
-    const app = await buildServer({ db, didDomain: "127.0.0.1:4822" });
-    const response = await app.inject({ method: "POST", url: "/records", payload: { tool: "x" } });
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4822",
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/records",
+      headers: bearer(serviceKey),
+      payload: { tool: "x" },
+    });
     expect(response.statusCode).toBe(400);
   });
 
   it("400s an invalid policy.decision", async () => {
-    const app = await buildServer({ db, didDomain: "127.0.0.1:4823" });
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4823",
+    });
     const response = await app.inject({
       method: "POST",
       url: "/records",
+      headers: bearer(serviceKey),
       payload: {
         agentDid: "did:web:localhost%3A4001:agents:a1",
         tool: "mock-slack",
@@ -81,12 +111,18 @@ describe("audit service", () => {
 
   it("stores a reported record and returns it signed and independently verifiable via GET /records", async () => {
     const clock = fixedClock("2026-09-12T10:00:00.000Z");
-    const app = await buildServer({ db, didDomain: "127.0.0.1:4824", clock });
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4824",
+      clock,
+    });
     const agentDid = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
 
     const posted = await app.inject({
       method: "POST",
       url: "/records",
+      headers: bearer(serviceKey),
       payload: {
         agentDid,
         tool: "mock-slack",
@@ -123,13 +159,22 @@ describe("audit service", () => {
   });
 
   it("rejects a record verified against an unrelated service's key", async () => {
-    const app = await buildServer({ db, didDomain: "127.0.0.1:4825" });
-    const other = await buildServer({ db, didDomain: "127.0.0.1:4826" });
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4825",
+    });
+    const other = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4826",
+    });
     const agentDid = `did:web:127.0.0.1%3A4825:agents:${randomUUID()}`;
 
     await app.inject({
       method: "POST",
       url: "/records",
+      headers: bearer(serviceKey),
       payload: {
         agentDid,
         tool: "mock-slack",
@@ -162,12 +207,17 @@ describe("audit service", () => {
   // against the same rows, with a new key) does not orphan history.
   it("still verifies a pre-existing record after a simulated restart with a new signing key", async () => {
     const domain = "127.0.0.1:4829";
-    const before = await buildServer({ db, didDomain: domain });
+    const before = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: domain,
+    });
     const agentDid = `did:web:${encodeURIComponent(domain)}:agents:${randomUUID()}`;
 
     await before.inject({
       method: "POST",
       url: "/records",
+      headers: bearer(serviceKey),
       payload: {
         agentDid,
         tool: "mock-slack",
@@ -179,7 +229,11 @@ describe("audit service", () => {
 
     // A fresh buildServer() call, same domain, generates a brand-new
     // keypair — exactly what happens on a real process restart.
-    const after = await buildServer({ db, didDomain: domain });
+    const after = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: domain,
+    });
     const pulled = await after.inject({
       method: "GET",
       url: `/records?agentId=${encodeURIComponent(agentDid)}`,
@@ -194,7 +248,11 @@ describe("audit service", () => {
   });
 
   it("pulls every record for one agent via GET /records?agentId=", async () => {
-    const app = await buildServer({ db, didDomain: "127.0.0.1:4827" });
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4827",
+    });
     // Randomized rather than port-derived: Postgres persists across test
     // runs (see services/revocation's own tests for the same lesson), so a
     // fixed DID here would accumulate records from earlier runs and break
@@ -205,6 +263,7 @@ describe("audit service", () => {
     await app.inject({
       method: "POST",
       url: "/records",
+      headers: bearer(serviceKey),
       payload: {
         agentDid,
         tool: "mock-slack",
@@ -216,6 +275,7 @@ describe("audit service", () => {
     await app.inject({
       method: "POST",
       url: "/records",
+      headers: bearer(serviceKey),
       payload: {
         agentDid,
         tool: "stripe",
@@ -228,6 +288,7 @@ describe("audit service", () => {
     await app.inject({
       method: "POST",
       url: "/records",
+      headers: bearer(serviceKey),
       payload: {
         agentDid: otherAgentDid,
         tool: "mock-slack",
@@ -255,10 +316,15 @@ describe("audit service", () => {
   });
 
   it("returns every record when no agentId filter is given", async () => {
-    const app = await buildServer({ db, didDomain: "127.0.0.1:4828" });
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4828",
+    });
     await app.inject({
       method: "POST",
       url: "/records",
+      headers: bearer(serviceKey),
       payload: {
         agentDid: "did:web:127.0.0.1%3A4828:agents:a1",
         tool: "mock-slack",
@@ -272,5 +338,79 @@ describe("audit service", () => {
     expect(response.statusCode).toBe(200);
     const { records } = response.json() as { records: readonly string[] };
     expect(records.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("audit POST /records authentication (ADR 0008)", () => {
+  const forged = () => ({
+    agentDid: `did:web:127.0.0.1%3A4830:agents:${randomUUID()}`,
+    tool: "mock-slack",
+    action: "post-message",
+    dataCategories: [],
+    policy: { rule: "agent-tool-allowlist", decision: "allow" },
+  });
+
+  async function storedFor(app: Awaited<ReturnType<typeof buildServer>>, agentDid: string) {
+    const pulled = await app.inject({
+      method: "GET",
+      url: `/records?agentId=${encodeURIComponent(agentDid)}`,
+    });
+    return (pulled.json() as { records: readonly string[] }).records;
+  }
+
+  it("refuses a forged record with no key, and never stores or signs it", async () => {
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4830",
+    });
+    const record = forged();
+    const response = await app.inject({ method: "POST", url: "/records", payload: record });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: { code: "UNAUTHORIZED" } });
+    expect(await storedFor(app, record.agentDid)).toEqual([]);
+  });
+
+  it("refuses wrongly-scoped, expired and operator keys with the same error", async () => {
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4831",
+    });
+    const keys = [
+      await controlPlane.key("service", ["status:allocate"]),
+      await controlPlane.key("service", ["audit:write"], {
+        expiresAt: new Date("2020-01-01T00:00:00Z"),
+      }),
+      await controlPlane.key("operator", [
+        "credentials:write",
+        "policies:write",
+        "agents:revoke",
+        "agents:register",
+      ]),
+      ["custos", "service", "0000000000000000", "A".repeat(43)].join("_"),
+    ];
+    for (const key of keys) {
+      const record = forged();
+      const response = await app.inject({
+        method: "POST",
+        url: "/records",
+        headers: bearer(key),
+        payload: record,
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({ error: { code: "UNAUTHORIZED" } });
+      expect(await storedFor(app, record.agentDid)).toEqual([]);
+    }
+  });
+
+  it("keeps GET /records readable without a key (ADR 0008, decided 2026-10-02)", async () => {
+    const app = await buildServer({
+      db,
+      controlPlaneAuth: controlPlane.guard,
+      didDomain: "127.0.0.1:4832",
+    });
+    const response = await app.inject({ method: "GET", url: "/records" });
+    expect(response.statusCode).toBe(200);
   });
 });

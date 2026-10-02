@@ -1,4 +1,5 @@
 import { baseEnvSchema, loadEnv } from "@custos/config";
+import { parseApiKey } from "@custos/control-plane-auth";
 import { z } from "zod";
 
 const fieldsSchema = baseEnvSchema.extend({
@@ -11,6 +12,11 @@ const fieldsSchema = baseEnvSchema.extend({
   // its credential, and fails closed if this service is unreachable — an
   // un-revokable agent is worse than a failed registration.
   REVOCATION_URL: z.string().min(1).default("http://localhost:4003"),
+  // This service's own key for the revocation service (`status:allocate`,
+  // ADR 0008). No default; checked against the key table at boot.
+  IDENTITY_SERVICE_KEY: z
+    .string()
+    .refine((value) => parseApiKey(value)?.kind === "service", "must be a custos_service_ key"),
   // Where the issuer key that signs every agent credential lives. Credentials
   // outlive the process, so either way the key survives restarts (ADR 0007
   // decision 4). "local": derived from IDENTITY_ISSUER_SEED, dev only. "kms":

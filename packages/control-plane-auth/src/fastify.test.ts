@@ -1,4 +1,4 @@
-import { fixedClock } from "@custos/testing";
+import { fixedClock } from "./test-clock.js";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { generateApiKey } from "./api-key.js";

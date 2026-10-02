@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { loadIdentityEnv } from "./env.js";
 
 // The issuer seed is required; every other test supplies one so it can test its own variable.
-const SEED = { IDENTITY_ISSUER_SEED: "ab".repeat(32) };
+const SERVICE_KEY = ["custos", "service", "0123456789abcdef", "k".repeat(43)].join("_");
+const SEED = { IDENTITY_ISSUER_SEED: "ab".repeat(32), IDENTITY_SERVICE_KEY: SERVICE_KEY };
 
 describe("identity env", () => {
   it("refuses to load without an issuer seed — no default key, ephemeral or known", () => {
-    expect(() => loadIdentityEnv({})).toThrow(/IDENTITY_ISSUER_SEED/);
+    expect(() => loadIdentityEnv({ IDENTITY_SERVICE_KEY: SERVICE_KEY })).toThrow(
+      /IDENTITY_ISSUER_SEED/,
+    );
   });
 
   it.each([
@@ -17,6 +20,30 @@ describe("identity env", () => {
     expect(() => loadIdentityEnv({ IDENTITY_ISSUER_SEED: seed })).toThrow(/IDENTITY_ISSUER_SEED/);
   });
 
+  describe("service key (ADR 0008)", () => {
+    it("is required, with no default", () => {
+      expect(() => loadIdentityEnv({ IDENTITY_ISSUER_SEED: "ab".repeat(32) })).toThrow(
+        /IDENTITY_SERVICE_KEY/,
+      );
+    });
+
+    it("must be a service key, not an operator key or anything else", () => {
+      const operator = SERVICE_KEY.replace("custos_service_", "custos_operator_");
+      for (const value of [operator, "not-a-key", ""]) {
+        expect(() => loadIdentityEnv({ ...SEED, IDENTITY_SERVICE_KEY: value })).toThrow(
+          /IDENTITY_SERVICE_KEY/,
+        );
+      }
+    });
+
+    it("never echoes the key in the validation error", () => {
+      const operator = SERVICE_KEY.replace("custos_service_", "custos_operator_");
+      expect(() => loadIdentityEnv({ ...SEED, IDENTITY_SERVICE_KEY: operator })).toThrow(
+        expect.objectContaining({ message: expect.not.stringContaining("k".repeat(43)) }),
+      );
+    });
+  });
+
   describe("issuer key provider", () => {
     it("defaults to the local provider", () => {
       expect(loadIdentityEnv(SEED).IDENTITY_KEY_PROVIDER).toBe("local");
@@ -24,6 +51,7 @@ describe("identity env", () => {
 
     it("uses KMS with a key id and no seed", () => {
       const env = loadIdentityEnv({
+        IDENTITY_SERVICE_KEY: SERVICE_KEY,
         IDENTITY_KEY_PROVIDER: "kms",
         IDENTITY_ISSUER_KMS_KEY_ID: "arn:aws:kms:ap-southeast-1:111122223333:key/abc",
       });
@@ -34,9 +62,9 @@ describe("identity env", () => {
     });
 
     it("refuses KMS without a key id — no silent fallback to a local key", () => {
-      expect(() => loadIdentityEnv({ IDENTITY_KEY_PROVIDER: "kms" })).toThrow(
-        /IDENTITY_ISSUER_KMS_KEY_ID/,
-      );
+      expect(() =>
+        loadIdentityEnv({ IDENTITY_SERVICE_KEY: SERVICE_KEY, IDENTITY_KEY_PROVIDER: "kms" }),
+      ).toThrow(/IDENTITY_ISSUER_KMS_KEY_ID/);
     });
 
     it("refuses an unknown provider", () => {

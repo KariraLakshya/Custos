@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHttpStatusAllocator } from "./status-allocator.js";
 
+const SERVICE_KEY = ["custos", "service", "0123456789abcdef", "k".repeat(43)].join("_");
 const AGENT = { agentId: "0f8f6a1e-9c2b-4a3d-8f1e-1b2c3d4e5f60", agentDid: "did:web:example:a" };
 
 function jsonResponse(body: unknown, status = 201): Response {
@@ -20,6 +21,7 @@ describe("createHttpStatusAllocator", () => {
     );
     const allocator = createHttpStatusAllocator({
       revocationUrl: "http://127.0.0.1:4503",
+      serviceKey: SERVICE_KEY,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
@@ -33,6 +35,7 @@ describe("createHttpStatusAllocator", () => {
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://127.0.0.1:4503/agents");
     expect(JSON.parse(String(init.body))).toEqual(AGENT);
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${SERVICE_KEY}`);
   });
 
   it("normalises a revocation URL with a trailing slash", async () => {
@@ -41,6 +44,7 @@ describe("createHttpStatusAllocator", () => {
     );
     const allocator = createHttpStatusAllocator({
       revocationUrl: "http://127.0.0.1:4503/",
+      serviceKey: SERVICE_KEY,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
@@ -54,6 +58,7 @@ describe("createHttpStatusAllocator", () => {
   it("fails closed when the revocation service answers with an error status", async () => {
     const allocator = createHttpStatusAllocator({
       revocationUrl: "http://127.0.0.1:4503",
+      serviceKey: SERVICE_KEY,
       fetchImpl: (async () => jsonResponse({ error: "boom" }, 503)) as unknown as typeof fetch,
     });
 
@@ -69,6 +74,7 @@ describe("createHttpStatusAllocator", () => {
   it("fails closed when the revocation service is unreachable", async () => {
     const allocator = createHttpStatusAllocator({
       revocationUrl: "http://127.0.0.1:4503",
+      serviceKey: SERVICE_KEY,
       fetchImpl: (async () => {
         throw new Error("ECONNREFUSED");
       }) as unknown as typeof fetch,
@@ -83,6 +89,7 @@ describe("createHttpStatusAllocator", () => {
   it("reports a non-Error transport failure without crashing", async () => {
     const allocator = createHttpStatusAllocator({
       revocationUrl: "http://127.0.0.1:4503",
+      serviceKey: SERVICE_KEY,
       fetchImpl: (async () => {
         throw "socket closed";
       }) as unknown as typeof fetch,
@@ -108,6 +115,7 @@ describe("createHttpStatusAllocator", () => {
   ])("rejects a malformed allocation response (%s)", async (_label, body) => {
     const allocator = createHttpStatusAllocator({
       revocationUrl: "http://127.0.0.1:4503",
+      serviceKey: SERVICE_KEY,
       fetchImpl: (async () => jsonResponse(body)) as unknown as typeof fetch,
     });
 

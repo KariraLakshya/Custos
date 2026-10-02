@@ -31,13 +31,15 @@ afterEach(async () => {
 /** One local HTTP server standing in for every Custos service; routes by path. */
 async function stubServices(
   routes: Record<string, Reply>,
-): Promise<{ url: string; requests: Recorded[] }> {
+): Promise<{ url: string; requests: Recorded[]; authorizations: (string | undefined)[] }> {
   const requests: Recorded[] = [];
+  const authorizations: (string | undefined)[] = [];
   server = createServer((req, res) => {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
       requests.push({ url: req.url, body: raw === "" ? undefined : JSON.parse(raw) });
+      authorizations.push(req.headers.authorization);
       const reply = routes[req.url ?? ""] ?? { status: 404, body: { error: "NO_ROUTE" } };
       res.statusCode = reply.status ?? 200;
       if (reply.body === undefined) {
@@ -53,11 +55,20 @@ async function stubServices(
   await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("expected a bound port");
-  return { url: `http://127.0.0.1:${address.port}`, requests };
+  return { url: `http://127.0.0.1:${address.port}`, requests, authorizations };
 }
 
-function custosAt(url: string) {
-  return createCustos({ identityUrl: url, vaultUrl: url, revocationUrl: url });
+// Never a real key: the stub services accept anything.
+const OPERATOR_KEY = "test-operator-key";
+
+/** `null`: no operator key at all (`undefined` would take the default). */
+function custosAt(url: string, operatorKey: string | null = OPERATOR_KEY) {
+  return createCustos({
+    identityUrl: url,
+    vaultUrl: url,
+    revocationUrl: url,
+    ...(operatorKey === null ? {} : { operatorKey }),
+  });
 }
 
 const credential = { issuer: "did:web:example:agents:abc", proof: { proofValue: "z123" } };
@@ -390,5 +401,48 @@ describe("deprovision", () => {
   it("throws on a malformed success response rather than reporting a revocation that may not have happened", async () => {
     const { url } = await stubServices({ "/revocations": { body: { agentId: "abc" } } });
     await expect(custosAt(url).deprovision(agent)).rejects.toThrow(/unexpected response shape/);
+  });
+});
+
+describe("operator key (ADR 0008)", () => {
+  it("sends it as a bearer token on register, grant and deprovision only", async () => {
+    const { url, authorizations } = await stubServices({
+      "/policies": { status: 201, body: { agentId: agent.did, tool: "stripe" } },
+      "/revocations": {
+        status: 200,
+        body: {
+          agentId: agent.id,
+          agentDid: agent.did,
+          statusListIndex: 1,
+          revokedAt: "2026-10-02T00:00:00.000Z",
+          alreadyRevoked: false,
+          broadcast: { delivered: 1, failed: [] },
+        },
+      },
+      "/tokens": { status: 403, body: { error: { code: "POLICY_DENIED" } } },
+    });
+    const custos = custosAt(url);
+    await custos.grant(agent, "stripe");
+    await custos.deprovision(agent);
+    await custos.connect(agent, "stripe").call("list-customers");
+    expect(authorizations).toEqual([`Bearer ${OPERATOR_KEY}`, `Bearer ${OPERATOR_KEY}`, undefined]);
+  });
+
+  it("refuses operator actions without one, before any request", async () => {
+    const { url, requests } = await stubServices({});
+    const custos = custosAt(url, null);
+    await expect(custos.register()).rejects.toThrow("register needs an operator key");
+    await expect(custos.grant(agent, "stripe")).rejects.toThrow("grant needs an operator key");
+    await expect(custos.deprovision(agent)).rejects.toThrow("deprovision needs an operator key");
+    expect(requests).toEqual([]);
+  });
+
+  it("lets an agent-only process call tools without one", async () => {
+    const { url, requests } = await stubServices({
+      "/tokens": { status: 403, body: { error: { code: "POLICY_DENIED" } } },
+    });
+    const result = await custosAt(url, null).connect(agent, "stripe").call("list-customers");
+    expect(result.ok).toBe(false);
+    expect(requests.map((request) => request.url)).toEqual(["/tokens"]);
   });
 });

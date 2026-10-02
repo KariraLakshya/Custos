@@ -28,6 +28,7 @@
     "@custos/connectors": "workspace:*",
     "@custos/identity": "workspace:*",
     "@custos/revocation": "workspace:*",
+    "@custos/testing": "workspace:*",
     "@custos/tsconfig": "workspace:*",
     "@custos/vault": "workspace:*",
     "@custos/vitest-config": "workspace:*",

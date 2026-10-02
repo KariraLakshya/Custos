@@ -1,3 +1,4 @@
+import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { buildDidWebDocument, createLocalKeyProvider, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
@@ -28,6 +29,8 @@ const reportSchema = z.object({
  */
 export async function buildServer(options: {
   readonly db: AuditDb;
+  /** Required, no default: `POST /records` is never open (ADR 0008). */
+  readonly controlPlaneAuth: ControlPlaneGuard;
   readonly didDomain?: string;
   readonly keyProvider?: KeyProvider;
   readonly clock?: { now(): Date };
@@ -51,7 +54,10 @@ export async function buildServer(options: {
   // action outcome. Deliberately fire-and-forget from the caller's side
   // (CLAUDE.md section 3) — this endpoint itself responds normally. Not
   // signed here — see the doc comment on `auditRecords` in ./db/schema.js.
-  app.post("/records", async (request, reply) => {
+  // Service keys only: this service signs whatever it stores as genuine, so
+  // an open endpoint would let anyone forge evidence (ADR 0008).
+  const recordsGuard = requireScope({ ...options.controlPlaneAuth, scope: "audit:write" });
+  app.post("/records", { preHandler: recordsGuard }, async (request, reply) => {
     const body = reportSchema.safeParse(request.body);
     if (!body.success) {
       reply.code(400);

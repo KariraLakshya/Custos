@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { fixedClock } from "@custos/testing";
+import { fixedClock } from "./test-clock.js";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApiKeyAuthenticator } from "./authenticator.js";

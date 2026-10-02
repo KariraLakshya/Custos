@@ -1,4 +1,4 @@
-import { mutableClock } from "@custos/testing";
+import { mutableClock } from "./test-clock.js";
 import { describe, expect, it } from "vitest";
 import { createLockout } from "./lockout.js";
 

@@ -19,7 +19,8 @@ import {
 import { buildServer as buildAuditServer, createDb as createAuditDb } from "@custos/audit";
 import { mutableClock } from "@custos/testing";
 import { buildServer as buildVaultServer, createDb as createVaultDb } from "@custos/vault";
-import { afterAll, describe, expect, it } from "vitest";
+import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildTokenRequestProof } from "@custos/core";
 import { createCustos, type CustosConfig } from "@custos/sdk";
 import { pullAuditLog } from "./audit-log.js";
@@ -52,7 +53,13 @@ async function provenTokenRequest(
 /** The CLI's HTTP layer is @custos/sdk; each test supplies the URLs its stack exposes. */
 function sdkAt(urls: Partial<CustosConfig>) {
   const unused = "http://127.0.0.1:1";
-  return createCustos({ identityUrl: unused, vaultUrl: unused, revocationUrl: unused, ...urls });
+  return createCustos({
+    identityUrl: unused,
+    vaultUrl: unused,
+    revocationUrl: unused,
+    operatorKey,
+    ...urls,
+  });
 }
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
@@ -61,6 +68,23 @@ const vaultDb = createVaultDb(databaseUrl);
 const revocationDb = createRevocationDb(databaseUrl);
 const auditDb = createAuditDb(databaseUrl);
 const vaultCipher = createLocalSecretCipher(new Uint8Array(32).fill(21));
+
+// Real keys in the real api_keys table, as `custos-admin dev-keys` makes them.
+const controlPlane = createTestControlPlane(db);
+let operatorKey: string;
+let identityServiceKey: string;
+let vaultServiceKey: string;
+
+beforeAll(async () => {
+  operatorKey = await controlPlane.key("operator", [
+    "credentials:write",
+    "policies:write",
+    "agents:revoke",
+    "agents:register",
+  ]);
+  identityServiceKey = await controlPlane.key("service", ["status:allocate"]);
+  vaultServiceKey = await controlPlane.key("service", ["audit:write"]);
+});
 
 afterAll(async () => {
   await db.$client.end();
@@ -98,6 +122,8 @@ async function withRunningIdentityService<T>(
 ): Promise<T> {
   const app = await buildServer({
     db,
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: identityServiceKey,
     issuerKey: testIssuerKey(),
     didDomain: `127.0.0.1:${port}`,
     statusAllocator: fakeStatusAllocator,
@@ -132,6 +158,7 @@ async function withPhase3Stack<T>(
 
   const revocationApp = await buildRevocationServer({
     db: revocationDb,
+    controlPlaneAuth: controlPlane.guard,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
   });
@@ -139,6 +166,8 @@ async function withPhase3Stack<T>(
 
   const identityApp = await buildServer({
     db,
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: identityServiceKey,
     issuerKey: testIssuerKey(),
     didDomain: `127.0.0.1:${ports.identity}`,
     revocationUrl,
@@ -147,6 +176,8 @@ async function withPhase3Stack<T>(
 
   const vaultApp = await buildVaultServer({
     db: vaultDb,
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: vaultServiceKey,
     cipher: vaultCipher,
     connectors,
     revocationUrl,
@@ -200,11 +231,16 @@ async function withPhase4Stack<T>(
   const vaultUrl = `http://127.0.0.1:${ports.vault}`;
   const auditUrl = `http://127.0.0.1:${ports.audit}`;
 
-  const auditApp = await buildAuditServer({ db: auditDb, didDomain: `127.0.0.1:${ports.audit}` });
+  const auditApp = await buildAuditServer({
+    db: auditDb,
+    controlPlaneAuth: controlPlane.guard,
+    didDomain: `127.0.0.1:${ports.audit}`,
+  });
   await auditApp.listen({ port: ports.audit, host: "127.0.0.1" });
 
   const revocationApp = await buildRevocationServer({
     db: revocationDb,
+    controlPlaneAuth: controlPlane.guard,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
   });
@@ -212,6 +248,8 @@ async function withPhase4Stack<T>(
 
   const identityApp = await buildServer({
     db,
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: identityServiceKey,
     issuerKey: testIssuerKey(),
     didDomain: `127.0.0.1:${ports.identity}`,
     revocationUrl,
@@ -220,6 +258,8 @@ async function withPhase4Stack<T>(
 
   const vaultApp = await buildVaultServer({
     db: vaultDb,
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: vaultServiceKey,
     cipher: vaultCipher,
     connectors,
     revocationUrl,
@@ -276,7 +316,7 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
 
         await fetch(new URL("/credentials", vaultUrl), {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...bearer(operatorKey) },
           body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
         });
         await sdkAt({ vaultUrl }).grant(registered, "mock-database");
@@ -300,7 +340,7 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
 
         await fetch(new URL("/credentials", vaultUrl), {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...bearer(operatorKey) },
           body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
         });
         await sdkAt({ vaultUrl }).grant(registered, "mock-database");
@@ -376,7 +416,7 @@ describe("custos deprovision (Phase 3: the revocation demo)", () => {
             ] as const) {
               const seeded = await fetch(new URL("/credentials", vaultUrl), {
                 method: "POST",
-                headers: { "content-type": "application/json" },
+                headers: { "content-type": "application/json", ...bearer(operatorKey) },
                 body: JSON.stringify({ tool, secret }),
               });
               expect(seeded.status).toBe(201);
@@ -481,7 +521,7 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
 
           await fetch(new URL("/credentials", vaultUrl), {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...bearer(operatorKey) },
             body: JSON.stringify({ tool: "mock-slack", secret: "xoxb-fake" }),
           });
           // Granted mock-slack only — Stripe is never granted.

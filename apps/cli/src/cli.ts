@@ -18,6 +18,21 @@ function custos(urls: Partial<CustosConfig>): Custos {
   return createCustos({ ...DEFAULT_URLS, ...urls });
 }
 
+/**
+ * For operator commands (`register`, `grant`, `deprovision`). The key comes
+ * from the environment only, never a flag, so it stays out of shell history
+ * and process listings (ADR 0008).
+ */
+function operatorCustos(urls: Partial<CustosConfig>): Custos {
+  const operatorKey = process.env.CUSTOS_OPERATOR_KEY;
+  if (!operatorKey) {
+    throw new Error(
+      "set CUSTOS_OPERATOR_KEY to an operator key (create one with: pnpm custos-admin dev-keys)",
+    );
+  }
+  return createCustos({ ...DEFAULT_URLS, ...urls, operatorKey });
+}
+
 /** Reads an agent key file as `register` writes it: 64 hex characters. */
 async function loadAgentKey(path: string): Promise<string> {
   const key = (await readFile(path, "utf8")).trim();
@@ -59,6 +74,8 @@ export function createCli(): Command {
       "agent.key",
     )
     .action(async (opts: { identityUrl: string; out?: string; keyOut: string }) => {
+      // Before the key file is claimed: a missing operator key leaves nothing behind.
+      const operator = operatorCustos({ identityUrl: opts.identityUrl });
       // Claim the key file before registering: "wx" fails if it exists, so an
       // existing agent's key is never overwritten, and 0o600 keeps it
       // owner-only (POSIX; Windows applies its own ACLs instead).
@@ -72,7 +89,7 @@ export function createCli(): Command {
         throw error;
       }
       try {
-        const { secretKey, ...agent } = await custos({ identityUrl: opts.identityUrl }).register();
+        const { secretKey, ...agent } = await operator.register();
         await keyFile.writeFile(`${secretKey}\n`);
         await keyFile.close();
         if (opts.out) {
@@ -150,11 +167,9 @@ export function createCli(): Command {
     )
     .option("--vault-url <url>", "vault service base URL", "http://localhost:4002")
     .action(async (tool: string, opts: { credential: string; vaultUrl: string }) => {
+      const operator = operatorCustos({ vaultUrl: opts.vaultUrl });
       const credential = await loadCredentialFile(opts.credential);
-      const result = await custos({ vaultUrl: opts.vaultUrl }).grant(
-        { did: agentDidOf(credential) },
-        tool,
-      );
+      const result = await operator.grant({ did: agentDidOf(credential) }, tool);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     });
 
@@ -179,7 +194,7 @@ export function createCli(): Command {
     .option("--revocation-url <url>", "revocation service base URL", "http://localhost:4003")
     .option("--reason <text>", "why this agent is being deprovisioned")
     .action(async (agentId: string, opts: { revocationUrl: string; reason?: string }) => {
-      const result = await custos({ revocationUrl: opts.revocationUrl }).deprovision(
+      const result = await operatorCustos({ revocationUrl: opts.revocationUrl }).deprovision(
         { id: agentId },
         opts.reason === undefined ? undefined : { reason: opts.reason },
       );

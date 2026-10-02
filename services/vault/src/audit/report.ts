@@ -32,11 +32,13 @@ function errorMessage(error: unknown): string {
  */
 export function createHttpAuditReporter(params: {
   readonly auditUrl: string;
+  /** This service's own key, with `audit:write` (ADR 0008). Never logged. */
+  readonly serviceKey: string;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   readonly onError?: (error: unknown) => void;
 }): AuditReporter {
-  const { auditUrl, fetchImpl = fetch, timeoutMs = 2_000, onError } = params;
+  const { auditUrl, serviceKey, fetchImpl = fetch, timeoutMs = 2_000, onError } = params;
   const recordsUrl = `${auditUrl.replace(/\/$/, "")}/records`;
 
   return {
@@ -45,7 +47,10 @@ export function createHttpAuditReporter(params: {
         try {
           const response = await fetchImpl(recordsUrl, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${serviceKey}`,
+            },
             body: JSON.stringify(event),
             signal: AbortSignal.timeout(timeoutMs),
           });

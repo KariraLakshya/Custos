@@ -15,6 +15,7 @@
   "dependencies": {
     "@custos/config": "workspace:*",
     "@custos/contracts": "workspace:*",
+    "@custos/control-plane-auth": "workspace:*",
     "@custos/core": "workspace:*",
     "@custos/observability": "workspace:*",
     "drizzle-orm": "^0.45.2",

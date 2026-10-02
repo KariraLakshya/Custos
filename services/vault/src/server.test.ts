@@ -18,9 +18,12 @@ import {
   createDb as createRevocationDb,
 } from "@custos/revocation";
 import { mutableClock } from "@custos/testing";
+import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
 import type { FastifyInstance } from "fastify";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { createDb } from "./db/client.js";
+import { agentPolicies, toolCredentials } from "./db/schema.js";
 import { buildServer } from "./server.js";
 import type { RevocationCache } from "./revocation/cache.js";
 
@@ -29,6 +32,22 @@ const vaultDb = createDb(databaseUrl);
 const identityDb = createIdentityDb(databaseUrl);
 const revocationDb = createRevocationDb(databaseUrl);
 const cipher = createLocalSecretCipher(new Uint8Array(32).fill(11));
+
+const controlPlane = createTestControlPlane(vaultDb);
+let operatorKey: string;
+let vaultServiceKey: string;
+let identityServiceKey: string;
+
+beforeAll(async () => {
+  operatorKey = await controlPlane.key("operator", [
+    "credentials:write",
+    "policies:write",
+    "agents:revoke",
+    "agents:register",
+  ]);
+  vaultServiceKey = await controlPlane.key("service", ["audit:write"]);
+  identityServiceKey = await controlPlane.key("service", ["status:allocate"]);
+});
 
 afterAll(async () => {
   await vaultDb.$client.end();
@@ -97,7 +116,7 @@ async function registerAgentAt(port: number): Promise<SignedCredential> {
   });
   const response = await fetch(`http://127.0.0.1:${port}/agents`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...bearer(operatorKey) },
     body: JSON.stringify(request.body),
   });
   const { credential } = (await response.json()) as { credential: SignedCredential };
@@ -120,6 +139,8 @@ async function withRegisteredAgent<T>(
   run: (credential: SignedCredential) => Promise<T>,
 ): Promise<T> {
   const app: FastifyInstance = await buildIdentityServer({
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: identityServiceKey,
     db: identityDb,
     didDomain: `127.0.0.1:${port}`,
     issuerKey: testIssuerKey(),
@@ -155,6 +176,7 @@ async function withPhase3Stack<T>(
   const vaultUrl = `http://127.0.0.1:${ports.vault}`;
 
   const revocationApp: FastifyInstance = await buildRevocationServer({
+    controlPlaneAuth: controlPlane.guard,
     db: revocationDb,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
@@ -162,6 +184,8 @@ async function withPhase3Stack<T>(
   await revocationApp.listen({ port: ports.revocation, host: "127.0.0.1" });
 
   const identityApp: FastifyInstance = await buildIdentityServer({
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: identityServiceKey,
     db: identityDb,
     didDomain: `127.0.0.1:${ports.identity}`,
     issuerKey: testIssuerKey(),
@@ -170,6 +194,8 @@ async function withPhase3Stack<T>(
   await identityApp.listen({ port: ports.identity, host: "127.0.0.1" });
 
   const vaultApp = await buildServer({
+    controlPlaneAuth: controlPlane.guard,
+    serviceKey: vaultServiceKey,
     db: vaultDb,
     cipher,
     connectors,
@@ -189,7 +215,7 @@ async function withPhase3Stack<T>(
       revoke: async (agentId, reason) =>
         fetch(`${revocationUrl}/revocations`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...bearer(operatorKey) },
           body: JSON.stringify(reason ? { agentId, reason } : { agentId }),
         }),
     });
@@ -202,7 +228,13 @@ async function withPhase3Stack<T>(
 
 describe("vault service", () => {
   it("responds to /health", async () => {
-    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
+    const app = await buildServer({
+      controlPlaneAuth: controlPlane.guard,
+      serviceKey: vaultServiceKey,
+      db: vaultDb,
+      cipher,
+      revocation: freshEmptyRevocationCache(),
+    });
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok", service: "vault" });
@@ -213,6 +245,8 @@ describe("vault service", () => {
       const slack = createMockSlackConnector();
       const clock = mutableClock("2026-01-01T00:00:00Z");
       const app = await buildServer({
+        controlPlaneAuth: controlPlane.guard,
+        serviceKey: vaultServiceKey,
         db: vaultDb,
         cipher,
         trustedIssuerDid: credential.issuer,
@@ -224,6 +258,7 @@ describe("vault service", () => {
       const seed = await app.inject({
         method: "POST",
         url: "/credentials",
+        headers: bearer(operatorKey),
         payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
       });
       expect(seed.statusCode).toBe(201);
@@ -231,6 +266,7 @@ describe("vault service", () => {
       const grant = await app.inject({
         method: "POST",
         url: "/policies",
+        headers: bearer(operatorKey),
         payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
       });
       expect(grant.statusCode).toBe(201);
@@ -292,6 +328,8 @@ describe("vault service", () => {
   it("404s a token request for a tool with no stored credential", async () => {
     await withRegisteredAgent(4502, async (credential) => {
       const app = await buildServer({
+        controlPlaneAuth: controlPlane.guard,
+        serviceKey: vaultServiceKey,
         db: vaultDb,
         cipher,
         trustedIssuerDid: credential.issuer,
@@ -307,30 +345,60 @@ describe("vault service", () => {
   });
 
   it("400s a malformed /call request", async () => {
-    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
+    const app = await buildServer({
+      controlPlaneAuth: controlPlane.guard,
+      serviceKey: vaultServiceKey,
+      db: vaultDb,
+      cipher,
+      revocation: freshEmptyRevocationCache(),
+    });
     const response = await app.inject({ method: "POST", url: "/call", payload: { action: "x" } });
     expect(response.statusCode).toBe(400);
   });
 
   it("400s a malformed /credentials request", async () => {
-    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
+    const app = await buildServer({
+      controlPlaneAuth: controlPlane.guard,
+      serviceKey: vaultServiceKey,
+      db: vaultDb,
+      cipher,
+      revocation: freshEmptyRevocationCache(),
+    });
     const response = await app.inject({
       method: "POST",
       url: "/credentials",
+      headers: bearer(operatorKey),
       payload: { tool: "" },
     });
     expect(response.statusCode).toBe(400);
   });
 
   it("400s a malformed /tokens request", async () => {
-    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
+    const app = await buildServer({
+      controlPlaneAuth: controlPlane.guard,
+      serviceKey: vaultServiceKey,
+      db: vaultDb,
+      cipher,
+      revocation: freshEmptyRevocationCache(),
+    });
     const response = await app.inject({ method: "POST", url: "/tokens", payload: { tool: "x" } });
     expect(response.statusCode).toBe(400);
   });
 
   it("400s a malformed /policies request", async () => {
-    const app = await buildServer({ db: vaultDb, cipher, revocation: freshEmptyRevocationCache() });
-    const response = await app.inject({ method: "POST", url: "/policies", payload: { tool: "x" } });
+    const app = await buildServer({
+      controlPlaneAuth: controlPlane.guard,
+      serviceKey: vaultServiceKey,
+      db: vaultDb,
+      cipher,
+      revocation: freshEmptyRevocationCache(),
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/policies",
+      headers: bearer(operatorKey),
+      payload: { tool: "x" },
+    });
     expect(response.statusCode).toBe(400);
   });
 
@@ -338,6 +406,8 @@ describe("vault service", () => {
     it("denies a token request for a verified agent with no policy grant", async () => {
       await withRegisteredAgent(4504, async (credential) => {
         const app = await buildServer({
+          controlPlaneAuth: controlPlane.guard,
+          serviceKey: vaultServiceKey,
           db: vaultDb,
           cipher,
           trustedIssuerDid: credential.issuer,
@@ -348,6 +418,7 @@ describe("vault service", () => {
         await app.inject({
           method: "POST",
           url: "/credentials",
+          headers: bearer(operatorKey),
           payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
         });
 
@@ -368,6 +439,8 @@ describe("vault service", () => {
     it("grants access via /policies, then allows the same agent/tool pair", async () => {
       await withRegisteredAgent(4505, async (credential) => {
         const app = await buildServer({
+          controlPlaneAuth: controlPlane.guard,
+          serviceKey: vaultServiceKey,
           db: vaultDb,
           cipher,
           trustedIssuerDid: credential.issuer,
@@ -377,11 +450,13 @@ describe("vault service", () => {
         await app.inject({
           method: "POST",
           url: "/credentials",
+          headers: bearer(operatorKey),
           payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
         });
         const grant = await app.inject({
           method: "POST",
           url: "/policies",
+          headers: bearer(operatorKey),
           payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
         });
         expect(grant.statusCode).toBe(201);
@@ -401,6 +476,8 @@ describe("vault service", () => {
       await withRegisteredAgent(4506, async (credential) => {
         const events: unknown[] = [];
         const app = await buildServer({
+          controlPlaneAuth: controlPlane.guard,
+          serviceKey: vaultServiceKey,
           db: vaultDb,
           cipher,
           trustedIssuerDid: credential.issuer,
@@ -411,6 +488,7 @@ describe("vault service", () => {
         await app.inject({
           method: "POST",
           url: "/credentials",
+          headers: bearer(operatorKey),
           payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
         });
 
@@ -437,6 +515,8 @@ describe("vault service", () => {
       await withRegisteredAgent(4507, async (credential) => {
         const events: unknown[] = [];
         const app = await buildServer({
+          controlPlaneAuth: controlPlane.guard,
+          serviceKey: vaultServiceKey,
           db: vaultDb,
           cipher,
           trustedIssuerDid: credential.issuer,
@@ -447,11 +527,13 @@ describe("vault service", () => {
         await app.inject({
           method: "POST",
           url: "/credentials",
+          headers: bearer(operatorKey),
           payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
         });
         await app.inject({
           method: "POST",
           url: "/policies",
+          headers: bearer(operatorKey),
           payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
         });
         const tokenResponse = await app.inject({
@@ -497,6 +579,8 @@ describe("vault service", () => {
   it("502s when the underlying connector rejects the call", async () => {
     await withRegisteredAgent(4503, async (credential) => {
       const app = await buildServer({
+        controlPlaneAuth: controlPlane.guard,
+        serviceKey: vaultServiceKey,
         db: vaultDb,
         cipher,
         trustedIssuerDid: credential.issuer,
@@ -507,11 +591,13 @@ describe("vault service", () => {
       await app.inject({
         method: "POST",
         url: "/credentials",
+        headers: bearer(operatorKey),
         payload: { tool: "mock-database", secret: "unused-by-the-mock" },
       });
       await app.inject({
         method: "POST",
         url: "/policies",
+        headers: bearer(operatorKey),
         payload: { agentId: agentDidOf(credential), tool: "mock-database" },
       });
       const tokenResponse = await app.inject({
@@ -536,6 +622,8 @@ describe("vault service", () => {
     async function vaultWithSlack(options: { publicUrl?: string } = {}) {
       return (credential: SignedCredential) =>
         buildServer({
+          controlPlaneAuth: controlPlane.guard,
+          serviceKey: vaultServiceKey,
           db: vaultDb,
           cipher,
           trustedIssuerDid: credential.issuer,
@@ -553,11 +641,13 @@ describe("vault service", () => {
       await app.inject({
         method: "POST",
         url: "/credentials",
+        headers: bearer(operatorKey),
         payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
       });
       await app.inject({
         method: "POST",
         url: "/policies",
+        headers: bearer(operatorKey),
         payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
       });
     }
@@ -642,6 +732,8 @@ describe("vault service", () => {
       // No revocationResyncIntervalMs: the real cache is built but never
       // synced, so it must not silently claim to know who is revoked.
       const app = await buildServer({
+        controlPlaneAuth: controlPlane.guard,
+        serviceKey: vaultServiceKey,
         db: vaultDb,
         cipher,
         revocationUrl: "http://127.0.0.1:1",
@@ -669,11 +761,13 @@ describe("vault service", () => {
             await app.inject({
               method: "POST",
               url: "/credentials",
+              headers: bearer(operatorKey),
               payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
             });
             await app.inject({
               method: "POST",
               url: "/policies",
+              headers: bearer(operatorKey),
               payload: { agentId: agentDidOf(credential), tool: "mock-slack" },
             });
 
@@ -745,6 +839,8 @@ describe("vault service", () => {
 
     it("400s a malformed tombstone push", async () => {
       const app = await buildServer({
+        controlPlaneAuth: controlPlane.guard,
+        serviceKey: vaultServiceKey,
         db: vaultDb,
         cipher,
         revocation: freshEmptyRevocationCache(),
@@ -773,6 +869,8 @@ describe("vault service", () => {
 
     it("502s a tombstone push when the issuer cannot be resolved to verify it", async () => {
       const app = await buildServer({
+        controlPlaneAuth: controlPlane.guard,
+        serviceKey: vaultServiceKey,
         db: vaultDb,
         cipher,
         revocationUrl: "http://127.0.0.1:1",
@@ -788,5 +886,59 @@ describe("vault service", () => {
       expect(response.statusCode).toBe(502);
       expect(response.json().error.code).toBe("UNVERIFIABLE_ISSUER");
     });
+  });
+});
+
+describe("vault control-plane authentication (ADR 0008)", () => {
+  const UNAUTHORIZED = { error: { code: "UNAUTHORIZED" } };
+
+  it("refuses /credentials and /policies without the right operator key, storing nothing", async () => {
+    const app = await buildServer({
+      controlPlaneAuth: controlPlane.guard,
+      serviceKey: vaultServiceKey,
+      db: vaultDb,
+      cipher,
+      revocation: freshEmptyRevocationCache(),
+    });
+    const wrongScope = await controlPlane.key("operator", ["agents:revoke"]);
+    const expired = await controlPlane.key("operator", ["credentials:write", "policies:write"], {
+      expiresAt: new Date("2020-01-01T00:00:00Z"),
+    });
+    const service = await controlPlane.key("service", ["audit:write"]);
+    const tool = `unauth-tool-${Date.now()}`;
+    const agentId = `did:web:127.0.0.1%3A4999:agents:${Date.now()}`;
+
+    for (const key of [undefined, wrongScope, expired, service]) {
+      const headers = key ? bearer(key) : {};
+      const stored = await app.inject({
+        method: "POST",
+        url: "/credentials",
+        headers,
+        payload: { tool, secret: "attacker-secret" },
+      });
+      const granted = await app.inject({
+        method: "POST",
+        url: "/policies",
+        headers,
+        payload: { agentId, tool },
+      });
+      for (const response of [stored, granted]) {
+        expect(response.statusCode).toBe(401);
+        expect(response.json()).toEqual(UNAUTHORIZED);
+      }
+    }
+    const credentials = await vaultDb
+      .select()
+      .from(toolCredentials)
+      .where(eq(toolCredentials.tool, tool));
+    const policies = await vaultDb.select().from(agentPolicies).where(eq(agentPolicies.tool, tool));
+    expect(credentials).toEqual([]);
+    expect(policies).toEqual([]);
+  });
+
+  it("refuses to build without a service key when no audit reporter is injected", async () => {
+    await expect(
+      buildServer({ controlPlaneAuth: controlPlane.guard, db: vaultDb, cipher }),
+    ).rejects.toThrow("serviceKey is required");
   });
 });
