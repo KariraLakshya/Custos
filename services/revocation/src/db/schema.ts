@@ -22,4 +22,3 @@ export const statusListEntries = pgTable("status_list_entries", {
 });
 
 export type StatusListEntryRow = typeof statusListEntries.$inferSelect;
-export type NewStatusListEntryRow = typeof statusListEntries.$inferInsert;

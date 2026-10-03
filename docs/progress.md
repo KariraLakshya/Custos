@@ -6,6 +6,14 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-02 — Housekeeping: unused code removed
+
+**Commits:** branch `chore/remove-dead-code`, with a pull request open. The audit-trail work (previous entry) reached the main codebase as PR #53.
+
+**What changed:** a code-scanning tool listed everything in the codebase that nothing seems to use, and each item was checked by hand. Ten unused type definitions, one unused export and one redundant library listing were removed: 18 lines, all deletions. Most of what the tool flagged turned out to be in use in ways it can't see (configuration files, setup scripts, a security-related version pin), and those were kept and written down so nobody deletes them later. All automated checks pass, unchanged.
+
+_Why it matters:_ less code that does nothing means less to read and nothing to mislead the next person. One fewer library is listed directly, though it is still installed because another library needs it.
+
 ## 2026-10-02 — The audit trail now records the administrators too
 
 **Commits:** branch `feat/phase-5b-audit-principal`, with a pull request open. The previous step (keys enforced on every admin action) reached the main codebase as PR #52.

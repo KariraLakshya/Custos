@@ -34,6 +34,3 @@ export const auditRecords = pgTable("audit_records", {
   recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-export type AuditRecordRow = typeof auditRecords.$inferSelect;
-export type NewAuditRecordRow = typeof auditRecords.$inferInsert;

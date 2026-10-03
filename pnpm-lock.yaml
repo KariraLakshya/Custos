@@ -298,9 +298,6 @@ importers:
       ed25519-signature-2020-context:
         specifier: ^1.1.0
         version: 1.1.0
-      jsonld:
-        specifier: ^9.0.0
-        version: 9.0.0
       jsonld-signatures:
         specifier: ^11.6.0
         version: 11.6.0

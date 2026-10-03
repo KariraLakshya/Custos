@@ -18,6 +18,3 @@ export const agents = pgTable("agents", {
   credential: jsonb("credential").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-export type AgentRow = typeof agents.$inferSelect;
-export type NewAgentRow = typeof agents.$inferInsert;

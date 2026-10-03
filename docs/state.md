@@ -12,11 +12,12 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #49 (ADR 0008 accepted) merged 2026-10-02. It merged before its last two commits (`instructions.md` §7, no AI attribution) landed; they ride on `feat/phase-5b-api-keys` instead.
 - [x] PR #51 (step 4 part 1, API-key layer) merged 2026-10-02.
 - [x] PR #52 (step 4 part 2a, keys enforced) merged 2026-10-02.
-- [ ] **`feat/phase-5b-audit-principal`** (step 4 part 2b) is pushed with its PR open: confirm it's merged before starting mTLS.
+- [x] PR #53 (step 4 part 2b, control-plane writes audited) merged 2026-10-02.
+- [ ] **`chore/remove-dead-code`** is pushed with its PR open: confirm it's merged.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
-- [ ] **Knowledge graph:** last full refresh **2026-10-02**, from step 4 part 2b code (`packages/audit-client`, audit principal across all four services). If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
+- [ ] **Knowledge graph:** last full refresh **2026-10-02**, after the dead-code removal. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
-**Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented, verified, and on `main` (1–2 via #41, 3 via #47). Step 4 (control-plane auth, ADR 0008): part 1 (API-key layer) on `main` via #51; part 2a (keys enforced on every control-plane route) on `main` via #52; part 2b (control-plane writes audited with their principal) on `feat/phase-5b-audit-principal`; then mTLS, then SSO. Phase 5's DONE check (non-author README run) follows 5b.
+**Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented, verified, and on `main` (1–2 via #41, 3 via #47). Step 4 (control-plane auth, ADR 0008): part 1 (API-key layer) on `main` via #51; part 2a (keys enforced on every control-plane route) on `main` via #52; part 2b (control-plane writes audited with their principal) on `main` via #53; then mTLS, then SSO. Phase 5's DONE check (non-author README run) follows 5b.
 **Last updated:** 2026-10-02
 
 ## Implemented, by phase
@@ -38,7 +39,7 @@ Keep this to what the next session must act on before anything else. Clear items
 
 ## In progress / not yet merged
 
-- **`feat/phase-5b-audit-principal`**: Phase 5b step 4 part 2b (control-plane writes audited with their principal).
+- **`chore/remove-dead-code`**: removes code nothing references (found with `npx knip`, each candidate checked by hand). `knip` also flags things that are used but invisible to it; don't "clean" these: `infra/migrations/drizzle.config.ts`, `packages/sdk/examples/quickstart.mjs`, the vitest e2e configs, the `copy-assets`/`seed-credential` scripts, root devDeps `drizzle-orm`/`pg` (needed by `drizzle-kit`) and `vite` (security pin, commit `b7a4884`), and exports used only inside their own file.
 - **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
 **Ideas to discuss with the user (raised 2026-10-02, not approved, don't build):**
@@ -50,7 +51,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Next up
 
-1. Merge `feat/phase-5b-audit-principal`.
+1. Merge `chore/remove-dead-code`.
 2. Measure the key-lookup cost before deciding on the cache idea above. Then mTLS, then SSO (OIDC). Then step 5 (docs/threat model), then Phase 5's non-author README run, then Phase 6.
 
 ## Known issues, debt, and deviations

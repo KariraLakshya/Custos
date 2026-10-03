@@ -10,9 +10,6 @@ export const toolCredentials = pgTable("tool_credentials", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export type ToolCredentialRow = typeof toolCredentials.$inferSelect;
-export type NewToolCredentialRow = typeof toolCredentials.$inferInsert;
-
 // One row = one agent-may-call-this-tool grant (build plan Phase 4: "simple
 // allowlists per agent × tool"). Absence of a row means denied — fail closed,
 // deny by default, matching every other security decision in this codebase.
@@ -25,6 +22,3 @@ export const agentPolicies = pgTable(
   },
   (table) => [primaryKey({ columns: [table.agentDid, table.tool] })],
 );
-
-export type AgentPolicyRow = typeof agentPolicies.$inferSelect;
-export type NewAgentPolicyRow = typeof agentPolicies.$inferInsert;
