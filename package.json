@@ -18,6 +18,8 @@
     "typecheck": "turbo run typecheck",
     "migrate": "drizzle-kit migrate --config=infra/migrations/drizzle.config.ts",
     "custos-admin": "node apps/admin/dist/bin.js",
+    "mtls:certs": "node infra/mtls/certs.mjs",
+    "mtls:config": "node infra/mtls/render-envoy.mjs",
     "migrate:generate": "drizzle-kit generate --config=infra/migrations/drizzle.config.ts",
     "changeset": "changeset",
     "prepare": "husky"

@@ -1,0 +1,119 @@
+# Envoy terminates mTLS for Custos service-to-service calls (docs/adr/0009).
+# Rendered by render-envoy.mjs: ${...} tokens are filled in, nothing else.
+#
+# One listener per protected service. Each requires a client certificate
+# signed by the Custos CA *and* whose SAN is on that listener's allowlist,
+# so a valid cert for the wrong service is refused at the proxy. Envoy
+# then strips any incoming x-forwarded-client-cert header and sets its own
+# (SANITIZE_SET), so a caller can't forge the identity a service sees.
+static_resources:
+  listeners:
+    - name: revocation_mtls
+      address:
+        socket_address: { address: 0.0.0.0, port_value: ${REVOCATION_LISTEN_PORT} }
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              require_client_certificate: true
+              common_tls_context:
+                tls_params: { tls_minimum_protocol_version: TLSv1_2 }
+                tls_certificates:
+                  - certificate_chain: { filename: /etc/custos-mtls/envoy.crt }
+                    private_key: { filename: /etc/custos-mtls/envoy.key }
+                validation_context:
+                  trusted_ca: { filename: /etc/custos-mtls/ca.crt }
+                  # Only identity reserves revocation slots (status:allocate).
+                  match_typed_subject_alt_names:
+                    - san_type: URI
+                      matcher: { exact: spiffe://custos.local/service/identity }
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: revocation_mtls
+                forward_client_cert_details: SANITIZE_SET
+                set_current_client_cert_details: { uri: true }
+                route_config:
+                  virtual_hosts:
+                    - name: revocation
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: revocation }
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+    - name: audit_mtls
+      address:
+        socket_address: { address: 0.0.0.0, port_value: ${AUDIT_LISTEN_PORT} }
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              require_client_certificate: true
+              common_tls_context:
+                tls_params: { tls_minimum_protocol_version: TLSv1_2 }
+                tls_certificates:
+                  - certificate_chain: { filename: /etc/custos-mtls/envoy.crt }
+                    private_key: { filename: /etc/custos-mtls/envoy.key }
+                validation_context:
+                  trusted_ca: { filename: /etc/custos-mtls/ca.crt }
+                  # The services that write audit records (audit:write).
+                  match_typed_subject_alt_names:
+                    - san_type: URI
+                      matcher: { exact: spiffe://custos.local/service/vault }
+                    - san_type: URI
+                      matcher: { exact: spiffe://custos.local/service/identity }
+                    - san_type: URI
+                      matcher: { exact: spiffe://custos.local/service/revocation }
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: audit_mtls
+                forward_client_cert_details: SANITIZE_SET
+                set_current_client_cert_details: { uri: true }
+                route_config:
+                  virtual_hosts:
+                    - name: audit
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: audit }
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+    - name: revocation
+      type: STRICT_DNS
+      # host.docker.internal can resolve to an IPv6 address the container has
+      # no route to; prefer IPv4, fall back to IPv6.
+      dns_lookup_family: V4_PREFERRED
+      connect_timeout: 2s
+      load_assignment:
+        cluster_name: revocation
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: ${UPSTREAM_HOST}, port_value: ${REVOCATION_UPSTREAM_PORT} }
+    - name: audit
+      type: STRICT_DNS
+      # host.docker.internal can resolve to an IPv6 address the container has
+      # no route to; prefer IPv4, fall back to IPv6.
+      dns_lookup_family: V4_PREFERRED
+      connect_timeout: 2s
+      load_assignment:
+        cluster_name: audit
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: ${UPSTREAM_HOST}, port_value: ${AUDIT_UPSTREAM_PORT} }

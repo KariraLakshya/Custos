@@ -6,6 +6,21 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-03 — Certificate-based security for Custos's own services (part 1: the gatekeeper)
+
+**Commits:** branch `feat/phase-5b-mtls-proxy`, with a pull request open. Nothing uses it yet; the next step connects the services to it.
+
+**What shipped:** the foundation for mTLS, where Custos's own services prove who they are with digital certificates instead of passwords. Certificates are much harder to steal or misuse than a password-like key.
+
+- **A gatekeeper (Envoy).** A widely used security proxy now stands in front of the revocation and audit services. Every caller must present a certificate issued by Custos's own certificate authority, carrying the right name. Each door has its own guest list: only the identity service may reserve revocation slots, and only the three services that write audit records may write to the audit log.
+- **No way to fake who's calling.** The gatekeeper throws away any "I am the vault" note a caller attaches, and writes its own, based on the certificate it actually checked.
+- **Certificates made with OpenSSL, the most widely audited security toolkit,** inside a locked-down container. No new code libraries were added, and no private keys are stored in the codebase.
+- **Proven against the real thing:** 17 automated tests run the real gatekeeper. A genuine certificate gets through. No certificate, an expired one, one from the wrong authority, a self-made one, one with the wrong name, and a genuine one for the wrong service are each turned away, each for its specific reason. We also broke the configuration on purpose, twice, to confirm the tests catch it.
+- **Two design decisions, made with the founder:** Envoy rather than nginx, because it checks certificate names and protects the identity note out of the box; OpenSSL in a container rather than an extra code library, because the library would have run inside the admin tool, which has database access. Both are written up in a decision record (ADR 0009).
+- **Measured, then dropped:** the idea of caching key checks. Checking a key takes under a millisecond and a half, and never slows an agent's request, so there's nothing to gain.
+
+_Why it matters:_ security buyers expect service-to-service traffic to use mutual TLS; it's the industry standard for "zero trust" inside a system. Next, the services start using this gatekeeper, then administrators get company single sign-on.
+
 ## 2026-10-07 — Two newly reported vulnerabilities fixed by upgrading
 
 **Commits:** branch `fix/deps-shell-quote-source-map-js`, with a pull request open. PR #56 (the narrow security-check exemption for `braces`) is merged.
