@@ -56,6 +56,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Known issues, debt, and deviations
 
+- **`pnpm audit` ignores GHSA-vfj7-8cjw-p6xm** (`braces` <= 3.0.3, high, stack exhaustion via deeply nested patterns; published 2026-10-03 with **no patched version**). Decided by the user 2026-10-03, as the narrowest option, in `package.json` `pnpm.auditConfig.ignoreGhsas`. Why it's safe for now: `pnpm audit --prod` is clean; `braces` reaches only dev tooling (Changesets, ESLint, Vitest, via `micromatch`), and only our own glob patterns are passed to it. **Remove the ignore as soon as a patched `braces` ships** (then `pnpm update` or override). Every other advisory still fails CI.
 - LICENSE and open-source-vs-proprietary decision deliberately deferred by the user.
 - `release.yml` runs `changeset version`/`tag` only — no publish target yet (private packages, no license).
 - No real KMS anywhere yet — `identity`/`vault`/`revocation`/`audit` all use `createLocalKeyProvider()` (in-memory, ephemeral per process). Deliberate for this stage; migration path is the `KeyProvider` interface itself.
