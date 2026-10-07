@@ -1,10 +1,16 @@
 # Custos
 
-A trust layer for AI agents. Every agent gets a cryptographic identity, never holds a real tool password, can only use the tools it has been granted, can be cut off from every tool in well under a second, and leaves a signed, independently verifiable record of everything it did.
+**An early-stage, open-source developer platform for AI agents, building toward a hosted trust service.** [custoss.dev](https://custoss.dev)
+
+Custos is the trust layer for AI agents. Developers give every agent a cryptographic identity, keep real tool passwords out of agents entirely, allow each agent only the tools it has been granted, cut a compromised agent off from every tool in well under a second, and get a signed, independently verifiable record of everything it did.
 
 MCP and A2A define how agents talk. Custos decides whether an agent should be trusted and what it may do. It runs on top of those protocols rather than replacing them.
 
-**Status:** the MVP runs end to end locally: identity, vault, revocation, allowlists, audit, CLI, SDK, and a live dashboard. It is a development build. Signing keys are in memory (a KMS-backed key provider is planned), and nothing here is hardened for production. See [docs/build-plan.md](./docs/build-plan.md).
+**What you get today:** a TypeScript SDK and a `custos` CLI, backed by four services (identity, vault, revocation, audit) that you run yourself with Docker Compose, plus a live dashboard.
+
+**Where it's going:** a hosted Custos, where a developer connects their agents and tools and Custos runs identity, credential custody, revocation and audit as a managed cloud service. The services here are the core of that offering, and they're being hardened toward it.
+
+**Status:** early stage. The MVP runs end to end locally: identity, vault, revocation, allowlists, audit, CLI, SDK, and the dashboard. It is a development build, not yet hosted. The key that signs agent credentials can live in AWS KMS; the other services' signing keys are still in memory. Nothing here is hardened for production: [docs/threat-model.md](./docs/threat-model.md) lists what is and isn't protected. See [docs/build-plan.md](./docs/build-plan.md).
 
 ---
 
@@ -366,3 +372,7 @@ CUSTOS_TEST_KMS_KEY_ID=<key id or ARN> pnpm --filter @custos/identity test:kms
 - `docs/`: build plan, architecture decision records (`docs/adr/`), progress log
 
 Engineering standards and architecture rules: [CLAUDE.md](./CLAUDE.md). Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md). Security issues: [SECURITY.md](./SECURITY.md).
+
+## License
+
+Custos is open source under the [Apache License 2.0](./LICENSE). See [NOTICE](./NOTICE) and, for the reasoning, [ADR 0011](./docs/adr/0011-open-source-apache-2.md).

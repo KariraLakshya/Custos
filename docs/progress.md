@@ -6,9 +6,34 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-08 — Custos is open source (Apache-2.0), with a public landing page
+
+**Commits:** `ce25a6c` on branch `chore/open-source-apache-2.0`, pushed 2026-10-08 with pull request #62 open. It also carries the threat-model commit `9d75142` (next entry). The GitHub repository itself is still private.
+
+**What shipped:**
+
+- **A licence.** Custos now carries the Apache License 2.0, the standard licence for security and infrastructure software. Anyone may use, change and build on the code, provided they keep the licence notice. It includes a patent promise, which companies' legal teams look for before adopting a tool. It was chosen over AGPL (which would have stopped others hosting Custos but scares off many companies) and MIT (simpler, but with no patent promise). The reasoning is in ADR 0011.
+- **A new framing.** The README now presents Custos as an early-stage, open-source developer platform for AI agents, building toward a hosted service. It's honest about the stage: today developers run it themselves, and the hosted version is the goal.
+- **A landing page at [custoss.dev](https://custoss.dev)**, on Vercel, with a "coming soon" early-access call to action.
+
+_Why it matters:_ an open-source licence lets developers try Custos without a sales conversation. For an infrastructure product, that is usually how adoption starts. It also makes Custos eligible for programs aimed at open-source and early-stage developer tools. **Still to do by hand:** making the GitHub repository public, after a final check of its history. Once public, code released under this licence can't be taken back.
+
+## 2026-10-08 — The security phase is finished: a written threat model
+
+**Commits:** `9d75142`, pushed 2026-10-08 as part of pull request #62. Single sign-on (previous entry) reached the main codebase as PR #61.
+
+**What shipped:** `docs/threat-model.md`, a plain statement of what Custos protects, who it protects against, and where its protection stops.
+
+- **Every protection points at its proof.** For each attack (a stolen agent file, a replayed request, a forged audit entry, a fake certificate, a forged login) the document names the automated test that shows the attack failing. A reviewer can check the claims instead of trusting them.
+- **The gaps are written down, not hidden.** For example: anyone with direct access to the database is trusted completely; a stolen 60-second access pass works until it expires; the public activity feed shows administrators' email addresses. Each gap has a reason and a planned fix where one exists.
+- **One gap closed while writing it.** Nothing tested directly that an agent never receives the real tool password. A check now does, and it was shown to fail when a leak was deliberately introduced.
+- The README and architecture notes were brought up to date with how registration and admin sign-in now work.
+
+_Why it matters:_ a threat model is the first document a security buyer or auditor asks for. With it, the security-hardening phase is finished. Next is having someone other than the author follow the README from scratch, which is the last check before the minimum product is complete.
+
 ## 2026-10-08 — Administrators sign in with their company account
 
-**Commits:** branch `feat/phase-5b-sso`, with a pull request open. Certificate security between the services (previous entry) reached the main codebase as PR #60.
+**Commits:** branch `feat/phase-5b-sso`, merged to the main codebase as PR #61. Certificate security between the services (previous entry) reached the main codebase as PR #60.
 
 **What shipped:** administrators no longer need a long-lived Custos key. They type `custos login`, sign in on their company's usual login page (anything that speaks the OpenID Connect standard: Okta, Microsoft Entra, Google Workspace, Keycloak), and get a key that lasts one working day.
 

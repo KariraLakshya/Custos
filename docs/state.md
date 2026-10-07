@@ -16,12 +16,13 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #54 (dead-code clean-up) merged 2026-10-03.
 - [x] PR #55 (mTLS part A) merged 2026-10-07, after #56 and #59.
 - [x] PR #60 (mTLS part B) merged 2026-10-07.
-- [ ] **`feat/phase-5b-sso`** (operator SSO, ADR 0010) is pushed with its PR open: confirm it's merged before step 5.
+- [x] PR #61 (operator SSO, ADR 0010) merged 2026-10-07.
+- [ ] **PR #62** (`chore/open-source-apache-2.0`, pushed 2026-10-08): Apache-2.0 + README reframe (ADR 0011) **and** the step 5 threat model (`9d75142`). Confirm it merged. The separate `docs/phase-5b-threat-model` branch was never pushed and is superseded.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [ ] **Knowledge graph:** last full refresh **2026-10-08**, after operator SSO. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
-**Current phase:** Phase 5b — Auth hardening, in progress. Steps 1–3 implemented, verified, and on `main` (1–2 via #41, 3 via #47). Step 4 (control-plane auth, ADR 0008): part 1 (API-key layer) on `main` via #51; part 2a (keys enforced on every control-plane route) on `main` via #52; part 2b (control-plane writes audited with their principal) on `main` via #53; mTLS part A (Envoy proxy, certs, proxy tests, ADR 0009) on `main` via #55; mTLS part B (services use it) on `main` via #60; operator SSO (ADR 0010) on `feat/phase-5b-sso`. Step 4 is complete once that merges; then step 5 (threat model, docs). Phase 5's DONE check (non-author README run) follows 5b.
-**Last updated:** 2026-10-02
+**Current phase:** Phase 5 — DONE check (non-author README run). Phase 5b is complete: steps 1–4 on `main` (#41, #47, #51–#53, #55, #60, #61); step 5 (threat model) in PR #62. All ten 5b DONE criteria are proven in CI (mapped in `docs/threat-model.md` §6). Phase 6 follows the README run.
+**Last updated:** 2026-10-08
 
 ## Implemented, by phase
 
@@ -41,11 +42,12 @@ Keep this to what the next session must act on before anything else. Clear items
   - **Step 4, part 2b: control-plane writes audited.** `@custos/core` `AuditRecord` gains optional `principal` `{ kind, id, name }`; `agentDid` and `tool` become optional; every record must name an `agentDid` or a `principal`. Control-plane records have `authorityChain: []` (the principal acted, not an agent); agent records are unchanged. `@custos/contracts` `auditEventSchema` (bounded; shared by reporters and the audit service). New `packages/audit-client`: `createHttpAuditReporter` (moved from the vault) and `controlPlaneEvent`. `requireScope` gains `onScopeDenied`. Audited, allow on success and deny on missing scope: vault `credentials.store`, `policies.grant`; identity `agents.register`; revocation `agents.revoke`, `status.allocate`. **Authentication failures are logged, never audited** (no principal; would let anyone flood the evidence log). Revocation now needs `REVOCATION_SERVICE_KEY` (`audit:write`); identity's key needs `status:allocate` + `audit:write`; `checkServiceKey` takes `scopes`; `dev-keys` makes four keys. Migration `0007` (`agent_did`/`tool` nullable, `principal_*` columns). Dashboard shows the actor (`actorOf`). Run live: an agent's log shows its allocation, registration, grant and revocation with who did each.
   - **Step 4, mTLS part A: proxy and certificates (ADR 0009).** `infra/mtls/`: `gen-certs.sh` run by `certs.mjs` in digest-pinned `alpine:3.22` + apk `openssl` (no npm dependency): Custos dev CA, Envoy server cert, one client cert per service with SAN `spiffe://custos.local/service/<name>`, plus negative fixtures (expired, wrong CA, self-signed, wrong SAN). `envoy.yaml.tmpl` rendered by `render-envoy.mjs` (`--set` for test ports); digest-pinned Envoy 1.35 (`images.json` holds both digests). Listeners: `revocation_mtls` 5003 allows identity only; `audit_mtls` 5004 allows vault, identity, revocation. `require_client_certificate`, per-listener SAN allowlist, `forward_client_cert_details: SANITIZE_SET`. `packages/control-plane-auth/src/mtls-proxy.test.ts` runs the real Envoy: 17 tests, each refusal asserting its TLS alert; mutations (no SAN allowlist, `FORWARD_ONLY`) make them fail. `pnpm mtls:certs`, `pnpm mtls:config`. Used by the services since part B.
   - **Step 4, mTLS part B: services use it (ADR 0009 §7).** Envoy authenticates to the services with `envoy-upstream` (SAN `spiffe://custos.local/proxy/envoy`) over upstream TLS. Revocation and audit get an optional Envoy-only TLS listener (`createEnvoyOnlyTlsListener`, same Fastify app via `serverFactory`; `<SVC>_MTLS_PORT/_SERVER_CERT/_SERVER_KEY`, `MTLS_CA`). `requireScope` passes `verifiedPeerUris` from the socket. The guard always tries `authenticateForwardedService` first: header trusted only when the verified peer is Envoy, parsed strictly, mapped by `SERVICE_IDENTITY_SCOPES`; else the API-key path. Callers (identity, vault, revocation) take exactly one of `<SVC>_SERVICE_KEY` or `<SVC>_MTLS_CERT/_KEY` (+ `MTLS_CA`), resolved at boot by `resolveOutgoingServiceAuth`; mTLS uses `createMtlsFetch` (`node:https`, no undici) and Envoy's `https://` URLs. Operators stay on API keys. `pnpm dev:mtls` (Compose profile `mtls`; `CUSTOS_ENVOY_USER` on Linux); `pnpm dev:down` stops Envoy too. Proof: `mtls.test.ts`, `mtls-node.test.ts`, `mtls-proxy.test.ts` (18), `packages/sdk/src/mtls.e2e.test.ts` (no service keys; mutation-checked), and a live run of the built services.
+  - **Step 5, threat model.** `docs/threat-model.md`: assets, trust boundaries, attackers, each threat → control → proving test, accepted risks (§5), DONE criteria → test (§6). Vault lifecycle test now asserts `/tokens` and `/call` responses never contain the tool secret (mutation-checked). README status line and `docs/ARCHITECTURE.md` (status, data flows) updated to the 5b flow.
   - **Step 4, operator SSO (ADR 0010).** Identity is an OIDC relying party (`openid-client` 6.8.8, its only new dependency) in `services/identity/src/sso/`. A login issues a short-lived operator API key (`created_via='sso'`, migration `0008`; default 8h, max 24h), named by email, with scopes from `SSO_GROUP_SCOPES` (no mapped group: refused). `enableNonRepudiationChecks` is always on: without it, a token signed by an unknown key was accepted. Routes: `POST /operator/login`, `GET /operator/callback`, `GET /operator/login/:id`. `custos login` saves `~/.custos/operator.key` (0600); operator commands use `CUSTOS_OPERATOR_KEY`, then that file. Keycloak 26.4 (pinned) via `pnpm dev:sso` and realm `infra/sso/realm-custos.json` (throwaway users alice, bob). Proof: `sso.test.ts` (5 broken-token cases via an in-test provider) and `sso-keycloak.test.ts` (real Keycloak; mutation-checked).
 
 ## In progress / not yet merged
 
-- **`feat/phase-5b-sso`**: operator SSO (ADR 0010).
+- **PR #62**: step 5 threat model + Apache-2.0 licence.
 - **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
 **Ideas to discuss with the user (raised 2026-10-02, not approved, don't build):**
@@ -57,15 +59,16 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Next up
 
-1. Merge `feat/phase-5b-sso`.
-2. **Step 5:** threat model in the repo; fix the README line saying signing keys are only in memory. Then Phase 5's non-author README run, then Phase 6.
+1. Merge PR #62. Then the founder makes the GitHub repo public (ADR 0011).
+2. Phase 5's DONE check: a non-author runs the README from scratch. Then Phase 6.
+3. Keep `docs/threat-model.md` §5 in step with the known issues below when either changes.
 
 ## Known issues, debt, and deviations
 
 - **pnpm overrides for advisories published after 2026-10-03 (both patched upstream):** `shell-quote` → `^1.11.0` (GHSA-pqg4-j6r4-53mv, critical, command injection in `quote()`; arrives via `gel`, an optional peer that `drizzle-orm` pulls in, never called by Custos) and `source-map-js` → `^1.2.2` (GHSA-68fv-2mgg-jv7q, high, DoS; dev only via Vite/PostCSS). Version-ranged like the existing overrides, so they become no-ops once parents upgrade; prune them then.
 - **`pnpm audit` ignores GHSA-vfj7-8cjw-p6xm** (`braces` <= 3.0.3, high, stack exhaustion via deeply nested patterns; published 2026-10-03 with **no patched version**). Decided by the user 2026-10-03, as the narrowest option, in `package.json` `pnpm.auditConfig.ignoreGhsas`. Why it's safe for now: `pnpm audit --prod` is clean; `braces` reaches only dev tooling (Changesets, ESLint, Vitest, via `micromatch`), and only our own glob patterns are passed to it. **Remove the ignore as soon as a patched `braces` ships** (then `pnpm update` or override). Every other advisory still fails CI.
-- LICENSE and open-source-vs-proprietary decision deliberately deferred by the user.
-- `release.yml` runs `changeset version`/`tag` only — no publish target yet (private packages, no license).
+- **Open source, Apache-2.0** (ADR 0011, 2026-10-08): `LICENSE`, `NOTICE`, every manifest `"license": "Apache-2.0"`; packages stay `private: true`. The GitHub repo is **still private**: making it public is the founder's manual step (check history first; ADR 0011).
+- `release.yml` runs `changeset version`/`tag` only — no publish target yet (packages marked private).
 - No real KMS anywhere yet — `identity`/`vault`/`revocation`/`audit` all use `createLocalKeyProvider()` (in-memory, ephemeral per process). Deliberate for this stage; migration path is the `KeyProvider` interface itself.
 - No `keyAgreement` key exists (DID docs only sign/verify). A future encrypted channel (Phase 6 cross-org handshake) needs its own X25519 keypair — never the Ed25519 identity key reused (see doc comment on `DidWebDocument`, `packages/core/src/did/did-web.ts`).
 - `VAULT_MASTER_KEY` is one symmetric key for all stored tool credentials — no per-tool keys/rotation (ADR 0004 has the real-KMS path).
@@ -76,7 +79,6 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 - `@custos/sdk` has no request timeout (a hung service hangs the caller) and requires all three service URLs even for an agent-only process that needs just the vault — kept minimal, revisit on demand.
 - The audit service doesn't record **which service reported** each event: a service holding `audit:write` attests to its own reports. The principal inside an event is the reporting service's claim. Recording the reporter (from `principalOf` on `POST /records`) is a small later hardening step.
 - The audit service's own scope denials on `POST /records` are logged, not audited (it would be auditing into itself).
-- The README says signing keys are "in memory (a KMS-backed key provider is planned)". That is out of date since step 1 (the issuer key can be KMS). Not fixed here; fold it into step 5's docs pass.
 - AWS: IAM user `custos-dev` (profile `custo`, region `ap-south-1`) was given a **full-KMS inline policy** for the real-KMS test; the user should remove it (the narrow policy already allows GetPublicKey/Sign/ScheduleKeyDeletion). Test key `644e42e3…` is PendingDeletion (deletes 2026-10-08, not billed).
 - Vault proof audience is `VAULT_PUBLIC_URL` exactly: agents calling `127.0.0.1` when it's `localhost` are refused (`WRONG_AUDIENCE`). README troubleshooting covers it.
 - Vault replay cache is in-memory: correct for one vault instance only; multi-instance needs the Redis-backed `ReplayCache`. Proof failures aren't audited (not the agent's action) — no security-event log yet.
