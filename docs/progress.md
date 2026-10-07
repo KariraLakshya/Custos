@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-08 — Custos is open source (Apache-2.0), with a public landing page
 
-**Commits:** branch `chore/open-source-apache-2.0`, committed locally, not yet pushed. It builds on the threat-model branch below. The GitHub repository itself is still private.
+**Commits:** `ce25a6c` on branch `chore/open-source-apache-2.0`, pushed 2026-10-08 with pull request #62 open. It also carries the threat-model commit `9d75142` (next entry). The GitHub repository itself is still private.
 
 **What shipped:**
 
@@ -20,7 +20,7 @@ _Why it matters:_ an open-source licence lets developers try Custos without a sa
 
 ## 2026-10-08 — The security phase is finished: a written threat model
 
-**Commits:** branch `docs/phase-5b-threat-model`, committed locally, not yet pushed. Single sign-on (previous entry) reached the main codebase as PR #61.
+**Commits:** `9d75142`, pushed 2026-10-08 as part of pull request #62. Single sign-on (previous entry) reached the main codebase as PR #61.
 
 **What shipped:** `docs/threat-model.md`, a plain statement of what Custos protects, who it protects against, and where its protection stops.
 

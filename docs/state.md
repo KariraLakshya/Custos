@@ -17,12 +17,11 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #55 (mTLS part A) merged 2026-10-07, after #56 and #59.
 - [x] PR #60 (mTLS part B) merged 2026-10-07.
 - [x] PR #61 (operator SSO, ADR 0010) merged 2026-10-07.
-- [ ] **`chore/open-source-apache-2.0`** (ADR 0011: Apache-2.0 LICENSE/NOTICE, manifests, README reframed as an open-source developer platform building toward hosted) is stacked on `docs/phase-5b-threat-model`, committed locally, not pushed: merge after it.
-- [ ] **`docs/phase-5b-threat-model`** (step 5: threat model, docs, dispossession assertion) is committed locally, not pushed: push and open its PR, then confirm it merged.
+- [ ] **PR #62** (`chore/open-source-apache-2.0`, pushed 2026-10-08): Apache-2.0 + README reframe (ADR 0011) **and** the step 5 threat model (`9d75142`). Confirm it merged. The separate `docs/phase-5b-threat-model` branch was never pushed and is superseded.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [ ] **Knowledge graph:** last full refresh **2026-10-08**, after operator SSO. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
-**Current phase:** Phase 5 — DONE check (non-author README run). Phase 5b is complete: steps 1–4 on `main` (#41, #47, #51–#53, #55, #60, #61); step 5 (threat model) on `docs/phase-5b-threat-model`. All ten 5b DONE criteria are proven in CI (mapped in `docs/threat-model.md` §6). Phase 6 follows the README run.
+**Current phase:** Phase 5 — DONE check (non-author README run). Phase 5b is complete: steps 1–4 on `main` (#41, #47, #51–#53, #55, #60, #61); step 5 (threat model) in PR #62. All ten 5b DONE criteria are proven in CI (mapped in `docs/threat-model.md` §6). Phase 6 follows the README run.
 **Last updated:** 2026-10-08
 
 ## Implemented, by phase
@@ -48,7 +47,7 @@ Keep this to what the next session must act on before anything else. Clear items
 
 ## In progress / not yet merged
 
-- **`docs/phase-5b-threat-model`**: step 5 (not yet pushed).
+- **PR #62**: step 5 threat model + Apache-2.0 licence.
 - **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
 **Ideas to discuss with the user (raised 2026-10-02, not approved, don't build):**
@@ -60,7 +59,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Next up
 
-1. Push and merge `docs/phase-5b-threat-model`.
+1. Merge PR #62. Then the founder makes the GitHub repo public (ADR 0011).
 2. Phase 5's DONE check: a non-author runs the README from scratch. Then Phase 6.
 3. Keep `docs/threat-model.md` §5 in step with the known issues below when either changes.
 
