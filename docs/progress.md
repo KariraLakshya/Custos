@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-03 — Security check unblocked for a vulnerability with no fix yet
+
+**Commits:** branch `ci/ignore-braces-ghsa`, with a pull request open.
+
+**What happened:** today a high-severity vulnerability was published in `braces`, a small file-pattern library used deep inside our developer tools. No fixed version exists yet. Our automated security check fails any change while a known high-severity vulnerability is present, so every pull request, including the mTLS work, was blocked.
+
+**What we checked:** the vulnerable library is **not part of any running Custos service**. It only reaches build and test tools, and those are only ever given our own file patterns, which the attack needs an attacker to control. The production-only security check is clean.
+
+**What changed:** with the founder's approval, the security check now skips **this one vulnerability only**, recorded with the date and the reason. Every other vulnerability, in production or developer tools, still blocks a change. The exemption comes out as soon as a fixed version is released.
+
+_Why it matters:_ the security gate stays strict without blocking all work on a problem that can't currently be fixed and doesn't affect the product. It's the narrow, documented exception a security reviewer would expect, not a quiet loosening of the rules.
+
 ## 2026-10-02 — Housekeeping: unused code removed
 
 **Commits:** branch `chore/remove-dead-code`, with a pull request open. The audit-trail work (previous entry) reached the main codebase as PR #53.
