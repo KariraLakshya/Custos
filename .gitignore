@@ -29,3 +29,8 @@ agent.json
 
 # agent private keys written by `custos register` (--key-out, default agent.key)
 *.key
+
+# mTLS dev certificates and private keys (infra/mtls/certs.mjs) and the
+# rendered Envoy config: generated per machine, never committed.
+infra/mtls/certs/
+infra/mtls/envoy.yaml

@@ -100,7 +100,7 @@ After 10 failed authentications from one source address within 5 minutes, that s
 
 Unchanged from the Notion design; each gets its own implementation PR later in step 4:
 
-- **mTLS** is terminated at a reverse proxy (sample config shipped). It maps the client certificate's subject or SAN to a `Principal`. It suits **services** especially, replacing their API keys.
+- **mTLS** is terminated at a reverse proxy (sample config shipped). It maps the client certificate's subject or SAN to a `Principal`. It suits **services** especially, replacing their API keys. **Refined by ADR 0009 (2026-10-03):** the proxy is Envoy, certificates are made by openssl in a pinned container, and identities are SPIFFE-style SANs.
 - **SSO** is OIDC through `openid-client`, never hand-rolled; it maps the ID-token `sub`/`email` to an operator `Principal`. SAML is not supported until a customer needs it.
 
 Each needs its own dependency justification when built.
