@@ -25,13 +25,17 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@custos/audit": "workspace:*",
     "@custos/connectors": "workspace:*",
+    "@custos/control-plane-auth": "workspace:*",
+    "@custos/core": "workspace:*",
     "@custos/identity": "workspace:*",
     "@custos/revocation": "workspace:*",
     "@custos/testing": "workspace:*",
     "@custos/tsconfig": "workspace:*",
     "@custos/vault": "workspace:*",
     "@custos/vitest-config": "workspace:*",
+    "fastify": "^5.12.5",
     "typescript": "^5.7.2",
     "vitest": "^4.1.11"
   }

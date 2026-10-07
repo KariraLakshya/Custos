@@ -3,7 +3,12 @@ import {
   createHttpAuditReporter,
   type AuditReporter,
 } from "@custos/audit-client";
-import { principalOf, requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
+import {
+  principalOf,
+  requireScope,
+  type ControlPlaneGuard,
+  type EnvoyOnlyTlsListener,
+} from "@custos/control-plane-auth";
 import { buildDidWebDocument, createLocalKeyProvider, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
@@ -29,17 +34,24 @@ const revokeSchema = z.object({
 });
 
 function defaultAuditReporter(
-  options: { readonly auditUrl?: string; readonly serviceKey?: string },
+  options: {
+    readonly auditUrl?: string;
+    readonly serviceKey?: string;
+    readonly mtlsFetch?: typeof fetch;
+  },
   app: { readonly log: { warn(obj: object, msg: string): void } },
 ): AuditReporter {
-  // Without a key every report would be refused, and audit loss is a bug
-  // (CLAUDE.md section 3), so refuse to build instead.
-  if (options.serviceKey === undefined) {
-    throw new Error("revocation: serviceKey is required when auditReporter is not injected");
+  // Without a key or a certificate every report would be refused, and audit
+  // loss is a bug (CLAUDE.md section 3), so refuse to build instead.
+  if (options.serviceKey === undefined && options.mtlsFetch === undefined) {
+    throw new Error(
+      "revocation: serviceKey or mtlsFetch is required when auditReporter is not injected",
+    );
   }
   return createHttpAuditReporter({
     auditUrl: options.auditUrl ?? "http://localhost:4004",
-    serviceKey: options.serviceKey,
+    ...(options.serviceKey === undefined ? {} : { serviceKey: options.serviceKey }),
+    ...(options.mtlsFetch === undefined ? {} : { fetchImpl: options.mtlsFetch }),
     onError: (error) => app.log.warn({ err: error }, "audit report failed"),
   });
 }
@@ -73,10 +85,23 @@ export async function buildServer(options: {
   readonly auditUrl?: string;
   /** This service's key for the audit service; required unless `auditReporter` is injected. */
   readonly serviceKey?: string;
+  /**
+   * Calls other Custos services through Envoy with this service's client
+   * certificate (ADR 0009), instead of `serviceKey`.
+   */
+  readonly mtlsFetch?: typeof fetch;
+  /**
+   * Serves the same app on a second, Envoy-only TLS listener too (ADR 0009):
+   * `createEnvoyOnlyTlsListener(...).serverFactory`.
+   */
+  readonly serverFactory?: EnvoyOnlyTlsListener["serverFactory"];
   /** Injectable for tests; defaults to a fire-and-forget HTTP push. */
   readonly auditReporter?: AuditReporter;
 }): Promise<ReturnType<typeof Fastify>> {
-  const app = Fastify({ loggerInstance: createLogger({ level: "silent" }) });
+  const app = Fastify({
+    loggerInstance: createLogger({ level: "silent" }),
+    ...(options.serverFactory === undefined ? {} : { serverFactory: options.serverFactory }),
+  });
   const { db } = options;
   const keyProvider = options.keyProvider ?? createLocalKeyProvider();
   const domain = options.didDomain ?? "localhost:4003";

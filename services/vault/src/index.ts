@@ -5,9 +5,9 @@ import {
   createStripeConnector,
 } from "@custos/connectors";
 import {
-  checkServiceKey,
   createApiKeyStore,
   createControlPlaneGuard,
+  resolveOutgoingServiceAuth,
 } from "@custos/control-plane-auth";
 import { createDb } from "./db/client.js";
 import { loadVaultEnv } from "./env.js";
@@ -27,20 +27,24 @@ const controlPlaneAuth = createControlPlaneGuard({
   clock: { now: () => new Date() },
 });
 
-// Refuse to boot on a service key that can't do its job (ADR 0008 §6).
-const serviceKeyCheck = await checkServiceKey({
-  ...controlPlaneAuth,
-  token: env.VAULT_SERVICE_KEY,
+// Exactly one of an API key or a client certificate, checked before
+// serving (ADR 0008 §6, ADR 0009).
+const outgoing = await resolveOutgoingServiceAuth({
+  service: "vault",
   scopes: ["audit:write"],
+  serviceKey: env.VAULT_SERVICE_KEY,
+  mtls: { certFile: env.VAULT_MTLS_CERT, keyFile: env.VAULT_MTLS_KEY, caFile: env.MTLS_CA },
+  guard: controlPlaneAuth,
+  now: new Date(),
 });
-if (!serviceKeyCheck.ok) {
-  throw new Error(`VAULT_SERVICE_KEY: ${serviceKeyCheck.error}`);
+if (!outgoing.ok) {
+  throw new Error(`vault: ${outgoing.error}`);
 }
 
 const app = await buildServer({
   db,
   controlPlaneAuth,
-  serviceKey: env.VAULT_SERVICE_KEY,
+  ...outgoing.value,
   cipher,
   connectors,
   revocationUrl: env.REVOCATION_URL,

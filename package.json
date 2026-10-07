@@ -10,7 +10,8 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "docker compose -f infra/docker/docker-compose.yml up -d",
-    "dev:down": "docker compose -f infra/docker/docker-compose.yml down",
+    "dev:mtls": "node infra/mtls/certs.mjs && node infra/mtls/render-envoy.mjs && docker compose -f infra/docker/docker-compose.yml --profile mtls up -d envoy",
+    "dev:down": "docker compose -f infra/docker/docker-compose.yml --profile mtls down",
     "build": "turbo run build",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",

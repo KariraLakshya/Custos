@@ -1,4 +1,5 @@
 import { ErrorCode } from "@custos/contracts";
+import { TLSSocket } from "node:tls";
 import type { FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
 import type { ControlPlaneAuthenticator, Principal } from "./authenticator.js";
 import type { Lockout } from "./lockout.js";
@@ -12,6 +13,21 @@ export function principalOf(request: FastifyRequest): Principal {
   // Programmer error: the route was registered without `requireScope`.
   if (!principal) throw new Error("principalOf: route has no requireScope preHandler");
   return principal;
+}
+
+/**
+ * SAN URIs of the client certificate this server verified on the request's
+ * own TLS connection. Empty unless the socket is TLS and the peer's
+ * certificate passed verification; nothing here comes from the request.
+ */
+export function verifiedPeerUris(request: FastifyRequest): readonly string[] {
+  const socket = request.raw.socket;
+  if (!(socket instanceof TLSSocket) || !socket.authorized) return [];
+  const san = socket.getPeerCertificate().subjectaltname ?? "";
+  return san
+    .split(", ")
+    .filter((entry) => entry.startsWith("URI:"))
+    .map((entry) => entry.slice("URI:".length));
 }
 
 function refuse(reply: FastifyReply): FastifyReply {
@@ -45,7 +61,10 @@ export function requireScope(options: {
       return refuse(reply);
     }
 
-    const result = await options.authenticator.authenticate(request);
+    const result = await options.authenticator.authenticate({
+      headers: request.headers,
+      tlsPeerUris: verifiedPeerUris(request),
+    });
     if (!result.ok) {
       options.lockout.recordFailure(source);
       request.log.warn(

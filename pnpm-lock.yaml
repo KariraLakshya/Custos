@@ -348,9 +348,15 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
     devDependencies:
+      '@custos/audit':
+        specifier: workspace:*
+        version: link:../../services/audit
       '@custos/connectors':
         specifier: workspace:*
         version: link:../connectors
+      '@custos/control-plane-auth':
+        specifier: workspace:*
+        version: link:../control-plane-auth
       '@custos/identity':
         specifier: workspace:*
         version: link:../../services/identity
@@ -369,6 +375,9 @@ importers:
       '@custos/vitest-config':
         specifier: workspace:*
         version: link:../../tooling/vitest-config
+      fastify:
+        specifier: ^5.12.5
+        version: 5.12.5
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

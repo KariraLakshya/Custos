@@ -250,6 +250,25 @@ Stop each service with Ctrl+C, then `pnpm dev:down` to stop the databases. Data 
 
 ---
 
+### Optional: services authenticate to each other with certificates (mTLS)
+
+Instead of service keys, Custos's services can prove who they are to each other with certificates, through an Envoy proxy (ADR 0009). Operators still use their operator key.
+
+```bash
+pnpm dev:mtls     # makes a dev certificate authority and certificates, then starts Envoy (Docker)
+```
+
+On Linux, run `export CUSTOS_ENVOY_USER=$(id -u):$(id -g)` first, so Envoy can read the keys the generator gave you. Then start each service with its certificate **instead of** its `*_SERVICE_KEY`, with `C=infra/mtls/certs` and `MTLS_CA=$C/ca.crt` set in every terminal:
+
+| Service    | Settings (in addition to its usual ones)                                                                                                                                                                                                           |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| audit      | `AUDIT_MTLS_PORT=4014 AUDIT_MTLS_SERVER_CERT=$C/audit-server.crt AUDIT_MTLS_SERVER_KEY=$C/audit-server.key`                                                                                                                                        |
+| revocation | `AUDIT_URL=https://localhost:5004 REVOCATION_MTLS_CERT=$C/revocation.crt REVOCATION_MTLS_KEY=$C/revocation.key REVOCATION_MTLS_PORT=4013 REVOCATION_MTLS_SERVER_CERT=$C/revocation-server.crt REVOCATION_MTLS_SERVER_KEY=$C/revocation-server.key` |
+| identity   | `REVOCATION_URL=https://localhost:5003 AUDIT_URL=https://localhost:5004 IDENTITY_MTLS_CERT=$C/identity.crt IDENTITY_MTLS_KEY=$C/identity.key`                                                                                                      |
+| vault      | `AUDIT_URL=https://localhost:5004 VAULT_MTLS_CERT=$C/vault.crt VAULT_MTLS_KEY=$C/vault.key`                                                                                                                                                        |
+
+A service refuses to start if its certificate is for another service, has expired, or if it's given both a key and a certificate. The audit log then names each service by its certificate (`spiffe://custos.local/service/…`). The certificates and keys live in `infra/mtls/certs/`, which is gitignored.
+
 ## Troubleshooting
 
 | Symptom                                                                                      | Cause and fix                                                                                                                                                                                                                                                                                                                                  |

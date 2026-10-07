@@ -5,6 +5,7 @@ import {
   type Principal,
 } from "./authenticator.js";
 import { createLockout, type Lockout } from "./lockout.js";
+import { withForwardedServiceCertificates } from "./mtls.js";
 import type { Scope } from "./scopes.js";
 import type { ApiKeyLookup } from "./store.js";
 
@@ -19,7 +20,9 @@ export function createControlPlaneGuard(options: {
   readonly clock: { now(): Date };
 }): ControlPlaneGuard {
   return {
-    authenticator: createApiKeyAuthenticator(options),
+    // A certificate Envoy forwarded counts only on a connection whose own
+    // verified TLS peer is Envoy (ADR 0009); everything else is API keys.
+    authenticator: withForwardedServiceCertificates(createApiKeyAuthenticator(options)),
     lockout: createLockout({ clock: options.clock }),
   };
 }

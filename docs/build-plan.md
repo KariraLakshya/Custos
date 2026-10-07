@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 5b — Auth hardening** (in progress: steps 1–3 done; step 4 in progress: API keys built, enforced on every control-plane route, and every control-plane write audited with its principal; mTLS proxy built (ADR 0009), services next; then SSO). Phase 5 is built; its DONE check (non-author README run) follows 5b.
+> **CURRENT: Phase 5b — Auth hardening** (in progress: steps 1–3 done; step 4 in progress: API keys built, enforced on every control-plane route, and every control-plane write audited with its principal; mTLS between services done (ADR 0009); SSO next). Phase 5 is built; its DONE check (non-author README run) follows 5b.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 

@@ -454,7 +454,7 @@ describe("revocation control-plane auditing (ADR 0008 §7)", () => {
 
   it("refuses to build without a service key when no audit reporter is injected", async () => {
     await expect(buildServer({ db, controlPlaneAuth: controlPlane.guard })).rejects.toThrow(
-      "serviceKey is required when auditReporter is not injected",
+      "serviceKey or mtlsFetch is required when auditReporter is not injected",
     );
   });
 });

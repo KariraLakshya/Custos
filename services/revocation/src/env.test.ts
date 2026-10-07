@@ -27,3 +27,29 @@ describe("revocation env service key (ADR 0008)", () => {
     );
   });
 });
+
+describe("revocation env: client certificate instead of a service key (ADR 0009)", () => {
+  const base = {};
+  const mtls = {
+    REVOCATION_MTLS_CERT: "revocation.crt",
+    REVOCATION_MTLS_KEY: "revocation.key",
+    MTLS_CA: "ca.crt",
+  };
+  const key = ["custos", "service", "0123456789abcdef", "k".repeat(43)].join("_");
+
+  it("accepts a client certificate with no service key", () => {
+    const env = loadRevocationEnv({ ...base, ...mtls });
+    expect(env.REVOCATION_SERVICE_KEY).toBeUndefined();
+    expect(env.REVOCATION_MTLS_CERT).toBe("revocation.crt");
+  });
+
+  it("refuses both a service key and a client certificate", () => {
+    expect(() => loadRevocationEnv({ ...base, ...mtls, REVOCATION_SERVICE_KEY: key })).toThrow(
+      /not both/,
+    );
+  });
+
+  it("refuses neither, naming both options", () => {
+    expect(() => loadRevocationEnv(base)).toThrow(/REVOCATION_MTLS_CERT/);
+  });
+});

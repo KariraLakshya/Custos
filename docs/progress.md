@@ -6,6 +6,23 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-07 — Custos's services now prove who they are to each other with certificates
+
+**Commits:** branch `feat/phase-5b-mtls-services`, with a pull request open. Part 1 (the gatekeeper) reached the main codebase as PR #55, after two dependency-security fixes (#56, #59).
+
+**What shipped:** Custos's own services can now drop their service passwords (API keys) entirely and identify themselves to each other with digital certificates, through the Envoy gatekeeper built last week.
+
+- **The gatekeeper proves itself too.** While building this we found that, on a developer's machine, the gatekeeper's connections look exactly like any other program on that machine. So "trust the note if it comes from the gatekeeper's address" wouldn't have stopped a local attacker. With the founder's approval, the gatekeeper now presents its own certificate to each service, and a service believes the gatekeeper's "this caller is the vault" note **only** on a connection that certificate has proven. Any other program sending that note is ignored, and a genuine service trying to sneak past the gatekeeper is disconnected.
+- **Each service checks its own certificate when it starts.** A service given another service's certificate, an expired one, or both a password and a certificate refuses to start, rather than misbehaving later.
+- **The audit trail names services by certificate.** For example, "the identity service reserved this agent's revocation slot" is now backed by that service's certificate, not a shared password.
+- **Optional.** The quickstart still uses simple service keys; one command (`pnpm dev:mtls`) switches a developer's setup to certificates.
+- **Proven three ways:**
+  - automated tests with real certificates
+  - a full agent lifecycle with the real services behind the real gatekeeper and **no service passwords at all**; turning the certificate check off on purpose makes it fail, so the test genuinely proves it
+  - a hands-on run of the finished programs
+
+_Why it matters:_ mutual TLS between services is what security reviewers expect from a "zero trust" system, and two of the ten security checks this phase must pass were about it. Both are now proven. What remains in this security phase is single sign-on for administrators, then writing up the threat model.
+
 ## 2026-10-03 — Certificate-based security for Custos's own services (part 1: the gatekeeper)
 
 **Commits:** branch `feat/phase-5b-mtls-proxy` (PR #55), rebased onto the merged dependency fixes (#56, #59). Nothing uses it yet; the next step connects the services to it.

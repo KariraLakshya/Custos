@@ -84,17 +84,24 @@ function statusFor(code: string): number {
  * tokens today).
  */
 function defaultAuditReporter(
-  options: { readonly auditUrl?: string; readonly serviceKey?: string },
+  options: {
+    readonly auditUrl?: string;
+    readonly serviceKey?: string;
+    readonly mtlsFetch?: typeof fetch;
+  },
   app: { readonly log: { warn(obj: object, msg: string): void } },
 ): AuditReporter {
-  // Without a key every report would be refused by the audit service, and
-  // audit loss is a bug (CLAUDE.md section 3), so refuse to build instead.
-  if (options.serviceKey === undefined) {
-    throw new Error("vault: serviceKey is required when auditReporter is not injected");
+  // Without a key or a certificate every report would be refused, and audit
+  // loss is a bug (CLAUDE.md section 3), so refuse to build instead.
+  if (options.serviceKey === undefined && options.mtlsFetch === undefined) {
+    throw new Error(
+      "vault: serviceKey or mtlsFetch is required when auditReporter is not injected",
+    );
   }
   return createHttpAuditReporter({
     auditUrl: options.auditUrl ?? "http://localhost:4004",
-    serviceKey: options.serviceKey,
+    ...(options.serviceKey === undefined ? {} : { serviceKey: options.serviceKey }),
+    ...(options.mtlsFetch === undefined ? {} : { fetchImpl: options.mtlsFetch }),
     onError: (error) => app.log.warn({ err: error }, "audit report failed"),
   });
 }
@@ -128,6 +135,11 @@ export async function buildServer(options: {
   readonly auditUrl?: string;
   /** This vault's key for the audit service; required unless `auditReporter` is injected. */
   readonly serviceKey?: string;
+  /**
+   * Calls other Custos services through Envoy with this service's client
+   * certificate (ADR 0009), instead of `serviceKey`.
+   */
+  readonly mtlsFetch?: typeof fetch;
   /** Injectable for tests; defaults to a fire-and-forget HTTP push (see @custos/audit-client). */
   readonly auditReporter?: AuditReporter;
 }): Promise<ReturnType<typeof Fastify>> {

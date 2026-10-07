@@ -123,3 +123,29 @@ describe("identity env", () => {
     );
   });
 });
+
+describe("identity env: client certificate instead of a service key (ADR 0009)", () => {
+  const base = { IDENTITY_ISSUER_SEED: "ab".repeat(32) };
+  const mtls = {
+    IDENTITY_MTLS_CERT: "identity.crt",
+    IDENTITY_MTLS_KEY: "identity.key",
+    MTLS_CA: "ca.crt",
+  };
+  const key = ["custos", "service", "0123456789abcdef", "k".repeat(43)].join("_");
+
+  it("accepts a client certificate with no service key", () => {
+    const env = loadIdentityEnv({ ...base, ...mtls });
+    expect(env.IDENTITY_SERVICE_KEY).toBeUndefined();
+    expect(env.IDENTITY_MTLS_CERT).toBe("identity.crt");
+  });
+
+  it("refuses both a service key and a client certificate", () => {
+    expect(() => loadIdentityEnv({ ...base, ...mtls, IDENTITY_SERVICE_KEY: key })).toThrow(
+      /not both/,
+    );
+  });
+
+  it("refuses neither, naming both options", () => {
+    expect(() => loadIdentityEnv(base)).toThrow(/IDENTITY_MTLS_CERT/);
+  });
+});

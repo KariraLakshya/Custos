@@ -950,7 +950,7 @@ describe("vault control-plane authentication (ADR 0008)", () => {
   it("refuses to build without a service key when no audit reporter is injected", async () => {
     await expect(
       buildServer({ controlPlaneAuth: controlPlane.guard, db: vaultDb, cipher }),
-    ).rejects.toThrow("serviceKey is required");
+    ).rejects.toThrow("serviceKey or mtlsFetch is required");
   });
 });
 

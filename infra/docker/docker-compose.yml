@@ -25,5 +25,24 @@ services:
       timeout: 5s
       retries: 10
 
+  # mTLS proxy for service-to-service calls (ADR 0009). Opt-in:
+  # `pnpm dev:mtls` generates certificates and config, then starts it.
+  # Image digest must match infra/mtls/images.json.
+  envoy:
+    profiles: ["mtls"]
+    image: envoyproxy/envoy:v1.35-latest@sha256:a707c3821b4cecb5db43d8e86e983e0f57b81010fefbabc01feeb071fb8cc08e
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
+    # Docker Desktop: uid 101 owns Envoy's keys. Linux: the generator gives
+    # them to you, so set CUSTOS_ENVOY_USER=$(id -u):$(id -g).
+    user: "${CUSTOS_ENVOY_USER:-101:101}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "5003:5003"
+      - "5004:5004"
+    volumes:
+      - ../mtls/certs:/etc/custos-mtls:ro
+      - ../mtls/envoy.yaml:/etc/envoy/envoy.yaml:ro
+
 volumes:
   custos-postgres:

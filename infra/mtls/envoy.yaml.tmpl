@@ -97,6 +97,23 @@ static_resources:
       # no route to; prefer IPv4, fall back to IPv6.
       dns_lookup_family: V4_PREFERRED
       connect_timeout: 2s
+      # Envoy proves itself to the service with its own certificate, and
+      # checks the service's (ADR 0009 part B): the service trusts the
+      # identity header only on a connection authenticated as Envoy.
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          sni: host.docker.internal
+          common_tls_context:
+            tls_certificates:
+              - certificate_chain: { filename: /etc/custos-mtls/envoy-upstream.crt }
+                private_key: { filename: /etc/custos-mtls/envoy-upstream.key }
+            validation_context:
+              trusted_ca: { filename: /etc/custos-mtls/ca.crt }
+              match_typed_subject_alt_names:
+                - san_type: DNS
+                  matcher: { exact: host.docker.internal }
       load_assignment:
         cluster_name: revocation
         endpoints:
@@ -110,6 +127,23 @@ static_resources:
       # no route to; prefer IPv4, fall back to IPv6.
       dns_lookup_family: V4_PREFERRED
       connect_timeout: 2s
+      # Envoy proves itself to the service with its own certificate, and
+      # checks the service's (ADR 0009 part B): the service trusts the
+      # identity header only on a connection authenticated as Envoy.
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          sni: host.docker.internal
+          common_tls_context:
+            tls_certificates:
+              - certificate_chain: { filename: /etc/custos-mtls/envoy-upstream.crt }
+                private_key: { filename: /etc/custos-mtls/envoy-upstream.key }
+            validation_context:
+              trusted_ca: { filename: /etc/custos-mtls/ca.crt }
+              match_typed_subject_alt_names:
+                - san_type: DNS
+                  matcher: { exact: host.docker.internal }
       load_assignment:
         cluster_name: audit
         endpoints:

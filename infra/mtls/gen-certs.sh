@@ -8,6 +8,9 @@
 #   envoy.crt / envoy.key            Envoy's server certificate (localhost)
 #   <service>.crt / <service>.key    one client cert per Custos service, SAN
 #                                    spiffe://custos.local/service/<service>
+#   envoy-upstream.crt / .key        Envoy's client cert towards the services,
+#                                    SAN spiffe://custos.local/proxy/envoy
+#   <service>-server.crt / .key      TLS listener of revocation and audit
 # With --with-negative-fixtures, also (for the proxy tests only):
 #   expired.*        valid CA and SAN, validity entirely in the past
 #   wrongca.*        right SAN, signed by an unrelated CA
@@ -21,6 +24,13 @@ NEGATIVE=${1:-}
 
 apk add --no-cache --quiet openssl >/dev/null
 cd "$OUT"
+
+# Valid from an hour ago: a service checks its certificate at boot, often
+# seconds after this ran, and Docker's clock can be slightly ahead of the
+# host's. Without the margin a fresh certificate can be "not yet valid".
+NOT_BEFORE=$(date -u -d "@$(($(date +%s) - 3600))" +%Y%m%d%H%M%SZ)
+VALID=$(date -u -d "@$(($(date +%s) + 825 * 86400))" +%Y%m%d%H%M%SZ)
+LIFETIME="-not_before $NOT_BEFORE -not_after $VALID"
 
 newkey() { openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$1.key" 2>/dev/null; }
 
@@ -39,18 +49,37 @@ client_ext() { echo "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digit
 
 make_ca() {
   newkey "$1"
-  openssl req -x509 -new -key "$1.key" -subj "/CN=$2" -days 3650 -out "$1.crt" \
+  openssl req -x509 -new -key "$1.key" -subj "/CN=$2" -not_before "$NOT_BEFORE" -not_after "$(date -u -d "@$(($(date +%s) + 3650 * 86400))" +%Y%m%d%H%M%SZ)" -out "$1.crt" \
     -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
 }
 
 make_ca ca "Custos Dev CA"
 
 newkey envoy
-sign envoy ca "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1" -days 825
+sign envoy ca "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1" $LIFETIME
+
+# Envoy's client certificate for its own connections to the services
+# behind it (ADR 0009, part B): only a connection proven to be Envoy may
+# carry a trusted x-forwarded-client-cert header.
+newkey envoy-upstream
+sign envoy-upstream ca "basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=clientAuth
+subjectAltName=URI:spiffe://custos.local/proxy/envoy" $LIFETIME
+
+# Server certificates for the TLS listener of each service behind Envoy.
+# Envoy reaches them as host.docker.internal; tests also use localhost.
+for service in revocation audit; do
+  newkey "$service-server"
+  sign "$service-server" ca "basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=serverAuth
+subjectAltName=DNS:host.docker.internal,DNS:localhost,IP:127.0.0.1" $LIFETIME
+done
 
 for service in identity vault revocation; do
   newkey "$service"
-  sign "$service" ca "$(client_ext "$service")" -days 825
+  sign "$service" ca "$(client_ext "$service")" $LIFETIME
 done
 
 if [ "$NEGATIVE" = "--with-negative-fixtures" ]; then
@@ -59,15 +88,15 @@ if [ "$NEGATIVE" = "--with-negative-fixtures" ]; then
 
   make_ca otherca "Not The Custos CA"
   newkey wrongca
-  sign wrongca otherca "$(client_ext identity)" -days 825
+  sign wrongca otherca "$(client_ext identity)" $LIFETIME
   rm -f otherca.key otherca.srl
 
   newkey selfsigned
-  openssl req -x509 -new -key selfsigned.key -subj "/CN=selfsigned" -days 825 -out selfsigned.crt \
+  openssl req -x509 -new -key selfsigned.key -subj "/CN=selfsigned" -not_before "$NOT_BEFORE" -not_after "$VALID" -out selfsigned.crt \
     -addext "extendedKeyUsage=clientAuth" -addext "subjectAltName=URI:$SPIFFE/identity"
 
   newkey wrongsan
-  sign wrongsan ca "$(client_ext attacker)" -days 825
+  sign wrongsan ca "$(client_ext attacker)" $LIFETIME
 fi
 
 rm -f ./*.srl
@@ -82,5 +111,5 @@ chmod 644 ./*.crt
 if [ -n "${OWNER:-}" ]; then
   chown "$OWNER" ./*
 else
-  chown 101:101 envoy.key
+  chown 101:101 envoy.key envoy-upstream.key
 fi

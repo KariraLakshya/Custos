@@ -445,7 +445,7 @@ describe("identity registration authentication (ADR 0008)", () => {
         didDomain: DOMAIN,
         issuerKey: issuerKey(),
       }),
-    ).rejects.toThrow("serviceKey is required");
+    ).rejects.toThrow("serviceKey or mtlsFetch is required");
   });
 });
 
@@ -499,6 +499,6 @@ describe("identity registration auditing (ADR 0008 §7)", () => {
         issuerKey: issuerKey(),
         statusAllocator: fakeStatusAllocator(),
       }),
-    ).rejects.toThrow("serviceKey is required when auditReporter is not injected");
+    ).rejects.toThrow("serviceKey or mtlsFetch is required when auditReporter is not injected");
   });
 });

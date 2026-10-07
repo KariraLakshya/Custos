@@ -37,30 +37,41 @@ function statusFor(code: RegisterAgentError["code"]): number {
 function defaultStatusAllocator(options: {
   readonly revocationUrl?: string;
   readonly serviceKey?: string;
+  readonly mtlsFetch?: typeof fetch;
 }): StatusAllocator {
-  // Programmer or configuration error: without a key every registration
-  // would fail at the revocation service, so refuse to build instead.
-  if (options.serviceKey === undefined) {
-    throw new Error("identity: serviceKey is required when statusAllocator is not injected");
+  // Programmer or configuration error: without a key or a certificate every
+  // registration would fail at the revocation service, so refuse to build.
+  if (options.serviceKey === undefined && options.mtlsFetch === undefined) {
+    throw new Error(
+      "identity: serviceKey or mtlsFetch is required when statusAllocator is not injected",
+    );
   }
   return createHttpStatusAllocator({
     revocationUrl: options.revocationUrl ?? "http://localhost:4003",
-    serviceKey: options.serviceKey,
+    ...(options.serviceKey === undefined ? {} : { serviceKey: options.serviceKey }),
+    ...(options.mtlsFetch === undefined ? {} : { fetchImpl: options.mtlsFetch }),
   });
 }
 
 function defaultAuditReporter(
-  options: { readonly auditUrl?: string; readonly serviceKey?: string },
+  options: {
+    readonly auditUrl?: string;
+    readonly serviceKey?: string;
+    readonly mtlsFetch?: typeof fetch;
+  },
   app: { readonly log: { warn(obj: object, msg: string): void } },
 ): AuditReporter {
-  // Without a key every report would be refused, and audit loss is a bug
-  // (CLAUDE.md section 3), so refuse to build instead.
-  if (options.serviceKey === undefined) {
-    throw new Error("identity: serviceKey is required when auditReporter is not injected");
+  // Without a key or a certificate every report would be refused, and audit
+  // loss is a bug (CLAUDE.md section 3), so refuse to build instead.
+  if (options.serviceKey === undefined && options.mtlsFetch === undefined) {
+    throw new Error(
+      "identity: serviceKey or mtlsFetch is required when auditReporter is not injected",
+    );
   }
   return createHttpAuditReporter({
     auditUrl: options.auditUrl ?? "http://localhost:4004",
-    serviceKey: options.serviceKey,
+    ...(options.serviceKey === undefined ? {} : { serviceKey: options.serviceKey }),
+    ...(options.mtlsFetch === undefined ? {} : { fetchImpl: options.mtlsFetch }),
     onError: (error) => app.log.warn({ err: error }, "audit report failed"),
   });
 }
@@ -84,6 +95,11 @@ export async function buildServer(options: {
    * unless both `statusAllocator` and `auditReporter` are injected.
    */
   readonly serviceKey?: string;
+  /**
+   * Calls other Custos services through Envoy with this service's client
+   * certificate (ADR 0009), instead of `serviceKey`.
+   */
+  readonly mtlsFetch?: typeof fetch;
   readonly statusAllocator?: StatusAllocator;
   readonly auditUrl?: string;
   /** Injectable for tests; defaults to a fire-and-forget HTTP push. */

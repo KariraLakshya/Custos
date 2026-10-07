@@ -14,12 +14,17 @@ const fieldsSchema = baseEnvSchema.extend({
   REVOCATION_URL: z.string().min(1).default("http://localhost:4003"),
   // Its control-plane writes are reported here (ADR 0008 §7).
   AUDIT_URL: z.string().min(1).default("http://localhost:4004"),
-  // This service's own key: `status:allocate` for the revocation service and
-  // `audit:write` for the audit service (ADR 0008). No default; checked
-  // against the key table at boot.
+  // Its calls to other Custos services authenticate with exactly one of:
+  // this API key (ADR 0008), or a client certificate through Envoy
+  // (ADR 0009: IDENTITY_MTLS_CERT + IDENTITY_MTLS_KEY + MTLS_CA; then the target
+  // URLs are Envoy's https:// listeners). Checked at boot.
   IDENTITY_SERVICE_KEY: z
     .string()
-    .refine((value) => parseApiKey(value)?.kind === "service", "must be a custos_service_ key"),
+    .refine((value) => parseApiKey(value)?.kind === "service", "must be a custos_service_ key")
+    .optional(),
+  IDENTITY_MTLS_CERT: z.string().min(1).optional(),
+  IDENTITY_MTLS_KEY: z.string().min(1).optional(),
+  MTLS_CA: z.string().min(1).optional(),
   // Where the issuer key that signs every agent credential lives. Credentials
   // outlive the process, so either way the key survives restarts (ADR 0007
   // decision 4). "local": derived from IDENTITY_ISSUER_SEED, dev only. "kms":
@@ -42,6 +47,20 @@ const fieldsSchema = baseEnvSchema.extend({
 // The provider selects which key setting is required; a missing one is a
 // boot failure, never a silent fallback to the other provider.
 export const envSchema = fieldsSchema.superRefine((env, ctx) => {
+  if (env.IDENTITY_SERVICE_KEY === undefined && env.IDENTITY_MTLS_CERT === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["IDENTITY_SERVICE_KEY"],
+      message: "set IDENTITY_SERVICE_KEY, or IDENTITY_MTLS_CERT + IDENTITY_MTLS_KEY + MTLS_CA",
+    });
+  }
+  if (env.IDENTITY_SERVICE_KEY !== undefined && env.IDENTITY_MTLS_CERT !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["IDENTITY_MTLS_CERT"],
+      message: "set IDENTITY_SERVICE_KEY or IDENTITY_MTLS_CERT, not both",
+    });
+  }
   if (env.IDENTITY_KEY_PROVIDER === "local" && env.IDENTITY_ISSUER_SEED === undefined) {
     ctx.addIssue({
       code: "custom",
