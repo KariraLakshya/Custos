@@ -56,6 +56,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Known issues, debt, and deviations
 
+- **pnpm overrides for advisories published after 2026-10-03 (both patched upstream):** `shell-quote` → `^1.11.0` (GHSA-pqg4-j6r4-53mv, critical, command injection in `quote()`; arrives via `gel`, an optional peer that `drizzle-orm` pulls in, never called by Custos) and `source-map-js` → `^1.2.2` (GHSA-68fv-2mgg-jv7q, high, DoS; dev only via Vite/PostCSS). Version-ranged like the existing overrides, so they become no-ops once parents upgrade; prune them then.
 - **`pnpm audit` ignores GHSA-vfj7-8cjw-p6xm** (`braces` <= 3.0.3, high, stack exhaustion via deeply nested patterns; published 2026-10-03 with **no patched version**). Decided by the user 2026-10-03, as the narrowest option, in `package.json` `pnpm.auditConfig.ignoreGhsas`. Why it's safe for now: `pnpm audit --prod` is clean; `braces` reaches only dev tooling (Changesets, ESLint, Vitest, via `micromatch`), and only our own glob patterns are passed to it. **Remove the ignore as soon as a patched `braces` ships** (then `pnpm update` or override). Every other advisory still fails CI.
 - LICENSE and open-source-vs-proprietary decision deliberately deferred by the user.
 - `release.yml` runs `changeset version`/`tag` only — no publish target yet (private packages, no license).

@@ -6,6 +6,19 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-07 — Two newly reported vulnerabilities fixed by upgrading
+
+**Commits:** branch `fix/deps-shell-quote-source-map-js`, with a pull request open. PR #56 (the narrow security-check exemption for `braces`) is merged.
+
+**What happened:** over the weekend two more vulnerabilities were published in small libraries buried in Custos's dependencies, and the automated security check (correctly) started blocking every change again. Unlike last week's case, **both already have fixed versions**, so these were upgraded rather than exempted.
+
+- **`shell-quote`, rated critical** (a way to inject shell commands). It arrives through a database driver for a different database (EdgeDB) that our database library installs as an optional extra. Custos never uses that driver, but it was installed, so it's now forced to the fixed version.
+- **`source-map-js`, rated high** (a way to make a program hang). It is only used by our build and test tools, never by a running service. Also forced to the fixed version.
+
+**Checked:** the full suite of automated checks, including the end-to-end tests that run the whole agent lifecycle, passes on the upgraded versions, and the security check is clean again.
+
+_Why it matters:_ the security gate is doing its job: it caught both within days of publication, and both were fixed the same way as earlier ones, with the smallest targeted upgrade. It also unblocks the certificate-security work (mTLS) waiting to merge.
+
 ## 2026-10-03 — Security check unblocked for a vulnerability with no fix yet
 
 **Commits:** branch `ci/ignore-braces-ghsa`, with a pull request open.
