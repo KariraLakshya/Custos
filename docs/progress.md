@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-08 — Custos is open source (Apache-2.0), with a public landing page
+
+**Commits:** branch `chore/open-source-apache-2.0`, committed locally, not yet pushed. It builds on the threat-model branch below. The GitHub repository itself is still private.
+
+**What shipped:**
+
+- **A licence.** Custos now carries the Apache License 2.0, the standard licence for security and infrastructure software. Anyone may use, change and build on the code, provided they keep the licence notice. It includes a patent promise, which companies' legal teams look for before adopting a tool. It was chosen over AGPL (which would have stopped others hosting Custos but scares off many companies) and MIT (simpler, but with no patent promise). The reasoning is in ADR 0011.
+- **A new framing.** The README now presents Custos as an early-stage, open-source developer platform for AI agents, building toward a hosted service. It's honest about the stage: today developers run it themselves, and the hosted version is the goal.
+- **A landing page at [custoss.dev](https://custoss.dev)**, on Vercel, with a "coming soon" early-access call to action.
+
+_Why it matters:_ an open-source licence lets developers try Custos without a sales conversation. For an infrastructure product, that is usually how adoption starts. It also makes Custos eligible for programs aimed at open-source and early-stage developer tools. **Still to do by hand:** making the GitHub repository public, after a final check of its history. Once public, code released under this licence can't be taken back.
+
 ## 2026-10-08 — The security phase is finished: a written threat model
 
 **Commits:** branch `docs/phase-5b-threat-model`, committed locally, not yet pushed. Single sign-on (previous entry) reached the main codebase as PR #61.

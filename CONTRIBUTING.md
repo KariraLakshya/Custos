@@ -21,6 +21,10 @@ pnpm dev
 
 This project builds strictly in the order set by [docs/build-plan.md](./docs/build-plan.md). If a change seems to need something from a later phase, say so instead of building it — see [CLAUDE.md](./CLAUDE.md) §2.
 
+## License
+
+Custos is licensed under the [Apache License 2.0](./LICENSE). Unless you state otherwise, anything you contribute is licensed under the same terms (section 5 of the license).
+
 ## Code of conduct
 
 Be respectful and constructive. Report unacceptable behavior to lakshya@capmobfinance.com.

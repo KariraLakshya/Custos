@@ -17,6 +17,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #55 (mTLS part A) merged 2026-10-07, after #56 and #59.
 - [x] PR #60 (mTLS part B) merged 2026-10-07.
 - [x] PR #61 (operator SSO, ADR 0010) merged 2026-10-07.
+- [ ] **`chore/open-source-apache-2.0`** (ADR 0011: Apache-2.0 LICENSE/NOTICE, manifests, README reframed as an open-source developer platform building toward hosted) is stacked on `docs/phase-5b-threat-model`, committed locally, not pushed: merge after it.
 - [ ] **`docs/phase-5b-threat-model`** (step 5: threat model, docs, dispossession assertion) is committed locally, not pushed: push and open its PR, then confirm it merged.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [ ] **Knowledge graph:** last full refresh **2026-10-08**, after operator SSO. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
@@ -67,8 +68,8 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 - **pnpm overrides for advisories published after 2026-10-03 (both patched upstream):** `shell-quote` → `^1.11.0` (GHSA-pqg4-j6r4-53mv, critical, command injection in `quote()`; arrives via `gel`, an optional peer that `drizzle-orm` pulls in, never called by Custos) and `source-map-js` → `^1.2.2` (GHSA-68fv-2mgg-jv7q, high, DoS; dev only via Vite/PostCSS). Version-ranged like the existing overrides, so they become no-ops once parents upgrade; prune them then.
 - **`pnpm audit` ignores GHSA-vfj7-8cjw-p6xm** (`braces` <= 3.0.3, high, stack exhaustion via deeply nested patterns; published 2026-10-03 with **no patched version**). Decided by the user 2026-10-03, as the narrowest option, in `package.json` `pnpm.auditConfig.ignoreGhsas`. Why it's safe for now: `pnpm audit --prod` is clean; `braces` reaches only dev tooling (Changesets, ESLint, Vitest, via `micromatch`), and only our own glob patterns are passed to it. **Remove the ignore as soon as a patched `braces` ships** (then `pnpm update` or override). Every other advisory still fails CI.
-- LICENSE and open-source-vs-proprietary decision deliberately deferred by the user.
-- `release.yml` runs `changeset version`/`tag` only — no publish target yet (private packages, no license).
+- **Open source, Apache-2.0** (ADR 0011, 2026-10-08): `LICENSE`, `NOTICE`, every manifest `"license": "Apache-2.0"`; packages stay `private: true`. The GitHub repo is **still private**: making it public is the founder's manual step (check history first; ADR 0011).
+- `release.yml` runs `changeset version`/`tag` only — no publish target yet (packages marked private).
 - No real KMS anywhere yet — `identity`/`vault`/`revocation`/`audit` all use `createLocalKeyProvider()` (in-memory, ephemeral per process). Deliberate for this stage; migration path is the `KeyProvider` interface itself.
 - No `keyAgreement` key exists (DID docs only sign/verify). A future encrypted channel (Phase 6 cross-org handshake) needs its own X25519 keypair — never the Ed25519 identity key reused (see doc comment on `DidWebDocument`, `packages/core/src/did/did-web.ts`).
 - `VAULT_MASTER_KEY` is one symmetric key for all stored tool credentials — no per-tool keys/rotation (ADR 0004 has the real-KMS path).
