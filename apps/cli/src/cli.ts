@@ -2,6 +2,7 @@ import { open, readFile, rm, writeFile } from "node:fs/promises";
 import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
 import { pullAuditLog } from "./audit-log.js";
+import { defaultOperatorKeyFile, findOperatorKey, login } from "./login.js";
 import { loadCredentialFile, verifyCredentialIndependently } from "./verify.js";
 
 const DEFAULT_URLS: CustosConfig = {
@@ -23,11 +24,11 @@ function custos(urls: Partial<CustosConfig>): Custos {
  * from the environment only, never a flag, so it stays out of shell history
  * and process listings (ADR 0008).
  */
-function operatorCustos(urls: Partial<CustosConfig>): Custos {
-  const operatorKey = process.env.CUSTOS_OPERATOR_KEY;
+async function operatorCustos(urls: Partial<CustosConfig>): Promise<Custos> {
+  const operatorKey = await findOperatorKey();
   if (!operatorKey) {
     throw new Error(
-      "set CUSTOS_OPERATOR_KEY to an operator key (create one with: pnpm custos-admin dev-keys)",
+      "sign in with `custos login`, or set CUSTOS_OPERATOR_KEY to an operator key (create one with: pnpm custos-admin dev-keys)",
     );
   }
   return createCustos({ ...DEFAULT_URLS, ...urls, operatorKey });
@@ -64,6 +65,29 @@ export function createCli(): Command {
     .version("0.0.0");
 
   program
+    .command("login")
+    .description("Sign in as an operator with your company account (SSO)")
+    .option("--identity-url <url>", "identity service base URL", "http://localhost:4001")
+    .option(
+      "--key-file <path>",
+      "where to keep the session's operator key",
+      defaultOperatorKeyFile(),
+    )
+    .option("--no-browser", "print the sign-in URL without opening a browser")
+    .action(async (opts: { identityUrl: string; keyFile: string; browser: boolean }) => {
+      const result = await login(opts, {
+        out: (line) =>
+          process.stdout.write(`${line}
+`),
+      });
+      // The key itself is never printed.
+      process.stdout.write(
+        `signed in as ${result.name} until ${result.expiresAt}; operator key saved to ${opts.keyFile}
+`,
+      );
+    });
+
+  program
     .command("register")
     .description("Register a new agent and issue its identity credential")
     .option("--identity-url <url>", "identity service base URL", "http://localhost:4001")
@@ -75,7 +99,7 @@ export function createCli(): Command {
     )
     .action(async (opts: { identityUrl: string; out?: string; keyOut: string }) => {
       // Before the key file is claimed: a missing operator key leaves nothing behind.
-      const operator = operatorCustos({ identityUrl: opts.identityUrl });
+      const operator = await operatorCustos({ identityUrl: opts.identityUrl });
       // Claim the key file before registering: "wx" fails if it exists, so an
       // existing agent's key is never overwritten, and 0o600 keeps it
       // owner-only (POSIX; Windows applies its own ACLs instead).
@@ -167,7 +191,7 @@ export function createCli(): Command {
     )
     .option("--vault-url <url>", "vault service base URL", "http://localhost:4002")
     .action(async (tool: string, opts: { credential: string; vaultUrl: string }) => {
-      const operator = operatorCustos({ vaultUrl: opts.vaultUrl });
+      const operator = await operatorCustos({ vaultUrl: opts.vaultUrl });
       const credential = await loadCredentialFile(opts.credential);
       const result = await operator.grant({ did: agentDidOf(credential) }, tool);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -194,7 +218,9 @@ export function createCli(): Command {
     .option("--revocation-url <url>", "revocation service base URL", "http://localhost:4003")
     .option("--reason <text>", "why this agent is being deprovisioned")
     .action(async (agentId: string, opts: { revocationUrl: string; reason?: string }) => {
-      const result = await operatorCustos({ revocationUrl: opts.revocationUrl }).deprovision(
+      const result = await (
+        await operatorCustos({ revocationUrl: opts.revocationUrl })
+      ).deprovision(
         { id: agentId },
         opts.reason === undefined ? undefined : { reason: opts.reason },
       );

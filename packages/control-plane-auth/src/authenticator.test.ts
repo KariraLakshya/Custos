@@ -23,6 +23,7 @@ function keyFixture(overrides: Partial<ApiKeyRow> & { kind?: PrincipalKind } = {
     createdAt: new Date("2026-10-01T00:00:00.000Z"),
     expiresAt: new Date("2026-12-31T00:00:00.000Z"),
     revokedAt: null,
+    createdVia: "custos-admin",
     ...overrides,
   };
   return { token: key.token, row };

@@ -18,6 +18,7 @@ function guardWith(kind: PrincipalKind, scopes: string[], expiresAt = "2026-12-3
     createdAt: new Date("2026-10-01T00:00:00.000Z"),
     expiresAt: new Date(expiresAt),
     revokedAt: null,
+    createdVia: "custos-admin",
   };
   const guard = createControlPlaneGuard({
     keys: { findById: async (id) => (id === row.id ? row : null) },

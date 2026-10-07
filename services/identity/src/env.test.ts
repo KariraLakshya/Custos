@@ -149,3 +149,61 @@ describe("identity env: client certificate instead of a service key (ADR 0009)",
     expect(() => loadIdentityEnv(base)).toThrow(/IDENTITY_MTLS_CERT/);
   });
 });
+
+describe("identity env: operator SSO (ADR 0010)", () => {
+  const base = { IDENTITY_ISSUER_SEED: "ab".repeat(32), IDENTITY_SERVICE_KEY: SERVICE_KEY };
+  const sso = {
+    SSO_ISSUER: "https://login.acme.test/realms/custos",
+    SSO_CLIENT_ID: "custos-identity",
+    SSO_CLIENT_SECRET: "s",
+    SSO_REDIRECT_URL: "https://custos.acme.test/operator/callback",
+    SSO_GROUP_SCOPES: '{"custos-admins":["agents:register"]}',
+  };
+
+  it("is off when nothing is set, with an 8-hour session by default", () => {
+    const env = loadIdentityEnv(base);
+    expect(env.SSO_ISSUER).toBeUndefined();
+    expect(env.SSO_SESSION_HOURS).toBe(8);
+  });
+
+  it("accepts a complete https configuration", () => {
+    expect(loadIdentityEnv({ ...base, ...sso }).SSO_CLIENT_ID).toBe("custos-identity");
+  });
+
+  it("refuses a partial configuration", () => {
+    expect(() => loadIdentityEnv({ ...base, SSO_ISSUER: sso.SSO_ISSUER })).toThrow(
+      /SSO needs all of/,
+    );
+  });
+
+  it("refuses a plain-http issuer unless it is local and explicitly allowed", () => {
+    expect(() =>
+      loadIdentityEnv({ ...base, ...sso, SSO_ISSUER: "http://login.acme.test/realms/custos" }),
+    ).toThrow(/http:\/\/ issuer is allowed only for localhost/);
+    expect(() =>
+      loadIdentityEnv({ ...base, ...sso, SSO_ISSUER: "http://localhost:8180/realms/custos" }),
+    ).toThrow(/SSO_ALLOW_HTTP_ISSUER=true/);
+    expect(() =>
+      loadIdentityEnv({
+        ...base,
+        ...sso,
+        SSO_ISSUER: "http://login.acme.test/realms/custos",
+        SSO_ALLOW_HTTP_ISSUER: "true",
+      }),
+    ).toThrow(/only for localhost/);
+    expect(
+      loadIdentityEnv({
+        ...base,
+        ...sso,
+        SSO_ISSUER: "http://localhost:8180/realms/custos",
+        SSO_ALLOW_HTTP_ISSUER: "true",
+      }).SSO_ISSUER,
+    ).toBe("http://localhost:8180/realms/custos");
+  });
+
+  it.each(["0", "25", "1.5"])("refuses a session of %s hours", (hours) => {
+    expect(() => loadIdentityEnv({ ...base, SSO_SESSION_HOURS: hours })).toThrow(
+      /SSO_SESSION_HOURS/,
+    );
+  });
+});

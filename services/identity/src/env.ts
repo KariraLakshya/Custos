@@ -42,11 +42,50 @@ const fieldsSchema = baseEnvSchema.extend({
   // Freshness window for a registration proof of possession: |now − iat|.
   // Explicit configuration, never an accident (CLAUDE.md section 3).
   IDENTITY_REGISTRATION_PROOF_MAX_SKEW_SECONDS: z.coerce.number().int().positive().default(60),
+  // Operator SSO (ADR 0010), optional: all of issuer, client, secret,
+  // redirect URL and group mapping, or none (no /operator/* routes).
+  SSO_ISSUER: z.string().url().optional(),
+  SSO_CLIENT_ID: z.string().min(1).optional(),
+  SSO_CLIENT_SECRET: z.string().min(1).optional(),
+  // This service's public callback URL, registered with the provider.
+  SSO_REDIRECT_URL: z.string().url().optional(),
+  // JSON: company group -> operator scopes, e.g. {"custos-admins":["agents:register"]}.
+  SSO_GROUP_SCOPES: z.string().min(1).optional(),
+  // Lifetime of the operator key a login issues. Capped: SSO sessions are short.
+  SSO_SESSION_HOURS: z.coerce.number().int().min(1).max(24).default(8),
+  // Plain-http issuer, for a local development provider only.
+  SSO_ALLOW_HTTP_ISSUER: z.enum(["true", "false"]).default("false"),
 });
 
 // The provider selects which key setting is required; a missing one is a
 // boot failure, never a silent fallback to the other provider.
 export const envSchema = fieldsSchema.superRefine((env, ctx) => {
+  const sso = [
+    env.SSO_ISSUER,
+    env.SSO_CLIENT_ID,
+    env.SSO_CLIENT_SECRET,
+    env.SSO_REDIRECT_URL,
+    env.SSO_GROUP_SCOPES,
+  ];
+  if (sso.some((value) => value !== undefined) && sso.some((value) => value === undefined)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["SSO_ISSUER"],
+      message:
+        "SSO needs all of SSO_ISSUER, SSO_CLIENT_ID, SSO_CLIENT_SECRET, SSO_REDIRECT_URL, SSO_GROUP_SCOPES",
+    });
+  }
+  if (env.SSO_ISSUER?.startsWith("http:")) {
+    const host = new URL(env.SSO_ISSUER).hostname;
+    const local = host === "localhost" || host === "127.0.0.1";
+    if (!local || env.SSO_ALLOW_HTTP_ISSUER !== "true") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SSO_ISSUER"],
+        message: "an http:// issuer is allowed only for localhost, with SSO_ALLOW_HTTP_ISSUER=true",
+      });
+    }
+  }
   if (env.IDENTITY_SERVICE_KEY === undefined && env.IDENTITY_MTLS_CERT === undefined) {
     ctx.addIssue({
       code: "custom",

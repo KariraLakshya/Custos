@@ -7,6 +7,7 @@ import { createDb } from "./db/client.js";
 import { loadIdentityEnv } from "./env.js";
 import { createIssuerKey } from "./keys/issuer-key.js";
 import { buildServer } from "./server.js";
+import { createOperatorSsoFromEnv } from "./sso/boot.js";
 
 const env = loadIdentityEnv();
 const db = createDb(env.DATABASE_URL);
@@ -29,7 +30,14 @@ if (!outgoing.ok) {
   throw new Error(`identity: ${outgoing.error}`);
 }
 
+// Operator SSO (ADR 0010), if configured: checked before serving.
+const operatorSso = await createOperatorSsoFromEnv(env, createApiKeyStore(db));
+if (!operatorSso.ok) {
+  throw new Error(`identity SSO: ${operatorSso.error}`);
+}
+
 const app = await buildServer({
+  ...(operatorSso.value ? { operatorSso: operatorSso.value } : {}),
   db,
   controlPlaneAuth,
   ...outgoing.value,

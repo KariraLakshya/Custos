@@ -44,5 +44,20 @@ services:
       - ../mtls/certs:/etc/custos-mtls:ro
       - ../mtls/envoy.yaml:/etc/envoy/envoy.yaml:ro
 
+  # Company-login stand-in for operator SSO (ADR 0010). Opt-in:
+  # `pnpm dev:sso`. Image digest must match infra/sso/images.json. The realm
+  # (infra/sso/realm-custos.json) holds throwaway local users only.
+  keycloak:
+    profiles: ["sso"]
+    image: quay.io/keycloak/keycloak:26.4@sha256:9409c59bdfb65dbffa20b11e6f18b8abb9281d480c7ca402f51ed3d5977e6007
+    command: ["start-dev", "--import-realm", "--http-port=8180"]
+    environment:
+      # Fixed, so the issuer in every token is the URL Custos is configured with.
+      KC_HOSTNAME: http://localhost:8180
+    ports:
+      - "8180:8180"
+    volumes:
+      - ../sso/realm-custos.json:/opt/keycloak/data/import/realm-custos.json:ro
+
 volumes:
   custos-postgres:

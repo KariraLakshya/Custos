@@ -18,6 +18,7 @@ export interface ApiKeySummary {
   readonly createdAt: Date;
   readonly expiresAt: Date;
   readonly revokedAt: Date | null;
+  readonly createdVia: "custos-admin" | "sso";
 }
 
 export interface CreateApiKeyInput {
@@ -26,6 +27,8 @@ export interface CreateApiKeyInput {
   readonly scopes: readonly string[];
   readonly expiresAt: Date;
   readonly now: Date;
+  /** Defaults to `custos-admin`. */
+  readonly createdVia?: "custos-admin" | "sso";
   readonly randomBytes?: (length: number) => Uint8Array;
 }
 
@@ -82,6 +85,7 @@ export function createApiKeyStore<TSchema extends Record<string, unknown>>(
         scopes: [...new Set(input.scopes)],
         secretHash: key.secretHash,
         createdAt: input.now,
+        createdVia: input.createdVia ?? "custos-admin",
         expiresAt: input.expiresAt,
       });
       return { ok: true, id: key.id, token: key.token };
