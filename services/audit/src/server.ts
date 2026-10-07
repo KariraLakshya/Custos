@@ -1,5 +1,9 @@
 import { auditEventSchema } from "@custos/contracts";
-import { requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
+import {
+  requireScope,
+  type ControlPlaneGuard,
+  type EnvoyOnlyTlsListener,
+} from "@custos/control-plane-auth";
 import { buildDidWebDocument, createLocalKeyProvider, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
@@ -22,11 +26,19 @@ export async function buildServer(options: {
   readonly db: AuditDb;
   /** Required, no default: `POST /records` is never open (ADR 0008). */
   readonly controlPlaneAuth: ControlPlaneGuard;
+  /**
+   * Serves the same app on a second, Envoy-only TLS listener too (ADR 0009):
+   * `createEnvoyOnlyTlsListener(...).serverFactory`.
+   */
+  readonly serverFactory?: EnvoyOnlyTlsListener["serverFactory"];
   readonly didDomain?: string;
   readonly keyProvider?: KeyProvider;
   readonly clock?: { now(): Date };
 }): Promise<ReturnType<typeof Fastify>> {
-  const app = Fastify({ loggerInstance: createLogger({ level: "silent" }) });
+  const app = Fastify({
+    loggerInstance: createLogger({ level: "silent" }),
+    ...(options.serverFactory === undefined ? {} : { serverFactory: options.serverFactory }),
+  });
   const { db } = options;
   const keyProvider = options.keyProvider ?? createLocalKeyProvider();
   const domain = options.didDomain ?? "localhost:4004";

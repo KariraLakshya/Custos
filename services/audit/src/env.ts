@@ -8,6 +8,12 @@ export const envSchema = baseEnvSchema.extend({
   // every audit record, so a pulled record is verified against this DID —
   // independent of whatever service originally reported the event.
   AUDIT_DID_DOMAIN: z.string().min(1).default("localhost:4004"),
+  // Optional Envoy-only TLS listener (ADR 0009): all three, plus MTLS_CA,
+  // or none. Envoy forwards callers' certificates to it (dev port 4014).
+  AUDIT_MTLS_PORT: z.coerce.number().int().positive().optional(),
+  AUDIT_MTLS_SERVER_CERT: z.string().min(1).optional(),
+  AUDIT_MTLS_SERVER_KEY: z.string().min(1).optional(),
+  MTLS_CA: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

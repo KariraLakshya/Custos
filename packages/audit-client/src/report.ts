@@ -29,8 +29,12 @@ function errorMessage(error: unknown): string {
  */
 export function createHttpAuditReporter(params: {
   readonly auditUrl: string;
-  /** This service's own key, with `audit:write` (ADR 0008). Never logged. */
-  readonly serviceKey: string;
+  /**
+   * This service's own key, with `audit:write` (ADR 0008). Never logged.
+   * Omitted when the service proves itself with a client certificate
+   * instead, through an mTLS `fetchImpl` (ADR 0009).
+   */
+  readonly serviceKey?: string;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   readonly onError?: (error: unknown) => void;
@@ -46,7 +50,7 @@ export function createHttpAuditReporter(params: {
             method: "POST",
             headers: {
               "content-type": "application/json",
-              authorization: `Bearer ${serviceKey}`,
+              ...(serviceKey === undefined ? {} : { authorization: `Bearer ${serviceKey}` }),
             },
             body: JSON.stringify(event),
             signal: AbortSignal.timeout(timeoutMs),

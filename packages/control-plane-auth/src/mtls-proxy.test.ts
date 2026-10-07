@@ -1,11 +1,17 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import type { IncomingHttpHeaders } from "node:http";
 import { request } from "node:https";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { TLSSocket } from "node:tls";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  createEnvoyOnlyTlsListener,
+  loadMtlsIdentity,
+  type EnvoyOnlyTlsListener,
+} from "./mtls-server.js";
+import { ENVOY_PROXY_URI } from "./mtls.js";
 
 /**
  * The mTLS proxy, proven against the real thing (docs/adr/0009): the real
@@ -26,24 +32,48 @@ const XFCC = "x-forwarded-client-cert";
 const SPIFFE = "spiffe://custos.local/service";
 
 interface Upstream {
-  readonly server: Server;
+  readonly listener: EnvoyOnlyTlsListener;
+  readonly port: number;
+  /** Headers each request arrived with, and the TLS peer the service verified. */
   readonly seen: IncomingHttpHeaders[];
+  readonly peers: string[][];
 }
 
-/** Stands in for a Custos service behind Envoy: records what reached it. */
-async function startUpstream(): Promise<Upstream> {
+/**
+ * Stands in for a Custos service behind Envoy, using the real Envoy-only TLS
+ * listener the services use: it records what reached it, and which client
+ * certificate it verified on the connection.
+ */
+async function startUpstream(service: "revocation" | "audit"): Promise<Upstream> {
   const seen: IncomingHttpHeaders[] = [];
-  const server = createServer((req, res) => {
+  const peers: string[][] = [];
+  const identity = loadMtlsIdentity(
+    {
+      certFile: join(dir, `${service}-server.crt`),
+      keyFile: join(dir, `${service}-server.key`),
+      caFile: join(dir, "ca.crt"),
+    },
+    { now: new Date() },
+  );
+  if (!identity.ok) throw new Error(identity.error);
+  const listener = createEnvoyOnlyTlsListener(identity.value);
+  listener.serverFactory((req, res) => {
     seen.push(req.headers);
+    const socket = req.socket as TLSSocket;
+    peers.push(
+      (socket.getPeerCertificate().subjectaltname ?? "")
+        .split(", ")
+        .filter((entry) => entry.startsWith("URI:"))
+        .map((entry) => entry.slice("URI:".length)),
+    );
     res.end("ok");
   });
-  // All interfaces, IPv4 and IPv6 ("::" is dual-stack): Envoy reaches it from
-  // inside Docker via host.docker.internal, which can resolve to either.
-  await new Promise<void>((done) => server.listen(0, "::", done));
-  return { server, seen };
+  // All interfaces, IPv4 and IPv6: Envoy reaches it from inside Docker.
+  const port = await listener.listen(0, "::");
+  return { listener, port, seen, peers };
 }
 
-const portOf = (upstream: Upstream): number => (upstream.server.address() as AddressInfo).port;
+const portOf = (upstream: Upstream): number => upstream.port;
 
 let dir: string;
 let container: string;
@@ -87,8 +117,8 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "custos-mtls-"));
   execFileSync("node", [join(mtlsDir, "certs.mjs"), dir, "--with-negative-fixtures"]);
 
-  revocation = await startUpstream();
-  audit = await startUpstream();
+  revocation = await startUpstream("revocation");
+  audit = await startUpstream("audit");
   execFileSync("node", [
     join(mtlsDir, "render-envoy.mjs"),
     join(dir, "envoy.yaml"),
@@ -153,9 +183,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (container) execFileSync("docker", ["rm", "-f", container], { stdio: "ignore" });
   await Promise.all(
-    [revocation, audit]
-      .filter(Boolean)
-      .map((upstream) => new Promise((done) => upstream.server.close(done))),
+    [revocation, audit].filter(Boolean).map((upstream) => upstream.listener.close()),
   );
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
@@ -164,6 +192,11 @@ describe("mTLS proxy (Envoy, ADR 0009)", () => {
   it("passes a valid service certificate through and tells the service who it is", async () => {
     expect(await callThroughEnvoy(REVOCATION_LISTEN_PORT, "identity")).toBe(200);
     expect(revocation.seen.at(-1)?.[XFCC]).toContain(`URI=${SPIFFE}/identity`);
+  });
+
+  it("reaches the service over mTLS as Envoy itself, the only client the service trusts the header from", async () => {
+    expect(await callThroughEnvoy(REVOCATION_LISTEN_PORT, "identity")).toBe(200);
+    expect(revocation.peers.at(-1)).toEqual([ENVOY_PROXY_URI]);
   });
 
   it("replaces a forged identity header with the verified one", async () => {

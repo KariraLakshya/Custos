@@ -21,8 +21,9 @@ export const DEV_ENVOY_VALUES = {
   AUDIT_LISTEN_PORT: 5004,
   // Custos services run on the host in dev; Envoy runs in Docker.
   UPSTREAM_HOST: "host.docker.internal",
-  REVOCATION_UPSTREAM_PORT: 4003,
-  AUDIT_UPSTREAM_PORT: 4004,
+  // The TLS listeners of the services (ADR 0009 part B), not their plain ports.
+  REVOCATION_UPSTREAM_PORT: 4013,
+  AUDIT_UPSTREAM_PORT: 4014,
 };
 
 export function renderEnvoyConfig(values) {

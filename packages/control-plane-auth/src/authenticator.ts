@@ -21,13 +21,22 @@ export interface AuthenticationFailure {
     | "WRONG_SECRET"
     | "KIND_MISMATCH"
     | "EXPIRED"
-    | "REVOKED";
+    | "REVOKED"
+    // mTLS (ADR 0009): Envoy forwarded no usable identity, or one that
+    // isn't a known Custos service.
+    | "BAD_FORWARDED_CERT"
+    | "UNKNOWN_SERVICE";
   /** Present once the key id could be parsed; the secret never is. */
   readonly keyId?: string;
 }
 
 export interface AuthenticationRequest {
   readonly headers: Readonly<Record<string, string | string[] | undefined>>;
+  /**
+   * SAN URIs of the TLS client certificate the server itself verified on
+   * this connection, if any. Never taken from a header.
+   */
+  readonly tlsPeerUris?: readonly string[];
 }
 
 /**

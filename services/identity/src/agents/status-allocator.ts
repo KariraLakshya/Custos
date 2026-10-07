@@ -48,7 +48,8 @@ function isAllocatedStatus(value: unknown): value is AllocatedStatus {
 export function createHttpStatusAllocator(params: {
   readonly revocationUrl: string;
   /** This service's own key, with `status:allocate` (ADR 0008). Never logged. */
-  readonly serviceKey: string;
+  /** Omitted when identity calls through Envoy with its certificate (ADR 0009). */
+  readonly serviceKey?: string;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
 }): StatusAllocator {
@@ -62,7 +63,7 @@ export function createHttpStatusAllocator(params: {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${serviceKey}`,
+            ...(serviceKey === undefined ? {} : { authorization: `Bearer ${serviceKey}` }),
           },
           body: JSON.stringify({ agentId, agentDid }),
           signal: AbortSignal.timeout(timeoutMs),

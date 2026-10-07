@@ -18,3 +18,23 @@ describe("audit env", () => {
     expect(loadAuditEnv({}).AUDIT_DID_DOMAIN).toBe("localhost:4004");
   });
 });
+
+describe("audit env: optional Envoy-only TLS listener (ADR 0009)", () => {
+  it("is off by default", () => {
+    expect(loadAuditEnv({}).AUDIT_MTLS_PORT).toBeUndefined();
+  });
+
+  it("reads the listener settings", () => {
+    const env = loadAuditEnv({
+      AUDIT_MTLS_PORT: "4014",
+      AUDIT_MTLS_SERVER_CERT: "audit-server.crt",
+      AUDIT_MTLS_SERVER_KEY: "audit-server.key",
+      MTLS_CA: "ca.crt",
+    });
+    expect(env.AUDIT_MTLS_PORT).toBe(4014);
+  });
+
+  it("refuses a non-numeric port", () => {
+    expect(() => loadAuditEnv({ AUDIT_MTLS_PORT: "tls" })).toThrow(/AUDIT_MTLS_PORT/);
+  });
+});

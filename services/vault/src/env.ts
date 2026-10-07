@@ -2,7 +2,7 @@ import { baseEnvSchema, loadEnv } from "@custos/config";
 import { parseApiKey } from "@custos/control-plane-auth";
 import { z } from "zod";
 
-export const envSchema = baseEnvSchema.extend({
+const fieldsSchema = baseEnvSchema.extend({
   PORT: z.coerce.number().int().positive().default(4002),
   DATABASE_URL: z.string().min(1).default("postgres://custos:custos@localhost:5433/custos"),
   // 32-byte key (64 hex chars) for the local SecretCipher encrypting stored
@@ -28,11 +28,34 @@ export const envSchema = baseEnvSchema.extend({
   REVOCATION_MAX_STALENESS_MS: z.coerce.number().int().positive().default(30_000),
   REVOCATION_RESYNC_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
   AUDIT_URL: z.string().min(1).default("http://localhost:4004"),
-  // This vault's own key for the audit service (`audit:write`, ADR 0008).
-  // No default; checked against the key table at boot.
+  // Its calls to other Custos services authenticate with exactly one of:
+  // this API key (ADR 0008), or a client certificate through Envoy
+  // (ADR 0009: VAULT_MTLS_CERT + VAULT_MTLS_KEY + MTLS_CA; then the target
+  // URLs are Envoy's https:// listeners). Checked at boot.
   VAULT_SERVICE_KEY: z
     .string()
-    .refine((value) => parseApiKey(value)?.kind === "service", "must be a custos_service_ key"),
+    .refine((value) => parseApiKey(value)?.kind === "service", "must be a custos_service_ key")
+    .optional(),
+  VAULT_MTLS_CERT: z.string().min(1).optional(),
+  VAULT_MTLS_KEY: z.string().min(1).optional(),
+  MTLS_CA: z.string().min(1).optional(),
+});
+
+export const envSchema = fieldsSchema.superRefine((env, ctx) => {
+  if (env.VAULT_SERVICE_KEY === undefined && env.VAULT_MTLS_CERT === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["VAULT_SERVICE_KEY"],
+      message: "set VAULT_SERVICE_KEY, or VAULT_MTLS_CERT + VAULT_MTLS_KEY + MTLS_CA",
+    });
+  }
+  if (env.VAULT_SERVICE_KEY !== undefined && env.VAULT_MTLS_CERT !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["VAULT_MTLS_CERT"],
+      message: "set VAULT_SERVICE_KEY or VAULT_MTLS_CERT, not both",
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

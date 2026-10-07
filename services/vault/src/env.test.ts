@@ -80,3 +80,23 @@ describe("vault env service key (ADR 0008)", () => {
     }
   });
 });
+
+describe("vault env: client certificate instead of a service key (ADR 0009)", () => {
+  const base = { VAULT_MASTER_KEY: "ab".repeat(32) };
+  const mtls = { VAULT_MTLS_CERT: "vault.crt", VAULT_MTLS_KEY: "vault.key", MTLS_CA: "ca.crt" };
+  const key = ["custos", "service", "0123456789abcdef", "k".repeat(43)].join("_");
+
+  it("accepts a client certificate with no service key", () => {
+    const env = loadVaultEnv({ ...base, ...mtls });
+    expect(env.VAULT_SERVICE_KEY).toBeUndefined();
+    expect(env.VAULT_MTLS_CERT).toBe("vault.crt");
+  });
+
+  it("refuses both a service key and a client certificate", () => {
+    expect(() => loadVaultEnv({ ...base, ...mtls, VAULT_SERVICE_KEY: key })).toThrow(/not both/);
+  });
+
+  it("refuses neither, naming both options", () => {
+    expect(() => loadVaultEnv(base)).toThrow(/VAULT_MTLS_CERT/);
+  });
+});

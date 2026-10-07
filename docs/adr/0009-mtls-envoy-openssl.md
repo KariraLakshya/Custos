@@ -1,6 +1,6 @@
 # 0009: mTLS through Envoy, with certificates made by openssl in Docker
 
-**Status:** Accepted, 2026-10-03. Refines ADR 0008 §9. Part A (the proxy, certificates and proxy tests) is implemented; part B (services trusting the proxy's identity header, callers presenting certificates) follows.
+**Status:** Accepted, 2026-10-03. Refines ADR 0008 §9. Part A (the proxy, certificates and proxy tests) and part B (services using it) are implemented. Part B replaced the planned trusted-address check with Envoy authenticating itself to the services (§7).
 
 ## Context
 
@@ -70,9 +70,27 @@ The keys stay at `0600` throughout. Envoy never runs as root, and permissions ar
   Removing the SAN allowlist, or setting `FORWARD_ONLY` instead of `SANITIZE_SET`, makes these tests fail. Both mutations were checked.
 
 - `pnpm test` pulls two pinned images (Alpine, Envoy) the first time.
-- **Part B** comes next:
-  - Services accept `x-forwarded-client-cert` **only from the proxy's address** (a configured trusted proxy), as a second layer behind `SANITIZE_SET`. Without that rule, a request that bypasses the proxy could forge an identity.
-  - The header is mapped to a service `Principal`.
-  - Callers present their certificate through Node's built-in `https`, with no new dependency.
-  - Envoy is added to the dev setup, and the README is updated.
 - **CRLs** (cancelling one certificate before it expires) aren't configured. Short certificate lifetimes, plus the existing per-key revocation for API keys, cover it for now; Envoy supports CRLs when needed.
+
+### 7. Part B: the services trust the header only from Envoy itself (2026-10-07)
+
+**Finding.** On Docker Desktop, Envoy's connections reach the services on the host from `127.0.0.1`, exactly like any other local program. A "trusted proxy address" check therefore can't tell Envoy from a local attacker forging `x-forwarded-client-cert`. The founder chose to make Envoy prove itself instead.
+
+**Decision.**
+
+- **Envoy authenticates to the services with its own certificate.** Each Envoy cluster uses upstream TLS with a client certificate whose SAN is `spiffe://custos.local/proxy/envoy`, and checks the service's server certificate (`host.docker.internal`).
+- **Revocation and audit get an optional second listener, TLS only.** It serves the same Fastify app (`createEnvoyOnlyTlsListener`, via Fastify's `serverFactory`). It requires a client certificate from the Custos CA and drops any connection whose certificate isn't Envoy's, including a genuine Custos service going around Envoy. The plain listener is unchanged.
+- **The identity header counts only on a connection whose verified TLS peer is Envoy.** `requireScope` reads the peer's SAN from the socket itself (`verifiedPeerUris`), never from the request. There, `x-forwarded-client-cert` is parsed strictly: one element, one URI. It is then mapped to a service `Principal` with that service's scopes (`SERVICE_IDENTITY_SCOPES`, matching `dev-keys`). Everywhere else the header is ignored, and the API-key path applies unchanged. No IP addresses are trusted anywhere.
+- **Callers.** Identity, vault and revocation call through Envoy with `createMtlsFetch`, a `fetch` built on `node:https`. Node's global `fetch` can't present a client certificate without the `undici` package, so there's no new dependency. Each caller takes **exactly one** of its service API key or its client certificate (`<SERVICE>_MTLS_CERT`, `<SERVICE>_MTLS_KEY`, `MTLS_CA`). Both the env schema and `resolveOutgoingServiceAuth` enforce this at boot. The certificate is checked to carry that service's SPIFFE ID, be valid now, chain to the CA, and match its key. With mTLS, the target URLs are Envoy's `https://` listeners.
+- **Operators** still use API keys; SSO is next.
+- **Certificates** are valid from one hour before generation, because a service checks its certificate at boot, often seconds after it was made, and Docker's clock can run ahead of the host's.
+
+**Proof.**
+
+- `mtls-node.test.ts`, with real certificates and TLS: the forwarded identity is accepted from Envoy's certificate. It is refused from the plain port, from a genuine service connecting directly, and with no, expired, wrong-CA or self-signed certificate. A forwarded service lacking the scope is refused.
+- `mtls.test.ts`: header parsing and mapping.
+- `mtls-proxy.test.ts`: the upstream sees Envoy as the verified peer.
+- `packages/sdk/src/mtls.e2e.test.ts` runs the real services behind the real Envoy **with no service keys at all**. Registration, grant, call and revocation work. The audit log names identity's certificate as the reporter of `status.allocate`. A forged header on a plain port gets a 401, and a service bypassing Envoy is dropped. Switching the mTLS path off in the guard makes registration fail, which confirms the test proves mTLS.
+- A live run of the built services (`pnpm dev:mtls`) confirmed the same, and that a service given another service's certificate, or both a key and a certificate, refuses to boot.
+
+**Consequences.** `pnpm dev:mtls` generates certificates and config, then starts Envoy (Compose profile `mtls`). The default quickstart is unchanged, on API keys. Local dev ports: Envoy 5003 (revocation) and 5004 (audit); service TLS listeners 4013 and 4014.
