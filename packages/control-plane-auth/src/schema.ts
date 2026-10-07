@@ -17,6 +17,9 @@ export const apiKeys = pgTable("api_keys", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  // How the key was made: by `custos-admin`, or by an operator's SSO login
+  // (ADR 0010), which makes short-lived keys named after the person.
+  createdVia: text("created_via").notNull().default("custos-admin").$type<"custos-admin" | "sso">(),
 });
 
 export type ApiKeyRow = typeof apiKeys.$inferSelect;

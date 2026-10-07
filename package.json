@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "docker compose -f infra/docker/docker-compose.yml up -d",
     "dev:mtls": "node infra/mtls/certs.mjs && node infra/mtls/render-envoy.mjs && docker compose -f infra/docker/docker-compose.yml --profile mtls up -d envoy",
-    "dev:down": "docker compose -f infra/docker/docker-compose.yml --profile mtls down",
+    "dev:sso": "docker compose -f infra/docker/docker-compose.yml --profile sso up -d keycloak",
+    "dev:down": "docker compose -f infra/docker/docker-compose.yml --profile mtls --profile sso down",
     "build": "turbo run build",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",

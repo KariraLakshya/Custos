@@ -269,6 +269,33 @@ On Linux, run `export CUSTOS_ENVOY_USER=$(id -u):$(id -g)` first, so Envoy can r
 
 A service refuses to start if its certificate is for another service, has expired, or if it's given both a key and a certificate. The audit log then names each service by its certificate (`spiffe://custos.local/service/…`). The certificates and keys live in `infra/mtls/certs/`, which is gitignored.
 
+### Optional: administrators sign in with a company account (SSO)
+
+Instead of handing out operator keys, administrators can sign in with their company login, through any OpenID Connect provider (ADR 0010). Locally, Keycloak stands in for the company:
+
+```bash
+pnpm dev:sso      # starts Keycloak on http://localhost:8180 (Docker) with a demo realm
+```
+
+Start identity with these settings, as well as its usual ones:
+
+```bash
+SSO_ISSUER=http://localhost:8180/realms/custos
+SSO_ALLOW_HTTP_ISSUER=true                     # plain http is accepted only for localhost
+SSO_CLIENT_ID=custos-identity
+SSO_CLIENT_SECRET=custos-dev-sso-client-secret-not-for-production
+SSO_REDIRECT_URL=http://localhost:4001/operator/callback
+SSO_GROUP_SCOPES='{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write"]}'
+```
+
+Then, in your own terminal:
+
+```bash
+custos login      # opens the sign-in page; demo user alice / alice-dev-password
+```
+
+`custos login` saves a key that lasts 8 hours (`SSO_SESSION_HOURS`) to `~/.custos/operator.key`, owner-only, and never prints it. `register`, `grant` and `deprovision` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Only people in a group listed in `SSO_GROUP_SCOPES` can sign in: the demo user `bob` is in none, so he's refused. Everything they do appears in the audit log under their email. The demo realm's passwords and client secret are for local use only.
+
 ## Troubleshooting
 
 | Symptom                                                                                      | Cause and fix                                                                                                                                                                                                                                                                                                                                  |

@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-08 — Administrators sign in with their company account
+
+**Commits:** branch `feat/phase-5b-sso`, with a pull request open. Certificate security between the services (previous entry) reached the main codebase as PR #60.
+
+**What shipped:** administrators no longer need a long-lived Custos key. They type `custos login`, sign in on their company's usual login page (anything that speaks the OpenID Connect standard: Okta, Microsoft Entra, Google Workspace, Keycloak), and get a key that lasts one working day.
+
+- **Access follows the company.** Who may administer Custos comes from their company groups (for example, "custos-admins"). Someone who leaves is disabled at the company login and loses access within a day at most, or at once if an administrator cancels their key.
+- **The audit trail names people.** Every admin action is now recorded under the person's email, not just a key number.
+- **The key is handled like a password.** It's saved in a private file and never shown on screen.
+- **A security bug caught by our own tests, before it shipped.** The standard login library, by default, trusts a login token without checking its signature in one situation, relying on the encrypted connection instead. Our test with a forged token showed it was accepted. Custos now always checks the signature. This is exactly why every security control here is proven against an attack, not just the normal case.
+- **Proven against a real login system** (Keycloak, the open-source standard): a person in the right group gets in with the right permissions; a person in no group is refused; a wrong password never reaches Custos. Forged, expired, wrongly addressed and replayed login tokens are each refused.
+
+_Why it matters:_ single sign-on is a checkbox on every enterprise security questionnaire. With this, all ten of the security-hardening checks are proven, and the remaining work in this phase is writing up the threat model.
+
 ## 2026-10-07 — Custos's services now prove who they are to each other with certificates
 
 **Commits:** branch `feat/phase-5b-mtls-services`, with a pull request open. Part 1 (the gatekeeper) reached the main codebase as PR #55, after two dependency-security fixes (#56, #59).

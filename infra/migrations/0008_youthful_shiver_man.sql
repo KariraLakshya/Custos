@@ -1,0 +1,1 @@
+ALTER TABLE "api_keys" ADD COLUMN "created_via" text DEFAULT 'custos-admin' NOT NULL;

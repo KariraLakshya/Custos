@@ -22,6 +22,7 @@ function setup(maxFailures = 10) {
     createdAt: new Date("2026-10-01T00:00:00.000Z"),
     expiresAt: new Date(expiresAt),
     revokedAt: null,
+    createdVia: "custos-admin",
   });
   const rows = new Map([
     [valid.id, row(valid.id, valid.secretHash, "2026-12-31T00:00:00.000Z")],
@@ -102,6 +103,7 @@ describe("requireScope", () => {
       createdAt: new Date("2026-10-01T00:00:00.000Z"),
       expiresAt: new Date("2026-12-31T00:00:00.000Z"),
       revokedAt: null,
+      createdVia: "custos-admin",
     };
     const authenticator = createApiKeyAuthenticator({
       keys: { findById: async (id) => (id === row.id ? row : null) },

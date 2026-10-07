@@ -17,6 +17,8 @@ import { createCli, runCli } from "./cli.js";
 // The stub services accept any key; the real check is proven in the e2e suite.
 beforeEach(() => {
   vi.stubEnv("CUSTOS_OPERATOR_KEY", "test-operator-key");
+  // Never the developer's real ~/.custos/operator.key (ADR 0010).
+  vi.stubEnv("CUSTOS_OPERATOR_KEY_FILE", join(tmpdir(), "custos-no-such-dir", "operator.key"));
 });
 
 afterEach(() => {
@@ -178,7 +180,7 @@ describe("custos CLI", () => {
         ["deprovision", "0f8f6a1e-9c2b-4a3d-8f1e-1b2c3d4e5f60", "--revocation-url", url],
       ]) {
         await expect(createCli().parseAsync(args, { from: "user" })).rejects.toThrow(
-          /set CUSTOS_OPERATOR_KEY/,
+          /sign in with `custos login`, or set CUSTOS_OPERATOR_KEY/,
         );
       }
       expect(requests).toBe(0);

@@ -57,6 +57,13 @@
       "when": 1790945829816,
       "tag": "0007_easy_captain_cross",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791381311089,
+      "tag": "0008_youthful_shiver_man",
+      "breakpoints": true
     }
   ]
 }
