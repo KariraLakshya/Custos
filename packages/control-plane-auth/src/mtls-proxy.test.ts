@@ -108,7 +108,11 @@ beforeAll(async () => {
     typeof process.getuid === "function"
       ? ["--user", `${process.getuid()}:${process.getgid?.()}`]
       : [];
-  container = `custos-envoy-test-${process.pid}`;
+  // A fixed name, removed first: if an earlier run was killed before its
+  // afterAll, its container would otherwise keep the ports and fail every
+  // later run.
+  container = "custos-envoy-test";
+  execFileSync("docker", ["rm", "-f", container], { stdio: "ignore" });
   execFileSync("docker", [
     "run",
     "-d",
