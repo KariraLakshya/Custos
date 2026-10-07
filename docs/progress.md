@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-03 — Certificate-based security for Custos's own services (part 1: the gatekeeper)
 
-**Commits:** branch `feat/phase-5b-mtls-proxy`, with a pull request open. Nothing uses it yet; the next step connects the services to it.
+**Commits:** branch `feat/phase-5b-mtls-proxy` (PR #55), rebased onto the merged dependency fixes (#56, #59). Nothing uses it yet; the next step connects the services to it.
 
 **What shipped:** the foundation for mTLS, where Custos's own services prove who they are with digital certificates instead of passwords. Certificates are much harder to steal or misuse than a password-like key.
 
