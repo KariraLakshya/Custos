@@ -4,7 +4,7 @@ A trust layer for AI agents. Every agent gets a cryptographic identity, never ho
 
 MCP and A2A define how agents talk. Custos decides whether an agent should be trusted and what it may do. It runs on top of those protocols rather than replacing them.
 
-**Status:** the MVP runs end to end locally: identity, vault, revocation, allowlists, audit, CLI, SDK, and a live dashboard. It is a development build. Signing keys are in memory (a KMS-backed key provider is planned), and nothing here is hardened for production. See [docs/build-plan.md](./docs/build-plan.md).
+**Status:** the MVP runs end to end locally: identity, vault, revocation, allowlists, audit, CLI, SDK, and a live dashboard. It is a development build. The key that signs agent credentials can live in AWS KMS; the other services' signing keys are still in memory. Nothing here is hardened for production: [docs/threat-model.md](./docs/threat-model.md) lists what is and isn't protected. See [docs/build-plan.md](./docs/build-plan.md).
 
 ---
 

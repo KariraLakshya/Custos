@@ -1,6 +1,6 @@
 # Custos — Architecture
 
-**Status:** Phase 5 in progress (Developer surface & clean demo). Phases 0–4 complete: identity, vault (dispossession), revocation, authorization + audit. Dashboard done; SDK and README outstanding. Nothing committed/pushed yet — see `docs/state.md` for the live handover.
+**Status:** Phases 0–5 built; Phase 5b (auth hardening) complete. Phase 5's non-author README run is next. See `docs/state.md` for the live handover and `docs/threat-model.md` for what the security controls do and don't cover.
 
 This file answers _why_ the system is shaped the way it is. `docs/build-plan.md` is authority on _what's next_. `docs/prd.pdf` is authority on _what and why, product-side_. `docs/adr/` carries the full reasoning behind every decision summarized here — this file is the map, not the territory.
 
@@ -84,13 +84,15 @@ Banned patterns, enforced rather than encouraged:
 
 ## 5. How does data actually move?
 
-**Register:** `apps/cli register` → `services/identity` generates a keypair, calls `services/revocation POST /agents` for a status-list index (registration fails closed if this fails), signs a VC → returns DID + VC to the agent.
+**Register:** `apps/cli register` (operator key with `agents:register`) → the agent generates its own keypair and sends its public key with a proof of possession → `services/identity` calls `services/revocation POST /agents` for a status-list index (service-authenticated; registration fails closed if this fails), signs a VC as issuer with the agent's public key embedded → returns DID + VC. The private key never leaves the agent (ADR 0007).
 
-**Grant:** `apps/cli grant` → `services/vault POST /policies` writes an `agent_policies` row (deny-by-default).
+**Grant:** `apps/cli grant` (operator key with `policies:write`) → `services/vault POST /policies` writes an `agent_policies` row (deny-by-default).
 
-**Connect / call (the hot path):** agent → `services/vault POST /tokens` (independently verifies the agent's VC, checks `agent_policies` once, issues a 60s scoped token) → agent → `services/vault POST /call` (checks the token signature + the in-memory revocation cache — zero I/O until both pass) → `packages/connectors` adapter → real tool API → fire-and-forget `AuditReporter` → `services/audit POST /records`.
+**Connect / call (the hot path):** agent → `services/vault POST /tokens` (independently verifies the agent's VC against the one trusted issuer, checks a fresh proof of possession signed with the agent's key, checks `agent_policies` once, issues a 60s scoped token) → agent → `services/vault POST /call` (checks the token signature + the in-memory revocation cache — zero I/O until both pass) → `packages/connectors` adapter → real tool API → fire-and-forget `AuditReporter` → `services/audit POST /records`.
 
-**Revoke:** `apps/cli deprovision` → `services/revocation POST /revocations` (flips the status-list bit, signs, pushes a tombstone) → `services/vault`'s in-memory revoked-DID cache updates → the agent's next call, on every tool, is denied within roughly a second (proven by e2e test against three tools).
+**Revoke:** `apps/cli deprovision` (operator key with `agents:revoke`) → `services/revocation POST /revocations` (flips the status-list bit, signs, pushes a tombstone) → `services/vault`'s in-memory revoked-DID cache updates → the agent's next call, on every tool, is denied within roughly a second (proven by e2e test against three tools).
+
+**Control-plane auth:** every write above needs an operator key (from `custos-admin` or `custos login` via SSO), and service-to-service calls need a service key or an mTLS certificate through Envoy (ADRs 0008–0010). Each write is audited with the principal who made it.
 
 **Audit:** `apps/cli audit-log` → `services/audit GET /records` (signs every row fresh at read time) → CLI independently re-verifies, exits 1 on any failure.
 

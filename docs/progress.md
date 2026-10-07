@@ -6,9 +6,22 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-08 — The security phase is finished: a written threat model
+
+**Commits:** branch `docs/phase-5b-threat-model`, committed locally, not yet pushed. Single sign-on (previous entry) reached the main codebase as PR #61.
+
+**What shipped:** `docs/threat-model.md`, a plain statement of what Custos protects, who it protects against, and where its protection stops.
+
+- **Every protection points at its proof.** For each attack (a stolen agent file, a replayed request, a forged audit entry, a fake certificate, a forged login) the document names the automated test that shows the attack failing. A reviewer can check the claims instead of trusting them.
+- **The gaps are written down, not hidden.** For example: anyone with direct access to the database is trusted completely; a stolen 60-second access pass works until it expires; the public activity feed shows administrators' email addresses. Each gap has a reason and a planned fix where one exists.
+- **One gap closed while writing it.** Nothing tested directly that an agent never receives the real tool password. A check now does, and it was shown to fail when a leak was deliberately introduced.
+- The README and architecture notes were brought up to date with how registration and admin sign-in now work.
+
+_Why it matters:_ a threat model is the first document a security buyer or auditor asks for. With it, the security-hardening phase is finished. Next is having someone other than the author follow the README from scratch, which is the last check before the minimum product is complete.
+
 ## 2026-10-08 — Administrators sign in with their company account
 
-**Commits:** branch `feat/phase-5b-sso`, with a pull request open. Certificate security between the services (previous entry) reached the main codebase as PR #60.
+**Commits:** branch `feat/phase-5b-sso`, merged to the main codebase as PR #61. Certificate security between the services (previous entry) reached the main codebase as PR #60.
 
 **What shipped:** administrators no longer need a long-lived Custos key. They type `custos login`, sign in on their company's usual login page (anything that speaks the OpenID Connect standard: Okta, Microsoft Entra, Google Workspace, Keycloak), and get a key that lasts one working day.
 

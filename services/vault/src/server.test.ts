@@ -297,6 +297,9 @@ describe("vault service", () => {
       expect(callResponse.statusCode).toBe(200);
       expect(callResponse.json().result).toEqual({ id: "msg_1", channel: "#general", text: "hi" });
       expect(slack.messages).toHaveLength(1);
+      // Dispossession: nothing the agent receives carries the tool's credential.
+      expect(tokenResponse.body).not.toContain("xoxb-fake-bot-token");
+      expect(callResponse.body).not.toContain("xoxb-fake-bot-token");
 
       // Advance past the token's 60s TTL: the same token must now be rejected.
       clock.set("2026-01-01T00:01:01Z");

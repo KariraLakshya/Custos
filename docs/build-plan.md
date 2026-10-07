@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 5b — Auth hardening** (in progress: steps 1–3 done; step 4 in progress: API keys built, enforced on every control-plane route, and every control-plane write audited with its principal; mTLS between services and operator SSO done (ADRs 0009, 0010); step 5 (threat model) next). Phase 5 is built; its DONE check (non-author README run) follows 5b.
+> **CURRENT: Phase 5 — DONE check** (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
