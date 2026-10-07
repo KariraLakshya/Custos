@@ -32,7 +32,7 @@ jobs:
       # of the Changesets action is designed to work with Changesets CLI v3.
       # Changesets CLI v2 is not supported; use Changesets action v1
       # instead"). This project is on @changesets/cli v2 (see pnpm-lock.yaml).
-      - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
+      - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v1
         with:
           # No packages are published externally yet (all marked private;
           # Apache-2.0 since ADR 0011) — this opens/updates a "Version Packages" PR only.
