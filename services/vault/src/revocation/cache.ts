@@ -39,10 +39,21 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Resolves the revocation service's own DID document once and caches the key.
+ * Minimum gap between re-resolutions of the issuer's DID document. The push
+ * endpoint is unauthenticated, so without it a flood of forged tombstones
+ * would become a flood of fetches against the revocation service.
+ */
+const KEY_REFRESH_MIN_INTERVAL_MS = 5_000;
+
+/**
+ * Resolves the revocation service's own DID document and caches the key.
  * Tombstones arrive on an unauthenticated endpoint, so an unverified one is
  * worthless: without this check anyone who can reach the vault could revoke
  * any agent.
+ *
+ * `refresh` re-resolves after the key may have rotated (the revocation
+ * service's key changes on restart). Trust is unchanged: the key still comes
+ * only from the issuer's own did:web URL. Rate-limited, see above.
  */
 function createIssuerKeyResolver(params: {
   readonly issuerDid: string;
@@ -50,9 +61,10 @@ function createIssuerKeyResolver(params: {
   readonly timeoutMs: number;
 }) {
   let cached: Uint8Array | null = null;
+  let lastResolvedAt: number | null = null;
 
-  return async (): Promise<Result<Uint8Array, AcceptTombstoneError>> => {
-    if (cached) return ok(cached);
+  async function fetchKey(now: Date): Promise<Result<Uint8Array, AcceptTombstoneError>> {
+    lastResolvedAt = now.getTime();
     const url = didWebToResolutionUrl(params.issuerDid);
     try {
       const response = await params.fetchImpl(url, {
@@ -75,6 +87,20 @@ function createIssuerKeyResolver(params: {
     } catch (error) {
       return err({ code: "UNVERIFIABLE_ISSUER", reason: `${url}: ${errorMessage(error)}` });
     }
+  }
+
+  return {
+    current: async (now: Date): Promise<Result<Uint8Array, AcceptTombstoneError>> =>
+      cached ? ok(cached) : fetchKey(now),
+
+    /** A freshly resolved key, or null if rate-limited or resolution failed. */
+    async refresh(now: Date): Promise<Uint8Array | null> {
+      if (lastResolvedAt !== null && now.getTime() - lastResolvedAt < KEY_REFRESH_MIN_INTERVAL_MS) {
+        return null;
+      }
+      const resolved = await fetchKey(now);
+      return resolved.ok ? resolved.value : null;
+    },
   };
 }
 
@@ -123,14 +149,21 @@ export function createRevocationCache(params: {
   let freshAsOf: Date | null = null;
   const resolveIssuerKey = createIssuerKeyResolver({ issuerDid, fetchImpl, timeoutMs });
 
-  async function accept(
+  async function apply(
     tombstone: string,
     now: Date,
+    markFresh: boolean,
   ): Promise<Result<string, AcceptTombstoneError>> {
-    const publicKey = await resolveIssuerKey();
+    const publicKey = await resolveIssuerKey.current(now);
     if (!publicKey.ok) return publicKey;
 
-    const verified = verifyRevocationTombstone({ tombstone, publicKey: publicKey.value });
+    let verified = verifyRevocationTombstone({ tombstone, publicKey: publicKey.value });
+    if (!verified.ok) {
+      // The issuer may have rotated its key since it was cached: re-resolve
+      // once and retry before rejecting.
+      const refreshed = await resolveIssuerKey.refresh(now);
+      if (refreshed) verified = verifyRevocationTombstone({ tombstone, publicKey: refreshed });
+    }
     if (!verified.ok) {
       return err({ code: "INVALID_TOMBSTONE", reason: verified.error.code });
     }
@@ -138,7 +171,7 @@ export function createRevocationCache(params: {
     const { agentDid } = verified.value;
     const isNew = !revoked.has(agentDid);
     revoked.add(agentDid);
-    freshAsOf = now;
+    if (markFresh) freshAsOf = now;
     // Fan out to the tool adapters only the first time, so a re-broadcast
     // does not re-hit every connector.
     if (isNew && onRevoked) await onRevoked(agentDid);
@@ -161,7 +194,7 @@ export function createRevocationCache(params: {
       };
     },
 
-    acceptTombstone: accept,
+    acceptTombstone: (tombstone, now) => apply(tombstone, now, true),
 
     async resync(now) {
       const url = `${revocationUrl.replace(/\/$/, "")}/revocations`;
@@ -180,12 +213,17 @@ export function createRevocationCache(params: {
         return err({ code: "UNVERIFIABLE_ISSUER", reason: `${url}: ${errorMessage(error)}` });
       }
 
+      let unverifiable: AcceptTombstoneError | null = null;
       for (const tombstone of tombstones) {
-        const accepted = await accept(tombstone, now);
-        // A single bad entry must not abort the resync: the rest of the
-        // revocations are still worth applying.
-        if (!accepted.ok && accepted.error.code === "UNVERIFIABLE_ISSUER") return accepted;
+        const accepted = await apply(tombstone, now, false);
+        if (accepted.ok) continue;
+        if (accepted.error.code === "UNVERIFIABLE_ISSUER") return accepted;
+        // A single bad entry must not stop the rest being applied, but the
+        // list is then incomplete: it may be missing a revocation, so it
+        // must not count as fresh. Bounded staleness then fails closed.
+        unverifiable ??= accepted.error;
       }
+      if (unverifiable) return err(unverifiable);
       // An empty list is still a successful sync — it means nobody is
       // revoked, which is exactly as fresh as a list with entries.
       freshAsOf = now;
