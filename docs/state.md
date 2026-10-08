@@ -21,7 +21,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [ ] **`fix/vault-revocation-key-rotation`**: fail-open revocation fix (below, Known issues). Merge before the non-author README run.
 - [ ] **Phase 5 DONE check:** non-author README run. Pre-run dry run from a fresh clone done 2026-10-08 (found the fix above); brief for the tester in `docs/readme-test.md`.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
-- [ ] **Knowledge graph:** last full refresh **2026-10-08**, after operator SSO. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
+- [ ] **Knowledge graph:** last full refresh **2026-10-08**, after the vault revocation fix. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
 **Current phase:** Phase 5 — DONE check (non-author README run). Phase 5b is complete: steps 1–4 on `main` (#41, #47, #51–#53, #55, #60, #61); step 5 (threat model) in PR #62. All ten 5b DONE criteria are proven in CI (mapped in `docs/threat-model.md` §6). Phase 6 follows the README run.
 **Last updated:** 2026-10-08
