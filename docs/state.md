@@ -18,7 +18,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #60 (mTLS part B) merged 2026-10-07.
 - [x] PR #61 (operator SSO, ADR 0010) merged 2026-10-07.
 - [x] PR #62 (threat model + Apache-2.0) merged; repo made public.
-- [ ] **`fix/vault-revocation-key-rotation`**: fail-open revocation fix (below, Known issues). Merge before the non-author README run.
+- [ ] **PR #63** (`fix/vault-revocation-key-rotation`, pushed 2026-10-08): fail-open revocation fix (below, Known issues) + tester brief. Merge before the non-author README run.
 - [ ] **Phase 5 DONE check:** non-author README run. Pre-run dry run from a fresh clone done 2026-10-08 (found the fix above); brief for the tester in `docs/readme-test.md`.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [ ] **Knowledge graph:** last full refresh **2026-10-08**, after the vault revocation fix. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.

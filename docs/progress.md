@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-08 — A security bug found and fixed before the first outside tester
 
-**Commits:** branch `fix/vault-revocation-key-rotation`, committed locally, not yet pushed.
+**Commits:** `0227ec8` on branch `fix/vault-revocation-key-rotation`, pushed 2026-10-08 with pull request #63 open.
 
 **What happened:** before handing the README to someone who has never seen Custos (the last check for the minimum product), we did a full dry run from a fresh download of the public repository, following the README word for word. It mostly matched. But in one situation, restarting the service that handles revocations, **a revoked agent kept working**. That breaks Custos's core promise.
 
