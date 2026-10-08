@@ -6,6 +6,19 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-08 — A security bug found and fixed before the first outside tester
+
+**Commits:** `0227ec8` on branch `fix/vault-revocation-key-rotation`, pushed 2026-10-08 with pull request #63 open.
+
+**What happened:** before handing the README to someone who has never seen Custos (the last check for the minimum product), we did a full dry run from a fresh download of the public repository, following the README word for word. It mostly matched. But in one situation, restarting the service that handles revocations, **a revoked agent kept working**. That breaks Custos's core promise.
+
+- **Why:** that service gets a new signing key every time it starts. The vault (where agents' calls are checked) had memorised the old key forever, so it rejected every new "this agent is revoked" notice. Worse, it still told itself it was up to date, so the safety net (refuse everything when you fall behind) never triggered.
+- **The fix:** when a notice doesn't check out, the vault fetches the service's current public key once and tries again (limited to once every few seconds, so nobody can abuse it to flood the service). And if any notice still can't be verified, the vault no longer considers itself up to date: within 30 seconds it refuses all calls rather than trusting an incomplete list.
+- **Proof:** new automated tests reproduce the bug (they failed before the fix and pass after), and the real scenario was re-run: after a restart, revoking an agent cut it off at once.
+- **A brief for the outside tester** is ready (`docs/readme-test.md`): what to do, what counts as a pass, and what to record.
+
+_Why it matters:_ this is the reason to test before a launch, not after. A security product whose kill switch quietly fails after a routine restart would lose trust immediately. The dry run caught it before any outsider did.
+
 ## 2026-10-08 — Custos is open source (Apache-2.0), with a public landing page
 
 **Commits:** `ce25a6c` on branch `chore/open-source-apache-2.0`, pushed 2026-10-08 with pull request #62 open. It also carries the threat-model commit `9d75142` (next entry). The GitHub repository itself is still private.

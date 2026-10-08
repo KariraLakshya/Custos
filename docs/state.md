@@ -17,9 +17,11 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #55 (mTLS part A) merged 2026-10-07, after #56 and #59.
 - [x] PR #60 (mTLS part B) merged 2026-10-07.
 - [x] PR #61 (operator SSO, ADR 0010) merged 2026-10-07.
-- [ ] **PR #62** (`chore/open-source-apache-2.0`, pushed 2026-10-08): Apache-2.0 + README reframe (ADR 0011) **and** the step 5 threat model (`9d75142`). Confirm it merged. The separate `docs/phase-5b-threat-model` branch was never pushed and is superseded.
+- [x] PR #62 (threat model + Apache-2.0) merged; repo made public.
+- [ ] **PR #63** (`fix/vault-revocation-key-rotation`, pushed 2026-10-08): fail-open revocation fix (below, Known issues) + tester brief. Merge before the non-author README run.
+- [ ] **Phase 5 DONE check:** non-author README run. Pre-run dry run from a fresh clone done 2026-10-08 (found the fix above); brief for the tester in `docs/readme-test.md`.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
-- [ ] **Knowledge graph:** last full refresh **2026-10-08**, after operator SSO. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
+- [ ] **Knowledge graph:** last full refresh **2026-10-08**, after the vault revocation fix. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 
 **Current phase:** Phase 5 — DONE check (non-author README run). Phase 5b is complete: steps 1–4 on `main` (#41, #47, #51–#53, #55, #60, #61); step 5 (threat model) in PR #62. All ten 5b DONE criteria are proven in CI (mapped in `docs/threat-model.md` §6). Phase 6 follows the README run.
 **Last updated:** 2026-10-08
@@ -47,7 +49,7 @@ Keep this to what the next session must act on before anything else. Clear items
 
 ## In progress / not yet merged
 
-- **PR #62**: step 5 threat model + Apache-2.0 licence.
+- **`fix/vault-revocation-key-rotation`**: fail-open revocation fix + README tester brief.
 - **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
 **Ideas to discuss with the user (raised 2026-10-02, not approved, don't build):**
@@ -59,7 +61,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Next up
 
-1. Merge PR #62. Then the founder makes the GitHub repo public (ADR 0011).
+1. Merge `fix/vault-revocation-key-rotation`, then hand `docs/readme-test.md` to a tester who has never seen the repo.
 2. Phase 5's DONE check: a non-author runs the README from scratch. Then Phase 6.
 3. Keep `docs/threat-model.md` §5 in step with the known issues below when either changes.
 
@@ -73,7 +75,7 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 - No `keyAgreement` key exists (DID docs only sign/verify). A future encrypted channel (Phase 6 cross-org handshake) needs its own X25519 keypair — never the Ed25519 identity key reused (see doc comment on `DidWebDocument`, `packages/core/src/did/did-web.ts`).
 - `VAULT_MASTER_KEY` is one symmetric key for all stored tool credentials — no per-tool keys/rotation (ADR 0004 has the real-KMS path).
 - Stripe connector: one action only (`list-customers`); `revoke()` is connector-local only (one shared vault-held key, no per-agent upstream key yet).
-- `services/vault`'s revocation-service DID/key is resolved once and cached for the process lifetime — a revocation-service key rotation needs a vault restart to pick up.
+- **Fixed 2026-10-08 (fail-open):** the vault cached the revocation service's key forever, and the revocation key is in memory (new on every restart). After a revocation restart every new tombstone failed verification, and resync skipped them yet still marked the cache fresh, so revoked agents kept working. Now (`services/vault/src/revocation/cache.ts`): an unverifiable tombstone triggers one re-resolution of the issuer's did:web key (at most every 5 s), and a resync with any unverifiable entry applies the rest but is not fresh (bounded staleness then fails closed). Found by the pre-tester README dry run.
 - `agent_policies` has grant but no revoke-grant endpoint (only whole-agent `deprovision`) — not required by Phase 4, deliberately deferred (ADR 0006).
 - `audit_records` are individually signed, not hash-chained (no cross-row tamper detection) — deferred hardening, not required by Phase 4 (ADR 0006).
 - `@custos/sdk` has no request timeout (a hung service hangs the caller) and requires all three service URLs even for an agent-only process that needs just the vault — kept minimal, revisit on demand.

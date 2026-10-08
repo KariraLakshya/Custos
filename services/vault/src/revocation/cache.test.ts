@@ -311,5 +311,150 @@ describe("revocation cache", () => {
       if (!result.ok) expect(result.error.code).toBe("UNVERIFIABLE_ISSUER");
       expect(cache.isStale(NOW)).toBe(true);
     });
+
+    // A resync that skipped an entry it could not verify must not count as
+    // fresh: it may be missing a revocation, and bounded staleness exists so
+    // the vault denies rather than trusting an incomplete list.
+    it("does not count a resync with an unverifiable entry as fresh", async () => {
+      const { didDocument, signer } = issuer();
+      const impostor = issuer();
+      const tombstones = [
+        await tombstoneFor(signer, AGENT, 1),
+        await tombstoneFor(impostor.signer, OTHER_AGENT, 2),
+      ];
+      const cache = cacheWith(fetchServing(didDocument, tombstones));
+
+      const result = await cache.resync(NOW);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("INVALID_TOMBSTONE");
+      // The verifiable entry is still applied...
+      expect(cache.isRevoked(AGENT)).toBe(true);
+      // ...but the cache is not refreshed by it.
+      expect(cache.isStale(NOW)).toBe(true);
+    });
+
+    it("lets a previously fresh cache go stale while resyncs keep hitting unverifiable entries", async () => {
+      const { didDocument, signer } = issuer();
+      const impostor = issuer();
+      let tombstones = [await tombstoneFor(signer, AGENT, 1)];
+      const cache = cacheWith(
+        vi.fn(async (url: string | URL) =>
+          String(url) === ISSUER_DID_URL
+            ? Response.json(didDocument)
+            : Response.json({ tombstones, asOf: NOW.toISOString() }),
+        ),
+        { maxStalenessMs: 30_000 },
+      );
+      expect((await cache.resync(NOW)).ok).toBe(true);
+
+      tombstones = [...tombstones, await tombstoneFor(impostor.signer, OTHER_AGENT, 2)];
+      const later = new Date(NOW.getTime() + 31_000);
+      expect((await cache.resync(later)).ok).toBe(false);
+
+      expect(cache.isStale(later)).toBe(true);
+    });
+  });
+
+  // The revocation service's signing key changes (today: on every restart,
+  // since its key is in memory). The vault must follow the key it publishes
+  // at its did:web URL, not the first one it ever saw, or every revocation
+  // after the change is silently dropped.
+  describe("issuer key rotation", () => {
+    /** Serves whichever DID document and tombstones are current. */
+    function rotatingIssuer() {
+      const state = {
+        didDocument: issuer().didDocument,
+        tombstones: [] as string[],
+        didFetches: 0,
+      };
+      const fetchImpl = vi.fn(async (url: string | URL) => {
+        const href = String(url);
+        if (href === ISSUER_DID_URL) {
+          state.didFetches += 1;
+          return Response.json(state.didDocument);
+        }
+        if (href === `${REVOCATION_URL}/revocations`) {
+          return Response.json({ tombstones: state.tombstones, asOf: NOW.toISOString() });
+        }
+        return new Response(null, { status: 404 });
+      });
+      return { state, fetchImpl };
+    }
+
+    it("applies a resync signed by the issuer's new key after it rotates", async () => {
+      const before = issuer();
+      const { state, fetchImpl } = rotatingIssuer();
+      state.didDocument = before.didDocument;
+      state.tombstones = [await tombstoneFor(before.signer, AGENT, 1)];
+      const cache = cacheWith(fetchImpl);
+      expect((await cache.resync(NOW)).ok).toBe(true);
+
+      // The service restarts with a new key and re-signs its whole list.
+      const after = issuer();
+      state.didDocument = after.didDocument;
+      state.tombstones = [
+        await tombstoneFor(after.signer, AGENT, 1),
+        await tombstoneFor(after.signer, OTHER_AGENT, 2),
+      ];
+      const later = new Date(NOW.getTime() + 10_000);
+      const result = await cache.resync(later);
+
+      expect(result.ok).toBe(true);
+      expect(cache.isRevoked(OTHER_AGENT)).toBe(true);
+      expect(cache.isStale(later)).toBe(false);
+    });
+
+    it("accepts a pushed tombstone signed by the issuer's new key after it rotates", async () => {
+      const before = issuer();
+      const { state, fetchImpl } = rotatingIssuer();
+      state.didDocument = before.didDocument;
+      const cache = cacheWith(fetchImpl);
+      expect(
+        (await cache.acceptTombstone(await tombstoneFor(before.signer, AGENT, 1), NOW)).ok,
+      ).toBe(true);
+
+      const after = issuer();
+      state.didDocument = after.didDocument;
+      const later = new Date(NOW.getTime() + 10_000);
+      const result = await cache.acceptTombstone(
+        await tombstoneFor(after.signer, OTHER_AGENT, 2),
+        later,
+      );
+
+      expect(result.ok).toBe(true);
+      expect(cache.isRevoked(OTHER_AGENT)).toBe(true);
+    });
+
+    it("still rejects a forged tombstone after re-resolving the issuer key", async () => {
+      const { state, fetchImpl } = rotatingIssuer();
+      const genuine = issuer();
+      state.didDocument = genuine.didDocument;
+      const cache = cacheWith(fetchImpl);
+      const impostor = issuer();
+
+      const result = await cache.acceptTombstone(await tombstoneFor(impostor.signer), NOW);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("INVALID_TOMBSTONE");
+      expect(cache.isRevoked(AGENT)).toBe(false);
+    });
+
+    // The push endpoint is unauthenticated, so a flood of forged tombstones
+    // must not turn into a flood of DID resolutions against the issuer.
+    it("re-resolves the issuer key at most once per interval, however many forgeries arrive", async () => {
+      const { state, fetchImpl } = rotatingIssuer();
+      state.didDocument = issuer().didDocument;
+      const cache = cacheWith(fetchImpl);
+      const impostor = issuer();
+      const forged = await tombstoneFor(impostor.signer);
+
+      for (let i = 0; i < 20; i += 1) {
+        await cache.acceptTombstone(forged, new Date(NOW.getTime() + i * 100));
+      }
+
+      // One initial resolution plus at most one refresh within the 5 s window.
+      expect(state.didFetches).toBeLessThanOrEqual(2);
+    });
   });
 });
