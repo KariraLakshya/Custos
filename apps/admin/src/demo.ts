@@ -43,7 +43,7 @@ const READY_ATTEMPTS = 150;
 const READY_POLL_MS = 200;
 
 /** Variable families a service reads. Anything of these left in the shell is dropped. */
-const OWNED_PREFIXES = ["CUSTOS_", "IDENTITY_", "VAULT_", "REVOCATION_", "AUDIT_", "MTLS_"];
+const OWNED_PREFIXES = ["CUSTOS_", "IDENTITY_", "VAULT_", "REVOCATION_", "AUDIT_", "MTLS_", "SSO_"];
 const OWNED_NAMES = ["PORT", "DATABASE_URL"];
 
 export interface ServiceSpec {
@@ -201,9 +201,15 @@ export async function startDemo(deps: DemoDeps): Promise<DemoHandle> {
     if (stopped) return;
     stopped = true;
     kill();
-    const revokedAt = deps.clock.now();
-    await Promise.all(keyIds.map((id) => deps.store.revoke(id, revokedAt)));
-    finish("stopped");
+    try {
+      const revokedAt = deps.clock.now();
+      await Promise.all(keyIds.map((id) => deps.store.revoke(id, revokedAt)));
+    } catch {
+      // Best effort: the keys expire on their own.
+      deps.out("could not revoke the demo keys; they expire in 12 hours");
+    } finally {
+      finish("stopped");
+    }
   };
 
   try {

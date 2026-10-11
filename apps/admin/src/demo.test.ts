@@ -9,6 +9,7 @@ import {
   startDemo,
   type DemoChild,
   type DemoDeps,
+  type DemoHandle,
 } from "./demo.js";
 
 // Against real Postgres from Docker Compose (CLAUDE.md §7): the demo's API
@@ -99,14 +100,31 @@ function harness(
   return { deps, events, lines, spawned, seeded };
 }
 
+// The database is shared with a real `pnpm demo` and with earlier runs, so each
+// test looks only at the keys created since it began, and every demo it starts
+// is stopped afterwards even if an assertion throws.
+let idsBefore = new Set<string>();
+const running: DemoHandle[] = [];
+
+afterEach(async () => {
+  for (const handle of running.splice(0)) await handle.stop();
+});
+
+async function begin(deps: DemoDeps): Promise<DemoHandle> {
+  idsBefore = new Set((await store.list()).map((k) => k.id));
+  const handle = await startDemo(deps);
+  running.push(handle);
+  return handle;
+}
+
 async function demoKeys(): Promise<Array<{ revokedAt: Date | null; expiresAt: Date }>> {
-  return (await store.list()).filter((k) => k.name.startsWith("demo-"));
+  return (await store.list()).filter((k) => k.name.startsWith("demo-") && !idsBefore.has(k.id));
 }
 
 describe("custos-admin demo", () => {
   it("starts the five services in dependency order, each only after the last is ready", async () => {
     const { deps, events } = harness();
-    const handle = await startDemo(deps);
+    const handle = await begin(deps);
 
     const order = events.filter((e) => e.startsWith("spawn")).map((e) => e.split(" ")[1]);
     expect(order).toEqual(["audit", "revocation", "identity", "vault", "dashboard"]);
@@ -122,7 +140,7 @@ describe("custos-admin demo", () => {
 
   it("stores the two stand-in tools using the operator key", async () => {
     const { deps, seeded, spawned } = harness();
-    const handle = await startDemo(deps);
+    const handle = await begin(deps);
 
     expect(seeded.map((s) => s.tool)).toEqual(["mock-database", "mock-slack"]);
     for (const s of seeded) expect(s.authorization).toMatch(/^Bearer custos_operator_/);
@@ -134,7 +152,7 @@ describe("custos-admin demo", () => {
   describe("what each service is given", () => {
     it("gives each service only its own secrets, and no secret on a command line", async () => {
       const { deps, spawned } = harness();
-      const handle = await startDemo(deps);
+      const handle = await begin(deps);
       const envOf = (name: string) => spawned.find((s) => s.script.includes(`/${name}/`))!.env;
 
       expect(Object.keys(envOf("audit")).filter((k) => /SEED|MASTER|SERVICE_KEY/.test(k))).toEqual(
@@ -158,7 +176,7 @@ describe("custos-admin demo", () => {
 
     it("pins each port and the database, and keeps what the OS needs", async () => {
       const { deps, spawned } = harness();
-      const handle = await startDemo(deps);
+      const handle = await begin(deps);
 
       const ports = Object.fromEntries(spawned.map((s) => [s.cwd.split("/").pop(), s.env["PORT"]]));
       expect(ports).toEqual({
@@ -185,6 +203,7 @@ describe("custos-admin demo", () => {
             REVOCATION_SERVICE_KEY: "custos_service_other",
             CUSTOS_OPERATOR_KEY: "custos_operator_old",
             MTLS_CA: "ca.crt",
+            SSO_ISSUER: "http://keycloak.test",
             PORT: "9999",
             DATABASE_URL: "postgres://elsewhere",
             PATH: "/usr/bin",
@@ -211,7 +230,7 @@ describe("custos-admin demo", () => {
       const { deps, spawned } = harness({
         baseEnv: { IDENTITY_ISSUER_SEED: issuer, VAULT_MASTER_KEY: "cd".repeat(32) },
       });
-      const handle = await startDemo(deps);
+      const handle = await begin(deps);
 
       const envOf = (name: string) => spawned.find((s) => s.script.includes(`/${name}/`))!.env;
       expect(envOf("identity")["IDENTITY_ISSUER_SEED"]).toBe(issuer);
@@ -223,7 +242,7 @@ describe("custos-admin demo", () => {
 
     it("replaces a malformed seed instead of passing it on", async () => {
       const { deps, spawned } = harness({ baseEnv: { IDENTITY_ISSUER_SEED: "not-hex" } });
-      const handle = await startDemo(deps);
+      const handle = await begin(deps);
 
       const identity = spawned.find((s) => s.script.includes("/identity/"))!;
       expect(identity.env["IDENTITY_ISSUER_SEED"]).toMatch(/^[0-9a-f]{64}$/);
@@ -232,7 +251,7 @@ describe("custos-admin demo", () => {
 
     it("never prints a seed, a service key, or the master key", async () => {
       const { deps, lines, spawned } = harness();
-      const handle = await startDemo(deps);
+      const handle = await begin(deps);
 
       const printed = lines.join("\n");
       for (const s of spawned) {
@@ -256,10 +275,10 @@ describe("custos-admin demo", () => {
   describe("demo API keys", () => {
     it("expires them in 12 hours and revokes them on stop", async () => {
       const { deps } = harness();
-      const handle = await startDemo(deps);
+      const handle = await begin(deps);
       const during = (await demoKeys()).filter((k) => k.revokedAt === null);
 
-      expect(during.length).toBeGreaterThanOrEqual(4);
+      expect(during).toHaveLength(4);
       for (const k of during) {
         expect(k.expiresAt.getTime()).toBe(clock.now().getTime() + DEMO_KEY_LIFETIME_MS);
       }
@@ -272,7 +291,7 @@ describe("custos-admin demo", () => {
 
     it("kills every service on stop, and stop is safe to repeat", async () => {
       const { deps, spawned } = harness();
-      const handle = await startDemo(deps);
+      const handle = await begin(deps);
 
       await handle.stop();
       await handle.stop();
@@ -284,25 +303,24 @@ describe("custos-admin demo", () => {
 
   describe("when something is wrong", () => {
     it("refuses to start if a port is taken, before touching anything", async () => {
-      const keysBefore = (await demoKeys()).length;
       const { deps, spawned } = harness({ isPortFree: async (port) => port !== 4002 });
 
-      await expect(startDemo(deps)).rejects.toThrow(/port 4002 already in use/);
+      await expect(begin(deps)).rejects.toThrow(/port 4002 already in use/);
 
       expect(spawned).toEqual([]);
-      expect((await demoKeys()).length).toBe(keysBefore);
+      expect(await demoKeys()).toEqual([]);
     });
 
     it("names every busy port", async () => {
       const { deps } = harness({ isPortFree: async (port) => port > 4004 || port < 4002 });
 
-      await expect(startDemo(deps)).rejects.toThrow(/ports 4002, 4003, 4004 already in use/);
+      await expect(begin(deps)).rejects.toThrow(/ports 4002, 4003, 4004 already in use/);
     });
 
     it("stops everything and says which service failed if one never answers", async () => {
       const { deps, spawned } = harness({ serving: (port) => port !== 4002 });
 
-      await expect(startDemo(deps)).rejects.toThrow(/vault did not start \(port 4002\)/);
+      await expect(begin(deps)).rejects.toThrow(/vault did not start \(port 4002\)/);
 
       expect(spawned.map((s) => s.child.killed)).toEqual([true, true, true, true]);
       expect((await demoKeys()).filter((k) => k.revokedAt === null)).toEqual([]);
@@ -321,13 +339,39 @@ describe("custos-admin demo", () => {
         },
       };
 
-      await expect(startDemo(wrapped)).rejects.toThrow(/identity did not start/);
+      await expect(begin(wrapped)).rejects.toThrow(/identity did not start/);
       expect(spawned.every((s) => s.child.killed)).toBe(true);
+    });
+
+    it("still shuts down when the demo keys cannot be revoked", async () => {
+      const { deps, spawned, lines } = harness();
+      const handle = await begin({
+        ...deps,
+        store: {
+          ...store,
+          create: store.create,
+          revoke: async () => {
+            throw new Error("database gone");
+          },
+        } as typeof store,
+      });
+
+      await expect(handle.stop()).resolves.toBeUndefined();
+
+      expect(await handle.finished).toBe("stopped");
+      expect(spawned.every((s) => s.child.killed)).toBe(true);
+      expect(lines.join("\n")).toContain("could not revoke the demo keys");
+      // clean up the real rows this test created
+      for (const k of await store.list()) {
+        if (k.name.startsWith("demo-") && !idsBefore.has(k.id)) {
+          await store.revoke(k.id, clock.now());
+        }
+      }
     });
 
     it("shuts the rest down if a service dies after start-up", async () => {
       const { deps, spawned, lines } = harness();
-      const handle = await startDemo(deps);
+      const handle = await begin(deps);
 
       spawned.find((s) => s.script.includes("/vault/"))!.child.exit(137);
 
@@ -347,7 +391,7 @@ describe("custos-admin demo", () => {
             : deps.fetch(input, init)) as typeof fetch,
       };
 
-      await expect(startDemo(failing)).rejects.toThrow(/seeding mock-database failed.*401/);
+      await expect(begin(failing)).rejects.toThrow(/seeding mock-database failed.*401/);
 
       expect(spawned.every((s) => s.child.killed)).toBe(true);
     });
