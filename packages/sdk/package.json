@@ -22,7 +22,7 @@
   "dependencies": {
     "@custos/contracts": "workspace:*",
     "@custos/core": "workspace:*",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@custos/audit": "workspace:*",
