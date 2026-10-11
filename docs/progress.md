@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-11 — Instant revokes stay instant, and keys are locked down on Windows
 
-**Commits:** `5532696`, `271dcf9` and follow-ups on branch `fix/vault-resync-cost`; not yet pushed.
+**Commits:** `5532696`, `271dcf9`, `b985976`, `04ab4fb` on branch `fix/vault-resync-cost`, pushed 2026-10-11 as pull request #65 (open, awaiting CI and review).
 
 **What shipped:** the two small fixes from the previous entry.
 

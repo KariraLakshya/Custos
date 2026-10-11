@@ -20,7 +20,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #62 (threat model + Apache-2.0) merged; repo made public.
 - [x] PR #63 (fail-open revocation fix + tester brief `docs/readme-test.md`) merged 2026-10-08.
 - [x] PR #64 (handover) merged.
-- [ ] **Merge the PR from `fix/vault-resync-cost`** (resync cost + Windows key ACL; commits `5532696`, `271dcf9`; tests green; not yet pushed). Then decide: the stable revocation signing key, and whether to polish before a senior's review (`Next up`).
+- [ ] **Merge PR #65 (`fix/vault-resync-cost`)** (resync cost + Windows key ACL; pushed 2026-10-11; check CI). Then decide: the stable revocation signing key, and whether to polish before a senior's review (`Next up`).
 - [ ] **Phase 5 DONE check:** non-author README run. Pre-run dry run from a fresh clone done 2026-10-08 (found the fix above); brief for the tester in `docs/readme-test.md`.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [ ] **Knowledge graph:** last full refresh **2026-10-11**, after the resync-cost and key-ACL fixes. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
