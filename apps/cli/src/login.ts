@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { restrictToOwner } from "./key-file.js";
 
 /** Where `custos login` keeps the operator key an SSO login issued (ADR 0010). */
 export function defaultOperatorKeyFile(): string {
@@ -95,7 +96,18 @@ export async function login(
         expiresAt: string;
       };
       await mkdir(dirname(options.keyFile), { recursive: true, mode: 0o700 });
-      await writeFile(options.keyFile, `${result.operatorKey}\n`, { mode: 0o600 });
+      // Same Windows gap as agent.key: lock the ACL before the key is written.
+      const file = await open(options.keyFile, "w", 0o600);
+      try {
+        await restrictToOwner(options.keyFile);
+        await file.writeFile(`${result.operatorKey}\n`);
+      } catch (error) {
+        // Leave no empty or half-written key behind.
+        await file.close();
+        await rm(options.keyFile, { force: true });
+        throw error;
+      }
+      await file.close();
       return { name: result.name, expiresAt: result.expiresAt };
     }
     if (polled.status === 401) {

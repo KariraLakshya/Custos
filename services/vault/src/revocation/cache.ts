@@ -128,6 +128,15 @@ function decodeBase58(input: string): Uint8Array {
   return Uint8Array.from(bytes.reverse());
 }
 
+/** Signature checks a resync runs before letting other work in (about 3 ms each). */
+const VERIFICATIONS_PER_YIELD = 50;
+
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, i) => byte === b[i]);
+}
+
 export function createRevocationCache(params: {
   readonly issuerDid: string;
   readonly revocationUrl: string;
@@ -149,6 +158,23 @@ export function createRevocationCache(params: {
   let freshAsOf: Date | null = null;
   const resolveIssuerKey = createIssuerKeyResolver({ issuerDid, fetchImpl, timeoutMs });
 
+  // Tombstones whose signature has already been checked, keyed on the exact
+  // string, valid only for the key that checked them. The resync re-fetches
+  // the whole (ever-growing) list, and this keeps it from re-verifying
+  // entries it has already proven. It only ever skips work for a string that
+  // verified before; it never admits one that did not.
+  const verifiedAgents = new Map<string, string>();
+  let verifiedUnder: Uint8Array | null = null;
+  let verifications = 0;
+
+  function memoFor(publicKey: Uint8Array): Map<string, string> {
+    if (verifiedUnder === null || !sameBytes(verifiedUnder, publicKey)) {
+      verifiedAgents.clear();
+      verifiedUnder = publicKey;
+    }
+    return verifiedAgents;
+  }
+
   async function apply(
     tombstone: string,
     now: Date,
@@ -157,18 +183,27 @@ export function createRevocationCache(params: {
     const publicKey = await resolveIssuerKey.current(now);
     if (!publicKey.ok) return publicKey;
 
-    let verified = verifyRevocationTombstone({ tombstone, publicKey: publicKey.value });
-    if (!verified.ok) {
-      // The issuer may have rotated its key since it was cached: re-resolve
-      // once and retry before rejecting.
-      const refreshed = await resolveIssuerKey.refresh(now);
-      if (refreshed) verified = verifyRevocationTombstone({ tombstone, publicKey: refreshed });
-    }
-    if (!verified.ok) {
-      return err({ code: "INVALID_TOMBSTONE", reason: verified.error.code });
+    let agentDid = memoFor(publicKey.value).get(tombstone);
+    if (agentDid === undefined) {
+      verifications += 1;
+      let verified = verifyRevocationTombstone({ tombstone, publicKey: publicKey.value });
+      let keyUsed = publicKey.value;
+      if (!verified.ok) {
+        // The issuer may have rotated its key since it was cached: re-resolve
+        // once and retry before rejecting.
+        const refreshed = await resolveIssuerKey.refresh(now);
+        if (refreshed) {
+          keyUsed = refreshed;
+          verified = verifyRevocationTombstone({ tombstone, publicKey: refreshed });
+        }
+      }
+      if (!verified.ok) {
+        return err({ code: "INVALID_TOMBSTONE", reason: verified.error.code });
+      }
+      agentDid = verified.value.agentDid;
+      memoFor(keyUsed).set(tombstone, agentDid);
     }
 
-    const { agentDid } = verified.value;
     const isNew = !revoked.has(agentDid);
     revoked.add(agentDid);
     if (markFresh) freshAsOf = now;
@@ -214,7 +249,15 @@ export function createRevocationCache(params: {
       }
 
       let unverifiable: AcceptTombstoneError | null = null;
+      let verifiedAtLastYield = verifications;
       for (const tombstone of tombstones) {
+        // Signature checks are synchronous: left alone, a long list holds the
+        // event loop and a pushed tombstone or /call waits behind it. Give
+        // other work a turn every so often.
+        if (verifications - verifiedAtLastYield >= VERIFICATIONS_PER_YIELD) {
+          await yieldToEventLoop();
+          verifiedAtLastYield = verifications;
+        }
         const accepted = await apply(tombstone, now, false);
         if (accepted.ok) continue;
         if (accepted.error.code === "UNVERIFIABLE_ISSUER") return accepted;

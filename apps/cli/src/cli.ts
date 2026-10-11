@@ -2,6 +2,7 @@ import { open, readFile, rm, writeFile } from "node:fs/promises";
 import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
 import { pullAuditLog } from "./audit-log.js";
+import { restrictToOwner } from "./key-file.js";
 import { defaultOperatorKeyFile, findOperatorKey, login } from "./login.js";
 import { loadCredentialFile, verifyCredentialIndependently } from "./verify.js";
 
@@ -102,7 +103,8 @@ export function createCli(): Command {
       const operator = await operatorCustos({ identityUrl: opts.identityUrl });
       // Claim the key file before registering: "wx" fails if it exists, so an
       // existing agent's key is never overwritten, and 0o600 keeps it
-      // owner-only (POSIX; Windows applies its own ACLs instead).
+      // owner-only (POSIX; Windows ignores the mode, so restrictToOwner sets
+      // the ACL, before the key exists to be read).
       let keyFile;
       try {
         keyFile = await open(opts.keyOut, "wx", 0o600);
@@ -113,6 +115,7 @@ export function createCli(): Command {
         throw error;
       }
       try {
+        await restrictToOwner(opts.keyOut);
         const { secretKey, ...agent } = await operator.register();
         await keyFile.writeFile(`${secretKey}\n`);
         await keyFile.close();

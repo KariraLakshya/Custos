@@ -6,6 +6,19 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-11 — Instant revokes stay instant, and keys are locked down on Windows
+
+**Commits:** `5532696`, `271dcf9`, `b985976`, `04ab4fb` on branch `fix/vault-resync-cost`, pushed 2026-10-11 as pull request #65 (open, awaiting CI and review).
+
+**What shipped:** the two small fixes from the previous entry.
+
+- **Revocation stays responsive.** The vault now remembers which revocation notices it has already checked, so its 10-second refresh only checks new ones instead of the whole growing list. Measured on the running system with about a thousand revocations: before, a revocation sent during the vault's start-up check was held for almost two seconds (right at the point where it gives up); after, it goes straight through. When it does have to check many, it pauses every so often so incoming revocations and agent calls are not stuck waiting. It forgets what it checked if the revocation service's signing key changes, so a notice is never trusted without a proper check.
+- **Private keys are locked on Windows.** An agent's key file and the operator's sign-in key are now readable only by the person who created them, even on a second drive. If Windows refuses to apply that, the command fails rather than leave the key exposed.
+
+**Proof:** new automated tests (the three behavioural ones failed before the fix), a test that reads the real Windows permissions back, and the full suite, end-to-end tests, lint and type checks all pass. The scenario was also re-run against the real running services, old code against new.
+
+_Why it matters:_ the "revoked in under a second" promise no longer weakens as revocations accumulate, and other users of the same PC can no longer read an agent's key. An outside reviewer would have found both.
+
 ## 2026-10-11 — Why an instant revoke sometimes isn't instant, and what's next
 
 **Commits:** branch `docs/handover-2026-10-11` (documentation only), pushed 2026-10-11 as pull request #64. The fix for the restart bug (previous entry) reached the main codebase as PR #63.
