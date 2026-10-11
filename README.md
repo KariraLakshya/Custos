@@ -27,6 +27,20 @@ About 10 minutes. By the end you will have registered an agent, watched it be re
 
 Every command runs from the repository root.
 
+### Quick start: one command
+
+If you only want to see Custos working, install and start the databases, then let one command do the rest:
+
+```bash
+pnpm install
+pnpm dev        # Postgres and Redis in Docker; wait a few seconds for Postgres
+pnpm demo       # migrate, build, create keys, start all five services, store the stand-in tools
+```
+
+It prints the dashboard address and your operator key, then keeps running; press Ctrl-C to stop everything. Then follow **step 4** below in a second terminal, in an empty directory. All the keys it generates stay in memory and the database: nothing is written to disk, the API keys expire in 12 hours, and they are revoked when you stop it. Each run uses new keys, so credentials from an earlier run stop verifying.
+
+The numbered steps below do the same thing by hand, one service per terminal. They are what the first-time-reader check (`docs/readme-test.md`) follows.
+
 ### 1. Install, start the databases, build
 
 ```bash

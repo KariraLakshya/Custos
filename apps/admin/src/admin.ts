@@ -28,6 +28,8 @@ export interface AdminDeps {
   readonly store: ApiKeyStore;
   readonly clock: { now(): Date };
   readonly out: (line: string) => void;
+  /** Runs `demo`; supplied by the entry point, which owns processes and signals. */
+  readonly demo?: () => Promise<void>;
 }
 
 /**
@@ -102,6 +104,14 @@ export function createAdminCli(deps: AdminDeps): Command {
     });
 
   program
+    .command("demo")
+    .description("Start all five local services with generated keys and stand-in tools")
+    .action(async () => {
+      if (deps.demo === undefined) throw new Error("the demo is not available here");
+      await deps.demo();
+    });
+
+  program
     .command("dev-keys")
     .description(
       "Create a local development key set: one operator key and the identity, revocation and vault service keys",
@@ -138,7 +148,7 @@ function parseShell(value: string): Shell {
 }
 
 /** Which key each local process needs (ADR 0008 §3, §6). */
-const DEV_KEYS: readonly {
+export const DEV_KEYS: readonly {
   readonly variable: string;
   readonly usedBy: string;
   readonly kind: PrincipalKind;

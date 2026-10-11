@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-12 — One command to run the whole product locally
+
+**Commits:** branch `feat/demo-command`; pull request number in `docs/state.md`. Also: the revocation-key change from yesterday (pull request #67) was merged into the main codebase.
+
+**What shipped:** `pnpm demo`. Before, seeing Custos work meant opening five terminals, pasting keys into each in the right order and generating secrets by hand. Now one command checks the ports are free, builds, creates the keys it needs, starts all five services in order, stores two stand-in tools, and prints where to look and the one key you need. Press Ctrl-C and it stops everything and cancels the keys it created.
+
+**How it stays safe:** the secrets it generates are held in memory and never printed or saved to a file; each service is given only the secrets it needs (the audit service never sees the vault's master key); old settings left in your terminal can't leak in or cause clashes; the keys it creates expire after 12 hours even if it is killed. If any service fails to start, or one dies later, it shuts the rest down rather than leaving a half-working system.
+
+**Proof:** automated tests cover all of that against the real database. The real thing was also run: the whole walkthrough (register an agent, refused before a grant, allowed after, the other tool still refused, revoked and cut off) worked, and killing one service shut the others down with every port freed and every key cancelled. Not tested automatically: pressing Ctrl-C itself.
+
+**Also this week:** all seven waiting dependency updates were refreshed; six pass every check and are ready to merge, one (a bundle of ten developer-tool updates) still fails and needs a look.
+
+_Why it matters:_ this is what a senior engineer or a first customer will try first. It turns "an afternoon of setup" into one command.
+
 ## 2026-10-11 — The revocation service keeps the same signing identity across restarts
 
 **Commits:** branch `feat/revocation-stable-key`, pull request #67 (open, awaiting CI and review); also carries the previous merge's bookkeeping.
