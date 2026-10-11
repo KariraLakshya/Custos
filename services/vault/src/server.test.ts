@@ -184,6 +184,7 @@ async function withPhase3Stack<T>(
   const vaultUrl = `http://127.0.0.1:${ports.vault}`;
 
   const revocationApp: FastifyInstance = await buildRevocationServer({
+    signingKey: testRevocationSigningKey(),
     controlPlaneAuth: controlPlane.guard,
     db: revocationDb,
     serviceKey: revocationServiceKey,
@@ -1025,3 +1026,10 @@ describe("vault control-plane auditing (ADR 0008 §7)", () => {
     expect(JSON.stringify(events)).not.toContain(operatorKey);
   });
 });
+
+function testRevocationSigningKey() {
+  return {
+    keyProvider: createLocalKeyProvider({ importedKeys: { signing: new Uint8Array(32).fill(61) } }),
+    keyId: "signing",
+  };
+}

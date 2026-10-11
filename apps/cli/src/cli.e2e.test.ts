@@ -159,6 +159,7 @@ async function withPhase3Stack<T>(
   const vaultUrl = `http://127.0.0.1:${ports.vault}`;
 
   const revocationApp = await buildRevocationServer({
+    signingKey: testRevocationSigningKey(),
     db: revocationDb,
     controlPlaneAuth: controlPlane.guard,
     serviceKey: revocationServiceKey,
@@ -242,6 +243,7 @@ async function withPhase4Stack<T>(
   await auditApp.listen({ port: ports.audit, host: "127.0.0.1" });
 
   const revocationApp = await buildRevocationServer({
+    signingKey: testRevocationSigningKey(),
     db: revocationDb,
     controlPlaneAuth: controlPlane.guard,
     serviceKey: revocationServiceKey,
@@ -628,3 +630,10 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
     },
   );
 });
+
+function testRevocationSigningKey() {
+  return {
+    keyProvider: createLocalKeyProvider({ importedKeys: { signing: new Uint8Array(32).fill(61) } }),
+    keyId: "signing",
+  };
+}

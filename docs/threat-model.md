@@ -109,7 +109,7 @@ What the controls above **don't** cover, stated so nobody assumes otherwise. Thi
 
 - **The database is trusted.** Anyone who can write to Postgres can create API keys (`custos-admin` works by direct DB access), grant tools, or **edit audit rows**. Audit records are signed when read, not when written, and aren't hash-chained (ADR 0006): a signature proves the audit service served the row, not that the row is unchanged since it was written.
 - **`VAULT_MASTER_KEY`** is one symmetric key for every stored tool credential, held in the vault's environment. No per-tool keys, no rotation (ADR 0004).
-- **Only the issuer key can use KMS.** The vault's token key and the revocation and audit signing keys are in memory and change on restart. That's safe, because tokens live 60 s and audit rows are signed at read time, but those keys aren't in a KMS. `IDENTITY_ISSUER_SEED` (the dev issuer key) is a secret in the environment.
+- **Only the issuer key can use KMS.** The vault's token key and the audit signing key are in memory and change on restart. That's safe, because tokens live 60 s and audit rows are signed at read time, but those keys aren't in a KMS. The revocation signing key survives restarts (ADR 0012) but, like `IDENTITY_ISSUER_SEED` (the dev issuer key), it comes from a seed in the environment, a secret that is not in a KMS.
 - **The dev CA** is generated locally and has no revocation list (CRLs). Short certificate lifetimes bound this (ADR 0009).
 
 **Within the 60 seconds**

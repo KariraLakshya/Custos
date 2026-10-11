@@ -9,7 +9,7 @@ import {
   type ControlPlaneGuard,
   type EnvoyOnlyTlsListener,
 } from "@custos/control-plane-auth";
-import { buildDidWebDocument, createLocalKeyProvider, type KeyProvider } from "@custos/core";
+import { buildDidWebDocument, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -67,17 +67,17 @@ function statusFor(code: string): number {
  * service being reachable — revocation is the emergency path and must not
  * inherit another service's availability.
  *
- * Its signing keypair is generated once per server build via `keyProvider`
- * (the same in-memory dev KMS stand-in identity and vault use) and published
- * at `/.well-known/did.json`, so subscribers can independently verify every
- * tombstone and the status list credential.
+ * `signingKey` is required, with no default: it must outlive the process
+ * (ADR 0012), because subscribers cache its public half. Only the public key
+ * is read here; it is published at `/.well-known/did.json`, so subscribers
+ * can independently verify every tombstone and the status list credential.
  */
 export async function buildServer(options: {
   readonly db: RevocationDb;
   /** Required, no default: allocation and revocation are never open (ADR 0008). */
   readonly controlPlaneAuth: ControlPlaneGuard;
   readonly didDomain?: string;
-  readonly keyProvider?: KeyProvider;
+  readonly signingKey: { readonly keyProvider: KeyProvider; readonly keyId: string };
   readonly broadcaster?: TombstoneBroadcaster;
   readonly subscriberUrls?: readonly string[];
   readonly statusTtlMs?: number;
@@ -103,15 +103,17 @@ export async function buildServer(options: {
     ...(options.serverFactory === undefined ? {} : { serverFactory: options.serverFactory }),
   });
   const { db } = options;
-  const keyProvider = options.keyProvider ?? createLocalKeyProvider();
+  const { keyProvider, keyId } = options.signingKey;
   const domain = options.didDomain ?? "localhost:4003";
   const clock = options.clock ?? { now: () => new Date() };
   const broadcaster =
     options.broadcaster ?? createHttpBroadcaster({ subscriberUrls: options.subscriberUrls ?? [] });
   const auditReporter = options.auditReporter ?? defaultAuditReporter(options, app);
 
-  const { keyId, publicKey } = await keyProvider.createKeyPair();
-  const didDocument = buildDidWebDocument({ domain, publicKey });
+  const didDocument = buildDidWebDocument({
+    domain,
+    publicKey: await keyProvider.getPublicKey(keyId),
+  });
   const serviceDid = didDocument.id;
   const verificationMethodId = didDocument.verificationMethod[0].id;
   const statusListCredentialUrl = `${
