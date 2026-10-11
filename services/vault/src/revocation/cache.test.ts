@@ -5,8 +5,28 @@ import {
   sign,
   type DidWebDocument,
 } from "@custos/core";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createRevocationCache } from "./cache.js";
+
+// Wraps the real verifier so tests can count signature checks and observe
+// when they happen. Behaviour is unchanged.
+const verifySpy = vi.hoisted(() => ({ calls: [] as string[], onCall: (): void => undefined }));
+vi.mock("@custos/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@custos/core")>();
+  return {
+    ...actual,
+    verifyRevocationTombstone: (...args: Parameters<typeof actual.verifyRevocationTombstone>) => {
+      verifySpy.calls.push(args[0].tombstone);
+      verifySpy.onCall();
+      return actual.verifyRevocationTombstone(...args);
+    },
+  };
+});
+
+beforeEach(() => {
+  verifySpy.calls.length = 0;
+  verifySpy.onCall = (): void => undefined;
+});
 
 const ISSUER_DID = "did:web:127.0.0.1%3A4503";
 const ISSUER_DID_URL = "http://127.0.0.1:4503/.well-known/did.json";
@@ -353,6 +373,137 @@ describe("revocation cache", () => {
       expect((await cache.resync(later)).ok).toBe(false);
 
       expect(cache.isStale(later)).toBe(true);
+    });
+  });
+
+  // The resync re-fetches the whole list every few seconds and the list only
+  // grows. Verifying all of it each time blocked the event loop for seconds,
+  // so a pushed tombstone timed out (`delivered: 0`).
+  describe("resync cost", () => {
+    it("verifies a tombstone it has already verified only once", async () => {
+      const { didDocument, signer } = issuer();
+      const tombstones = [
+        await tombstoneFor(signer, AGENT, 1),
+        await tombstoneFor(signer, OTHER_AGENT, 2),
+      ];
+      const cache = cacheWith(fetchServing(didDocument, tombstones));
+
+      expect((await cache.resync(NOW)).ok).toBe(true);
+      expect(verifySpy.calls).toHaveLength(2);
+
+      const later = new Date(NOW.getTime() + 10_000);
+      expect((await cache.resync(later)).ok).toBe(true);
+
+      expect(verifySpy.calls).toHaveLength(2);
+      expect(cache.isRevoked(AGENT)).toBe(true);
+      expect(cache.isStale(later)).toBe(false);
+    });
+
+    it("verifies only the new entries on a later resync", async () => {
+      const { didDocument, signer } = issuer();
+      const first = await tombstoneFor(signer, AGENT, 1);
+      let tombstones = [first];
+      const cache = cacheWith(
+        vi.fn(async (url: string | URL) =>
+          String(url) === ISSUER_DID_URL
+            ? Response.json(didDocument)
+            : Response.json({ tombstones, asOf: NOW.toISOString() }),
+        ),
+      );
+      await cache.resync(NOW);
+
+      const second = await tombstoneFor(signer, OTHER_AGENT, 2);
+      tombstones = [first, second];
+      await cache.resync(new Date(NOW.getTime() + 10_000));
+
+      expect(verifySpy.calls).toEqual([first, second]);
+      expect(cache.isRevoked(OTHER_AGENT)).toBe(true);
+    });
+
+    it("still rejects a forged entry among already-verified ones", async () => {
+      const { didDocument, signer } = issuer();
+      const impostor = issuer();
+      const good = await tombstoneFor(signer, AGENT, 1);
+      let tombstones = [good];
+      const cache = cacheWith(
+        vi.fn(async (url: string | URL) =>
+          String(url) === ISSUER_DID_URL
+            ? Response.json(didDocument)
+            : Response.json({ tombstones, asOf: NOW.toISOString() }),
+        ),
+      );
+      await cache.resync(NOW);
+
+      tombstones = [good, await tombstoneFor(impostor.signer, OTHER_AGENT, 2)];
+      const later = new Date(NOW.getTime() + 31_000);
+      const result = await cache.resync(later);
+
+      expect(result.ok).toBe(false);
+      expect(cache.isRevoked(OTHER_AGENT)).toBe(false);
+      expect(cache.isStale(later)).toBe(true);
+    });
+
+    it("forgets what it verified when the issuer's key changes", async () => {
+      const before = issuer();
+      const old = await tombstoneFor(before.signer, AGENT, 1);
+      let state = { didDocument: before.didDocument, tombstones: [old] };
+      const cache = cacheWith(
+        vi.fn(async (url: string | URL) =>
+          String(url) === ISSUER_DID_URL
+            ? Response.json(state.didDocument)
+            : Response.json({ tombstones: state.tombstones, asOf: NOW.toISOString() }),
+        ),
+      );
+      expect((await cache.resync(NOW)).ok).toBe(true);
+
+      // New key. The first resync after it applies the old entry from memory
+      // and only then meets a tombstone the old key cannot explain.
+      const after = issuer();
+      state = {
+        didDocument: after.didDocument,
+        tombstones: [old, await tombstoneFor(after.signer, OTHER_AGENT, 2)],
+      };
+      const t1 = new Date(NOW.getTime() + 10_000);
+      expect((await cache.resync(t1)).ok).toBe(true);
+
+      // By the next resync the memory is gone: the old key's entry is checked
+      // against the new key and fails, so the cache does not count as fresh.
+      const t2 = new Date(NOW.getTime() + 20_000);
+      const result = await cache.resync(t2);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("INVALID_TOMBSTONE");
+    });
+
+    it("lets pushes and requests run during a resync of a long list", async () => {
+      const { didDocument, signer } = issuer();
+      const tombstones: string[] = [];
+      for (let i = 0; i < 200; i += 1) {
+        tombstones.push(
+          await tombstoneFor(
+            signer,
+            `did:web:127.0.0.1%3A4001:agents:00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+            i,
+          ),
+        );
+      }
+      const cache = cacheWith(fetchServing(didDocument, tombstones));
+
+      // A macrotask stands in for an incoming push or /call. It can only run
+      // if the resync gives the event loop a turn.
+      let ran = false;
+      setImmediate(() => {
+        ran = true;
+      });
+      let ranBeforeLastVerify = false;
+      verifySpy.onCall = () => {
+        if (verifySpy.calls.length === tombstones.length) ranBeforeLastVerify = ran;
+      };
+
+      const result = await cache.resync(NOW);
+
+      expect(result.ok).toBe(true);
+      expect(verifySpy.calls).toHaveLength(200);
+      expect(ranBeforeLastVerify).toBe(true);
     });
   });
 
