@@ -19,7 +19,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #61 (operator SSO, ADR 0010) merged 2026-10-07.
 - [x] PR #62 (threat model + Apache-2.0) merged; repo made public.
 - [x] PR #63 (fail-open revocation fix + tester brief `docs/readme-test.md`) merged 2026-10-08.
-- [ ] **Decision pending from the user — ask before starting work** (options and trade-offs under "Next up"): (a) the resync-cost fixes, (b) the Windows `agent.key` fix, (c) whether to polish before a senior's review.
+- [ ] **Merge PR #64** (this handover). Then: **Decision pending from the user — ask before starting work** (options and trade-offs under "Next up"): (a) the resync-cost fixes, (b) the Windows `agent.key` fix, (c) whether to polish before a senior's review.
 - [ ] **Phase 5 DONE check:** non-author README run. Pre-run dry run from a fresh clone done 2026-10-08 (found the fix above); brief for the tester in `docs/readme-test.md`.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [ ] **Knowledge graph:** last full refresh **2026-10-08**, after the vault revocation fix (no code change since). If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
