@@ -9,7 +9,7 @@ export interface OwnerOnlyDeps {
   readonly run?: (file: string, args: readonly string[]) => Promise<string>;
 }
 
-async function runCommand(file: string, args: readonly string[]): Promise<string> {
+export async function runCommand(file: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync(file, [...args], { windowsHide: true });
   return stdout;
 }

@@ -4,9 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { restrictToOwner } from "./key-file.js";
+import { restrictToOwner, runCommand } from "./key-file.js";
 
 const execFileAsync = promisify(execFile);
+
+describe("runCommand", () => {
+  // The default runner behind restrictToOwner, exercised on every platform.
+  it("returns what the command prints", async () => {
+    expect(await runCommand(process.execPath, ["-e", "process.stdout.write('ok')"])).toBe("ok");
+  });
+
+  it("rejects when the command fails", async () => {
+    await expect(runCommand(process.execPath, ["-e", "process.exit(3)"])).rejects.toThrow();
+  });
+});
 
 describe("restrictToOwner", () => {
   it("does nothing off Windows, where the 0o600 open mode already applies", async () => {
