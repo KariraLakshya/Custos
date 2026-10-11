@@ -52,7 +52,7 @@ const KEY_REFRESH_MIN_INTERVAL_MS = 5_000;
  * any agent.
  *
  * `refresh` re-resolves after the key may have rotated (the revocation
- * service's key changes on restart). Trust is unchanged: the key still comes
+ * service's key changes when its seed does, ADR 0012). Trust is unchanged: the key still comes
  * only from the issuer's own did:web URL. Rate-limited, see above.
  */
 function createIssuerKeyResolver(params: {

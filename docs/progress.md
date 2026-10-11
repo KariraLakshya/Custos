@@ -16,7 +16,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **Caveats:** the seed is a secret kept in the environment, the same stage as the identity service's dev key; moving it into AWS KMS is later work. Anyone starting revocation by hand now has to set the seed (the README says how). Changing the seed is a deliberate key change, and everything listening re-checks once.
 
-_Why it matters:_ restarting the revocation service no longer makes the rest of the system redo work proportional to every revocation ever made, and it closes the gap that caused the bug found on 2026-10-08.
+_Why it matters:_ restarting the revocation service no longer makes the rest of the system redo work proportional to every revocation ever made, and it removes the everyday trigger for the bug found on 2026-10-08. The vault's check-the-key-again safeguard from that fix stays, because it still protects against a deliberate seed change.
 
 ## 2026-10-11 — Instant revokes stay instant, and keys are locked down on Windows
 
