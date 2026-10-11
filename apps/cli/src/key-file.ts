@@ -31,8 +31,12 @@ export async function restrictToOwner(path: string, deps: OwnerOnlyDeps = {}): P
   // System32 binaries by absolute path, so a lookalike earlier on PATH cannot
   // stand in (Git for Windows ships its own `whoami`, which prints no domain).
   const system32 = join(process.env["SystemRoot"] ?? "C:\\Windows", "System32");
-  // `whoami` gives DOMAIN\user, the form icacls accepts for local and domain accounts.
-  const user = (await run(join(system32, "whoami.exe"), [])).trim();
-  if (user === "") throw new Error(`cannot restrict ${path}: unable to determine current user`);
-  await run(join(system32, "icacls.exe"), [path, "/inheritance:r", "/grant:r", `${user}:F`]);
+  // Granted by SID: account names icacls cannot resolve (some Azure AD names)
+  // would otherwise make registering fail. CSV row: "DOMAIN\user","S-1-5-...".
+  const row = await run(join(system32, "whoami.exe"), ["/user", "/fo", "csv", "/nh"]);
+  const sid = /"(S-1-[0-9-]+)"/.exec(row)?.[1];
+  if (sid === undefined) {
+    throw new Error(`cannot restrict ${path}: unable to determine current user`);
+  }
+  await run(join(system32, "icacls.exe"), [path, "/inheritance:r", "/grant:r", `*${sid}:F`]);
 }

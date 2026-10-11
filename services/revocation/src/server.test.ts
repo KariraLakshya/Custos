@@ -283,6 +283,54 @@ describe("revocation service", () => {
       });
       expect(dids).toContain(`did:web:127.0.0.1%3A4501:agents:${agentId}`);
     });
+
+    // The vault remembers tombstones it has verified, keyed on the exact string.
+    // That only saves work if the same revocation is served as the same string
+    // every time, so nothing set at signing time may enter the envelope.
+    it("serves a given revocation as the same string on every call", async () => {
+      const app = await buildTestServer();
+      const first = randomUUID();
+      await allocate(app, first);
+      await app.inject({
+        method: "POST",
+        url: "/revocations",
+        headers: bearer(operatorKey),
+        payload: { agentId: first },
+      });
+      // The database is shared with other test files, so look only at the
+      // tombstones for the agents this test revoked.
+      const ours = async (...ids: string[]): Promise<string[]> => {
+        const { tombstones } = (
+          await app.inject({ method: "GET", url: "/revocations" })
+        ).json() as {
+          tombstones: string[];
+        };
+        return tombstones.filter((tombstone) =>
+          ids.some((id) =>
+            Buffer.from(tombstone.split(".")[0] ?? "", "base64url")
+              .toString()
+              .includes(id),
+          ),
+        );
+      };
+
+      const before = await ours(first);
+      expect(before).toHaveLength(1);
+      expect(await ours(first)).toEqual(before);
+
+      const second = randomUUID();
+      await allocate(app, second);
+      await app.inject({
+        method: "POST",
+        url: "/revocations",
+        headers: bearer(operatorKey),
+        payload: { agentId: second },
+      });
+
+      const after = await ours(first, second);
+      expect(after).toHaveLength(2);
+      expect(after).toContain(before[0]);
+    });
   });
 
   describe("published status list credential", () => {

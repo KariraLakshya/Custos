@@ -27,15 +27,16 @@ describe("restrictToOwner", () => {
       platform: "win32",
       run: async (file, args) => {
         calls.push([file, args]);
-        return file.endsWith("whoami.exe") ? "HOST\\alice\r\n" : "";
+        return file.endsWith("whoami.exe") ? '"HOST\\alice","S-1-5-21-1-2-3-1001"\r\n' : "";
       },
     });
+    expect(calls[0]?.[1]).toEqual(["/user", "/fo", "csv", "/nh"]);
     expect(calls[1]?.[0]).toMatch(/System32.icacls\.exe$/);
     expect(calls[1]?.[1]).toEqual([
       "C:\\keys\\agent.key",
       "/inheritance:r",
       "/grant:r",
-      "HOST\\alice:F",
+      "*S-1-5-21-1-2-3-1001:F",
     ]);
   });
 
@@ -45,7 +46,7 @@ describe("restrictToOwner", () => {
         platform: "win32",
         run: async (file) => {
           if (file.endsWith("icacls.exe")) throw new Error("Access is denied");
-          return "HOST\\alice";
+          return '"HOST\\alice","S-1-5-21-1-2-3-1001"';
         },
       }),
     ).rejects.toThrow("Access is denied");
@@ -69,7 +70,8 @@ describe("restrictToOwner", () => {
 
     it("leaves the current user as the only principal in the ACL", async () => {
       const file = join(dir, "agent.key");
-      await (await open(file, "wx", 0o600)).close();
+      // Held open while restricted, as `register` does.
+      const handle = await open(file, "wx", 0o600);
 
       const system32 = join(process.env["SystemRoot"] ?? "C:\\Windows", "System32");
       const icacls = join(system32, "icacls.exe");
@@ -79,6 +81,8 @@ describe("restrictToOwner", () => {
       expect(before).toMatch(/SYSTEM|Administrators/);
 
       await restrictToOwner(file);
+      await handle.writeFile("secret\n");
+      await handle.close();
 
       const { stdout: me } = await execFileAsync(join(system32, "whoami.exe"));
       const { stdout: acl } = await execFileAsync(icacls, [file]);

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, open, readFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { restrictToOwner } from "./key-file.js";
@@ -101,9 +101,13 @@ export async function login(
       try {
         await restrictToOwner(options.keyFile);
         await file.writeFile(`${result.operatorKey}\n`);
-      } finally {
+      } catch (error) {
+        // Leave no empty or half-written key behind.
         await file.close();
+        await rm(options.keyFile, { force: true });
+        throw error;
       }
+      await file.close();
       return { name: result.name, expiresAt: result.expiresAt };
     }
     if (polled.status === 401) {
