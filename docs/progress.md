@@ -6,6 +6,19 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-11 — Instant revokes stay instant, and keys are locked down on Windows
+
+**Commits:** `5532696` and `271dcf9` on branch `fix/vault-resync-cost`; not yet pushed.
+
+**What shipped:** the two small fixes from the previous entry.
+
+- **Revocation stays responsive.** The vault now remembers which revocation notices it has already checked, so its 10-second refresh only checks new ones instead of the whole growing list (about a second down to about a millisecond). When it does have to check many, it pauses every so often so incoming revocations and agent calls are not stuck waiting. It forgets what it checked if the revocation service's signing key changes, so a notice is never trusted without a proper check.
+- **Private keys are locked on Windows.** An agent's key file and the operator's sign-in key are now readable only by the person who created them, even on a second drive. If Windows refuses to apply that, the command fails rather than leave the key exposed.
+
+**Proof:** new automated tests (the three behavioural ones failed before the fix), a test that reads the real Windows permissions back, and the full suite, end-to-end tests, lint and type checks all pass. Not yet re-done: the original "revoke at several hundred entries" scenario against the live running system.
+
+_Why it matters:_ the "revoked in under a second" promise no longer weakens as revocations accumulate, and other users of the same PC can no longer read an agent's key. An outside reviewer would have found both.
+
 ## 2026-10-11 — Why an instant revoke sometimes isn't instant, and what's next
 
 **Commits:** branch `docs/handover-2026-10-11` (documentation only), pushed 2026-10-11 as pull request #64. The fix for the restart bug (previous entry) reached the main codebase as PR #63.

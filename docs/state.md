@@ -19,7 +19,8 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #61 (operator SSO, ADR 0010) merged 2026-10-07.
 - [x] PR #62 (threat model + Apache-2.0) merged; repo made public.
 - [x] PR #63 (fail-open revocation fix + tester brief `docs/readme-test.md`) merged 2026-10-08.
-- [ ] **Merge PR #64** (this handover). Then: **Decision pending from the user — ask before starting work** (options and trade-offs under "Next up"): (a) the resync-cost fixes, (b) the Windows `agent.key` fix, (c) whether to polish before a senior's review.
+- [x] PR #64 (handover) merged.
+- [ ] **Merge the PR from `fix/vault-resync-cost`** (resync cost + Windows key ACL; commits `5532696`, `271dcf9`; tests green; not yet pushed). Then decide: the stable revocation signing key, and whether to polish before a senior's review (`Next up`).
 - [ ] **Phase 5 DONE check:** non-author README run. Pre-run dry run from a fresh clone done 2026-10-08 (found the fix above); brief for the tester in `docs/readme-test.md`.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [ ] **Knowledge graph:** last full refresh **2026-10-08**, after the vault revocation fix (no code change since). If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
@@ -50,7 +51,7 @@ Keep this to what the next session must act on before anything else. Clear items
 
 ## In progress / not yet merged
 
-- **`fix/vault-revocation-key-rotation`**: fail-open revocation fix + README tester brief.
+- **`fix/vault-resync-cost`**: the two fixes below, one PR. Vault `revocation/cache.ts` remembers verified tombstones (exact string, per issuer key; cleared when the key changes) and yields to the event loop every 50 signature checks in a resync. `apps/cli/src/key-file.ts` `restrictToOwner` sets an owner-only ACL (`icacls`, System32 binaries by absolute path) on `agent.key` and the `custos login` operator key before the secret is written; fails closed. Proof: `cache.test.ts` "resync cost" (5 tests), `key-file.test.ts` (reads the real ACL back; mutation-checked); full `pnpm test`, `pnpm test:e2e`, lint and typecheck pass. **Not measured live:** the `delivered: 0` reproduction (~360+ tombstones) was not re-run against the real stack.
 - **ADR 0008 decisions:** all four accepted (2026-10-01/02): (1) identity `POST /agents` requires an operator key (`agents:register`); (2) service keys for audit `POST /records` (`audit:write`) and revocation `POST /agents` (`status:allocate`); (3) audit `GET /records` stays open until dashboard SSO adds `audit:read`; (4) one shared `api_keys` table via `packages/control-plane-auth`.
 
 **Ideas to discuss with the user (raised 2026-10-02, not approved, don't build):**
@@ -62,22 +63,15 @@ Carried over, unconfirmed: **8 dependabot PRs** were outstanding as of Phase 2's
 
 ## Next up
 
-Options were presented to the user on 2026-10-11; **no choice made yet — ask which to do.**
+Resync cost and the Windows key ACL are in `fix/vault-resync-cost` (see "In progress"). Remaining:
 
-1. **Resync cost (see Known issues, "`delivered: 0`").** Recommended, one small PR:
-   - _Fix 1:_ remember already-verified tombstones (keyed on the exact tombstone string + issuer key) so a resync verifies only new ones. ~1 s → ~1 ms. Safe: the cache only ever adds revocations.
-   - _Fix 2:_ in the resync loop, yield to the event loop every ~50 verifications, so pushes and `/call` aren't blocked during a full re-verify (after a key rotation).
-   - Proof wanted: a test with a large tombstone list where a push still lands well inside the 2 s broadcast timeout during a resync.
-2. **Windows `agent.key` ACL (see Known issues).** CLI on win32: strip inherited ACEs and grant only the current user (`icacls`); test checks the real ACL. Can ride in the same PR as 1.
-3. **Fix 3b, later, needs its own ADR:** resync against the Bitstring Status List (one signature for everyone, ADR 0005's design). Credentials already carry `statusListIndex`; missing: index in the scoped token (changes ADR 0003's format), index→DID mapping for connector fan-out, fail-closed handling for tokens issued before a vault restart, caching the signed list in `revocation`. Fix 3a ("only new since X") was judged weaker.
-4. **Senior review handover.** User wants to show the project to a senior. Option A (send now, framed as early-stage, rough edges listed) vs. option B (~1 day: items 1–2, a single `pnpm demo` command that starts all five services with generated keys, clear the 7 open Dependabot PRs). Not a standalone CLI yet: `@custos/cli` is `private`, runs as `node apps/cli/dist/bin.js`, and needs Docker + 5 services.
-5. **Phase 5 DONE check:** hand `docs/readme-test.md` to a tester who has never seen the repo (user must find one; different OS than Windows preferred). Then Phase 6.
-6. Keep `docs/threat-model.md` §5 in step with the known issues below when either changes.
+1. **Stable revocation signing key** (like identity's, ADR 0007): the revocation key is in memory and changes on every restart, which still forces a full re-verify. Small, no token-format change. Recommended before Fix 3b.
+2. **Fix 3b, later, needs its own ADR:** resync against the Bitstring Status List (one signature for everyone, ADR 0005's design). Credentials already carry `statusListIndex`; missing: index in the scoped token (changes ADR 0003's format), index→DID mapping for connector fan-out, fail-closed handling for tokens issued before a vault restart, caching the signed list in `revocation`. Fix 3a ("only new since X") was judged weaker.
+3. **Senior review handover.** User wants to show the project to a senior. Option A (send now, framed as early-stage, rough edges listed) vs. option B (~1 day: items 1–2, a single `pnpm demo` command that starts all five services with generated keys, clear the 7 open Dependabot PRs). Not a standalone CLI yet: `@custos/cli` is `private`, runs as `node apps/cli/dist/bin.js`, and needs Docker + 5 services.
+4. **Phase 5 DONE check:** hand `docs/readme-test.md` to a tester who has never seen the repo (user must find one; different OS than Windows preferred). Then Phase 6.
+5. Keep `docs/threat-model.md` §5 in step with the known issues below when either changes.
 
 ## Known issues, debt, and deviations
-
-- **Revocation push can report `"delivered": 0` (root-caused 2026-10-11, not fixed).** The vault's periodic resync (every 10 s, `services/vault/src/revocation/cache.ts`) re-fetches the whole `GET /revocations` list and re-verifies every tombstone synchronously, blocking the event loop (~3 ms each; ~1 s at ~360 tombstones; revocation also spends ~250 ms re-signing the list). A push landing during it waits; the revocation service's broadcaster times out at 2 s → `delivered: 0`. Reproduced: per-resync stall grew 1.4 → 2.4 s as the list grew, then `aborted due to timeout`. Enforcement still held (next resync applies it); only the instant push fails. Grows with every revocation ever made (never pruned); `/call` very likely stalls too (inferred, not measured). Fixes: "Next up" item 1. The dev DB now holds ~1,000+ throwaway probe revocations from this investigation.
-- **Windows: `agent.key` isn't owner-only on non-system drives.** `apps/cli` writes it with mode `0o600`, which Windows ignores; the file inherits its folder's ACL. Measured with `icacls`: on `E:\` that grants `Authenticated Users` Modify. (Git Bash `ls -l` shows invented bits; don't use it to check.) Under the user profile it's narrower. Fix: "Next up" item 2.
 
 - **pnpm overrides for advisories published after 2026-10-03 (both patched upstream):** `shell-quote` → `^1.11.0` (GHSA-pqg4-j6r4-53mv, critical, command injection in `quote()`; arrives via `gel`, an optional peer that `drizzle-orm` pulls in, never called by Custos) and `source-map-js` → `^1.2.2` (GHSA-68fv-2mgg-jv7q, high, DoS; dev only via Vite/PostCSS). Version-ranged like the existing overrides, so they become no-ops once parents upgrade; prune them then.
 - **`pnpm audit` ignores GHSA-vfj7-8cjw-p6xm** (`braces` <= 3.0.3, high, stack exhaustion via deeply nested patterns; published 2026-10-03 with **no patched version**). Decided by the user 2026-10-03, as the narrowest option, in `package.json` `pnpm.auditConfig.ignoreGhsas`. Why it's safe for now: `pnpm audit --prod` is clean; `braces` reaches only dev tooling (Changesets, ESLint, Vitest, via `micromatch`), and only our own glob patterns are passed to it. **Remove the ignore as soon as a patched `braces` ships** (then `pnpm update` or override). Every other advisory still fails CI.
