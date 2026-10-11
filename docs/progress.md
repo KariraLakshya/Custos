@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-11 — The revocation service keeps the same signing identity across restarts
 
-**Commits:** branch `feat/revocation-stable-key`, pull request open (number in `docs/state.md`).
+**Commits:** branch `feat/revocation-stable-key`, pull request #67 (open, awaiting CI and review); also carries the previous merge's bookkeeping.
 
 **What shipped:** the service that signs "this agent is revoked" notices used to invent a brand-new signing key every time it started. Everything that listens to it (the vault, any outside checker) remembers its key, so each restart forced them to throw that memory away and re-check every revocation ever issued. Now the service is given a secret seed at start-up and always derives the same key from it. It refuses to start without one, rather than quietly falling back to a throwaway key.
 

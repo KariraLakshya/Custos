@@ -1,6 +1,6 @@
 # 0012: The revocation signing key survives restarts
 
-**Status:** Proposed 2026-10-11; accepted on merge of the pull request that introduces it.
+**Status:** Proposed 2026-10-11; accepted on merge of PR #67.
 
 ## Context
 
