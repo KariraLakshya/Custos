@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-11 — Why an instant revoke sometimes isn't instant, and what's next
+
+**Commits:** branch `docs/handover-2026-10-11` (documentation only), pushed 2026-10-11 as pull request #64. The fix for the restart bug (previous entry) reached the main codebase as PR #63.
+
+**What we found:** during the dry run, one revoke reported that the instant "this agent is revoked" notice wasn't delivered, though the agent was still blocked a few seconds later. We traced it. Every 10 seconds the vault re-reads the entire list of revoked agents and re-checks the signature on every entry, and while it does that it can't answer anything else. With a few hundred revocations that takes about a second; as the list grew in testing, it passed two seconds, and the instant notice gave up waiting. Security held throughout (the agent was always blocked within about 10 seconds), but the "instant" part of the promise degrades as revocations pile up.
+
+**Also found:** on Windows, an agent's private key file can be readable by other users of the same PC when the project sits on a second drive (like `E:`). Linux and macOS already lock it down.
+
+**What's decided and what isn't:** the fixes are designed and small: stop re-checking entries already checked, let the vault keep answering during long checks, and lock the key file on Windows. A bigger, standards-based redesign (checking one signed page for everyone) is planned for later with its own design record. Nothing is built yet; the next session starts by choosing which to do, and whether to polish the setup into a single command before showing Custos to a senior engineer.
+
+_Why it matters:_ these are exactly the problems an outside reviewer or early customer would hit. Finding them in our own testing, with the cause measured rather than guessed, means they can be fixed before anyone else sees them.
+
 ## 2026-10-08 — A security bug found and fixed before the first outside tester
 
 **Commits:** `0227ec8` on branch `fix/vault-revocation-key-rotation`, pushed 2026-10-08 with pull request #63 open.
