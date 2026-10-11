@@ -12,6 +12,7 @@ import type { AuditEvent, AuditReporter } from "@custos/audit-client";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "./db/client.js";
+import { createSigningKey } from "./keys/signing-key.js";
 import { buildServer } from "./server.js";
 import type { BroadcastOutcome, TombstoneBroadcaster } from "./broadcast.js";
 
@@ -74,9 +75,13 @@ function decodeBase58(input: string): Uint8Array {
   return Uint8Array.from(bytes.reverse());
 }
 
+const seedHex = (fill: number): string => Buffer.alloc(32, fill).toString("hex");
+const testSigningKey = (fill = 7) => createSigningKey({ REVOCATION_SIGNING_SEED: seedHex(fill) });
+
 async function buildTestServer(broadcaster?: TombstoneBroadcaster, auditReporter?: AuditReporter) {
   return buildServer({
     db,
+    signingKey: testSigningKey(),
     auditReporter: auditReporter ?? { report: () => {} },
     controlPlaneAuth: controlPlane.guard,
     didDomain: "127.0.0.1:4503",
@@ -333,6 +338,77 @@ describe("revocation service", () => {
     });
   });
 
+  // ADR 0012: the key survives a restart. Each server below is built from its
+  // own derivation, the way two process starts would be, never a shared object.
+  describe("signing key survives a restart", () => {
+    const build = (fill: number) =>
+      buildServer({
+        db,
+        signingKey: testSigningKey(fill),
+        auditReporter: { report: () => {} },
+        controlPlaneAuth: controlPlane.guard,
+        didDomain: "127.0.0.1:4503",
+        clock: fixedClock("2026-09-07T10:00:00.000Z"),
+      });
+    const didKey = async (app: Awaited<ReturnType<typeof build>>): Promise<string> =>
+      ((await app.inject({ method: "GET", url: "/.well-known/did.json" })).json() as DidWebDocument)
+        .verificationMethod[0].publicKeyMultibase;
+    const tombstonesFor = async (
+      app: Awaited<ReturnType<typeof build>>,
+      agentId: string,
+    ): Promise<string[]> => {
+      const { tombstones } = (await app.inject({ method: "GET", url: "/revocations" })).json() as {
+        tombstones: string[];
+      };
+      return tombstones.filter((t) =>
+        Buffer.from(t.split(".")[0] ?? "", "base64url")
+          .toString()
+          .includes(agentId),
+      );
+    };
+
+    it("publishes the same key and serves identical tombstones after a restart", async () => {
+      const agentId = randomUUID();
+      const before = await build(7);
+      await allocate(before, agentId);
+      await before.inject({
+        method: "POST",
+        url: "/revocations",
+        headers: bearer(operatorKey),
+        payload: { agentId },
+      });
+
+      const after = await build(7);
+
+      expect(await didKey(after)).toBe(await didKey(before));
+      const tombstones = await tombstonesFor(after, agentId);
+      expect(tombstones).toHaveLength(1);
+      expect(tombstones).toEqual(await tombstonesFor(before, agentId));
+      const publicKey = publicKeyFrom(
+        (
+          await after.inject({ method: "GET", url: "/.well-known/did.json" })
+        ).json() as DidWebDocument,
+      );
+      expect(verifyRevocationTombstone({ tombstone: tombstones[0]!, publicKey }).ok).toBe(true);
+    });
+
+    it("publishes a different key, and different signatures, for a different seed", async () => {
+      const agentId = randomUUID();
+      const first = await build(7);
+      await allocate(first, agentId);
+      await first.inject({
+        method: "POST",
+        url: "/revocations",
+        headers: bearer(operatorKey),
+        payload: { agentId },
+      });
+      const other = await build(8);
+
+      expect(await didKey(other)).not.toBe(await didKey(first));
+      expect(await tombstonesFor(other, agentId)).not.toEqual(await tombstonesFor(first, agentId));
+    });
+  });
+
   describe("published status list credential", () => {
     it("is independently verifiable and records exactly who was revoked", async () => {
       const app = await buildTestServer();
@@ -375,6 +451,7 @@ describe("revocation service", () => {
     it("publishes an explicit staleness bound when configured", async () => {
       const app = await buildServer({
         db,
+        signingKey: testSigningKey(),
         auditReporter: { report: () => {} },
         controlPlaneAuth: controlPlane.guard,
         didDomain: "127.0.0.1:4503",
@@ -501,8 +578,8 @@ describe("revocation control-plane auditing (ADR 0008 §7)", () => {
   });
 
   it("refuses to build without a service key when no audit reporter is injected", async () => {
-    await expect(buildServer({ db, controlPlaneAuth: controlPlane.guard })).rejects.toThrow(
-      "serviceKey or mtlsFetch is required when auditReporter is not injected",
-    );
+    await expect(
+      buildServer({ db, signingKey: testSigningKey(), controlPlaneAuth: controlPlane.guard }),
+    ).rejects.toThrow("serviceKey or mtlsFetch is required when auditReporter is not injected");
   });
 });

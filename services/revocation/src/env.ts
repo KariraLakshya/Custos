@@ -10,6 +10,13 @@ const fieldsSchema = baseEnvSchema.extend({
   // this DID to get the key they verify against. Includes the port, since
   // the identity service publishes under the same host on a different one.
   REVOCATION_DID_DOMAIN: z.string().min(1).default("localhost:4003"),
+  // 32-byte seed (64 hex chars) for the key that signs every tombstone and the
+  // status list credential. Required, with no default: the service refuses to
+  // boot rather than fall back to a known or ephemeral key (ADR 0012). Keep
+  // the same seed across restarts, or subscribers must re-verify everything.
+  REVOCATION_SIGNING_SEED: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/i, "must be 64 hex characters (32 bytes)"),
   // Base URLs a signed tombstone is pushed to on revocation — the "registered
   // tool adapters" of the build plan, reached through the vault that holds
   // their connectors. Comma-separated; empty disables broadcast entirely.

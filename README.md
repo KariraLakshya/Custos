@@ -68,8 +68,17 @@ Custos is four small services plus a dashboard. Open **five terminals** at the r
 
 Revocation, identity and the vault each need their service key from step 1: they use it to write to the audit log, so every admin action is recorded with who did it. **Paste that service key line into the terminal first**, then start the service. A service started with a missing, revoked or wrongly scoped service key refuses to start.
 
+Revocation signs every revocation notice with its own key, generated from a seed. Keep the seed: restart revocation with the **same** seed and the vault keeps trusting it without re-checking every past revocation.
+
 ```bash
-# revocation's terminal, after pasting its REVOCATION_SERVICE_KEY line
+# bash / zsh: revocation's terminal, after pasting its REVOCATION_SERVICE_KEY line
+export REVOCATION_SIGNING_SEED=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+pnpm --filter @custos/revocation start
+```
+
+```powershell
+# PowerShell: revocation's terminal, after pasting its REVOCATION_SERVICE_KEY line
+$env:REVOCATION_SIGNING_SEED = node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 pnpm --filter @custos/revocation start
 ```
 
@@ -307,6 +316,7 @@ custos login      # opens the sign-in page; demo user alice / alice-dev-password
 | Symptom                                                                                      | Cause and fix                                                                                                                                                                                                                                                                                                                                  |
 | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm dev` fails with `failed to connect to the docker API`                                  | Docker Desktop isn't running. Start it and wait until it's ready.                                                                                                                                                                                                                                                                              |
+| Revocation exits with `REVOCATION_SIGNING_SEED … expected string`                            | Set the seed in the **same terminal** before starting revocation (step 2). Reuse the original seed on restarts.                                                                                                                                                                                                                                |
 | Identity exits with `IDENTITY_ISSUER_SEED … expected string`                                 | Set the seed in the **same terminal** before starting identity (step 2).                                                                                                                                                                                                                                                                       |
 | Vault exits with `VAULT_MASTER_KEY … must be 64 hex characters`                              | Set the key in the **same terminal** before starting the vault (step 2).                                                                                                                                                                                                                                                                       |
 | A service exits with `REVOCATION_SERVICE_KEY`, `IDENTITY_SERVICE_KEY` or `VAULT_SERVICE_KEY` | The service key is missing, mistyped, revoked or expired, or it's another service's key. Paste the right line from `pnpm -s custos-admin dev-keys` into that terminal, or run it again for a fresh set.                                                                                                                                        |

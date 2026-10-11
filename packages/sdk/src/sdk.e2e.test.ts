@@ -62,6 +62,7 @@ async function withStack<T>(
   const vaultUrl = `http://127.0.0.1:${ports.vault}`;
 
   const revocationApp = await buildRevocationServer({
+    signingKey: testRevocationSigningKey(),
     db: revocationDb,
     controlPlaneAuth: controlPlane.guard,
     serviceKey: revocationServiceKey,
@@ -255,3 +256,10 @@ describe("@custos/sdk end to end: operator key required (ADR 0008)", () => {
     });
   });
 });
+
+function testRevocationSigningKey() {
+  return {
+    keyProvider: createLocalKeyProvider({ importedKeys: { signing: new Uint8Array(32).fill(61) } }),
+    keyId: "signing",
+  };
+}

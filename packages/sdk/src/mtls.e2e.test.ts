@@ -125,6 +125,7 @@ beforeAll(async () => {
   const revocationTls = createEnvoyOnlyTlsListener(identityFor("revocation-server"));
   await start(
     await buildRevocationServer({
+      signingKey: testRevocationSigningKey(),
       db: revocationDb,
       controlPlaneAuth: controlPlane.guard,
       didDomain: `127.0.0.1:${PORT.revocation}`,
@@ -324,3 +325,10 @@ describe("mTLS end to end: services authenticate to each other only with certifi
     ).rejects.toThrow();
   });
 });
+
+function testRevocationSigningKey() {
+  return {
+    keyProvider: createLocalKeyProvider({ importedKeys: { signing: new Uint8Array(32).fill(61) } }),
+    keyId: "signing",
+  };
+}

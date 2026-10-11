@@ -6,9 +6,21 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-11 — The revocation service keeps the same signing identity across restarts
+
+**Commits:** branch `feat/revocation-stable-key`, pull request #67 (open, awaiting CI and review); also carries the previous merge's bookkeeping.
+
+**What shipped:** the service that signs "this agent is revoked" notices used to invent a brand-new signing key every time it started. Everything that listens to it (the vault, any outside checker) remembers its key, so each restart forced them to throw that memory away and re-check every revocation ever issued. Now the service is given a secret seed at start-up and always derives the same key from it. It refuses to start without one, rather than quietly falling back to a throwaway key.
+
+**Proof:** tests start the service twice from the same seed and show it publishes the same key and hands out byte-for-byte identical signed notices; a different seed gives a different key; a missing or malformed seed stops the service. The real services were also started: refused without the seed, same key after a restart.
+
+**Caveats:** the seed is a secret kept in the environment, the same stage as the identity service's dev key; moving it into AWS KMS is later work. Anyone starting revocation by hand now has to set the seed (the README says how). Changing the seed is a deliberate key change, and everything listening re-checks once.
+
+_Why it matters:_ restarting the revocation service no longer makes the rest of the system redo work proportional to every revocation ever made, and it removes the everyday trigger for the bug found on 2026-10-08. The vault's check-the-key-again safeguard from that fix stays, because it still protects against a deliberate seed change.
+
 ## 2026-10-11 — Instant revokes stay instant, and keys are locked down on Windows
 
-**Commits:** `5532696`, `271dcf9`, `b985976`, `04ab4fb` on branch `fix/vault-resync-cost`, pushed 2026-10-11 as pull request #65 (open, awaiting CI and review).
+**Commits:** `5532696`, `271dcf9`, `b985976`, `04ab4fb` on branch `fix/vault-resync-cost`, pushed 2026-10-11 as pull request #65, which passed CI and was merged into the main codebase the same day.
 
 **What shipped:** the two small fixes from the previous entry.
 

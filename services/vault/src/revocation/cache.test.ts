@@ -507,8 +507,8 @@ describe("revocation cache", () => {
     });
   });
 
-  // The revocation service's signing key changes (today: on every restart,
-  // since its key is in memory). The vault must follow the key it publishes
+  // The revocation service's signing key changes (when its seed does,
+  // ADR 0012; it used to change on every restart). The vault must follow the key it publishes
   // at its did:web URL, not the first one it ever saw, or every revocation
   // after the change is silently dropped.
   describe("issuer key rotation", () => {
@@ -541,7 +541,7 @@ describe("revocation cache", () => {
       const cache = cacheWith(fetchImpl);
       expect((await cache.resync(NOW)).ok).toBe(true);
 
-      // The service restarts with a new key and re-signs its whole list.
+      // The service is restarted with a new seed and re-signs its whole list.
       const after = issuer();
       state.didDocument = after.didDocument;
       state.tombstones = [

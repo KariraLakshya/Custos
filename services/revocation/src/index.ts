@@ -6,6 +6,7 @@ import {
 } from "@custos/control-plane-auth";
 import { createDb } from "./db/client.js";
 import { loadRevocationEnv } from "./env.js";
+import { createSigningKey } from "./keys/signing-key.js";
 import { buildServer } from "./server.js";
 
 const env = loadRevocationEnv();
@@ -49,6 +50,7 @@ if (!tls.ok) {
 const app = await buildServer({
   ...(tls.value ? { serverFactory: tls.value.listener.serverFactory } : {}),
   db,
+  signingKey: createSigningKey(env),
   controlPlaneAuth,
   ...outgoing.value,
   auditUrl: env.AUDIT_URL,

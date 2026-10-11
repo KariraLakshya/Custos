@@ -1,35 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { loadRevocationEnv } from "./env.js";
 
+const SEED = { REVOCATION_SIGNING_SEED: "ab".repeat(32) };
 const SERVICE_KEY = ["custos", "service", "0123456789abcdef", "k".repeat(43)].join("_");
 
 describe("revocation env", () => {
   it("defaults PORT to 4003", () => {
-    expect(loadRevocationEnv({ REVOCATION_SERVICE_KEY: SERVICE_KEY }).PORT).toBe(4003);
+    expect(loadRevocationEnv({ ...SEED, REVOCATION_SERVICE_KEY: SERVICE_KEY }).PORT).toBe(4003);
   });
 
   it("coerces PORT from a string", () => {
-    expect(loadRevocationEnv({ PORT: "5000", REVOCATION_SERVICE_KEY: SERVICE_KEY }).PORT).toBe(
-      5000,
-    );
+    expect(
+      loadRevocationEnv({ ...SEED, PORT: "5000", REVOCATION_SERVICE_KEY: SERVICE_KEY }).PORT,
+    ).toBe(5000);
   });
 });
 
 describe("revocation env service key (ADR 0008)", () => {
   it("is required, with no default", () => {
-    expect(() => loadRevocationEnv({})).toThrow(/REVOCATION_SERVICE_KEY/);
+    expect(() => loadRevocationEnv({ ...SEED })).toThrow(/REVOCATION_SERVICE_KEY/);
   });
 
   it("must be a service key", () => {
     const operator = SERVICE_KEY.replace("custos_service_", "custos_operator_");
-    expect(() => loadRevocationEnv({ REVOCATION_SERVICE_KEY: operator })).toThrow(
+    expect(() => loadRevocationEnv({ ...SEED, REVOCATION_SERVICE_KEY: operator })).toThrow(
       /REVOCATION_SERVICE_KEY/,
     );
   });
 });
 
 describe("revocation env: client certificate instead of a service key (ADR 0009)", () => {
-  const base = {};
+  const base = { ...SEED };
   const mtls = {
     REVOCATION_MTLS_CERT: "revocation.crt",
     REVOCATION_MTLS_KEY: "revocation.key",
@@ -51,5 +52,24 @@ describe("revocation env: client certificate instead of a service key (ADR 0009)
 
   it("refuses neither, naming both options", () => {
     expect(() => loadRevocationEnv(base)).toThrow(/REVOCATION_MTLS_CERT/);
+  });
+});
+
+describe("revocation env signing seed (ADR 0012)", () => {
+  const withKey = { REVOCATION_SERVICE_KEY: SERVICE_KEY };
+
+  it("is required, with no default", () => {
+    expect(() => loadRevocationEnv(withKey)).toThrow(/REVOCATION_SIGNING_SEED/);
+  });
+
+  it.each([
+    ["too short", "ab".repeat(31)],
+    ["too long", "ab".repeat(33)],
+    ["not hex", "zz".repeat(32)],
+    ["empty", ""],
+  ])("refuses a seed that is %s", (_name, seed) => {
+    expect(() => loadRevocationEnv({ ...withKey, REVOCATION_SIGNING_SEED: seed })).toThrow(
+      /REVOCATION_SIGNING_SEED/,
+    );
   });
 });
