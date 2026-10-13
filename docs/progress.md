@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-13 — The vault now refreshes revocations from one small signed page
+
+**Commits:** branch `feat/vault-status-list-resync`; pull request number in `docs/state.md`. This builds the design you approved earlier today (ADR 0013).
+
+**What shipped:** the vault's ten-second safety-net refresh used to download every revocation notice ever issued and re-check each one. It now fetches a single 1-kilobyte signed page that marks each revoked agent with one bit, checks one signature, and merges it in. With about eleven hundred revocations that is the difference between several seconds of checking and a couple of milliseconds, and it stays flat as the list grows.
+
+**Safety properties, each with a test that tries to break it:** a page signed by the wrong key, altered after signing, naming the wrong issuer, or for the wrong purpose is refused and changes nothing. A page can only add revocations, never remove one. Freshness comes from the page's signed timestamp, so replaying an old page buys only what is left of its window; and a push alone no longer counts as proof that the vault is up to date. An agent the vault has never been told about is refused, and the audit log says that, not "revoked".
+
+**Proof:** the full test suites and end-to-end tests pass. The real services were also run with the instant notice switched off, so only the new refresh could tell the vault: the revoked agent was cut off within 6 seconds.
+
+**Worth knowing:** the revocation service and the vault now rely on their clocks agreeing to within a few seconds (a setting, five by default). If they drift further apart the vault refuses the page and, past the freshness limit, refuses every call rather than guess. The refusal message says to check the clocks.
+
+_Why it matters:_ the "revoked in under a second" promise no longer slows down as the number of revoked agents grows.
+
 ## 2026-10-13 — The revocation list is no longer re-signed on every request
 
 **Commits:** branch `perf/revocation-memoize-tombstones`; pull request number in `docs/state.md`. Also records your approval of the plan to make revocation refresh cheap at scale (ADR 0013); that bigger change is next.
