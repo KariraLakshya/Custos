@@ -47,7 +47,7 @@ The provider adds a `groups` claim to the ID token. Identity maps groups to oper
 
 ### 5. Keycloak for tests and dev
 
-- A digest-pinned `quay.io/keycloak/keycloak:26.4` runs with a checked-in realm export: realm `custos`, a confidential client, a `groups` mapper, and two test users (an admin, and one in no group). It uses an **opt-in Compose profile `sso`**.
+- A digest-pinned `quay.io/keycloak/keycloak:26.8` runs with a checked-in realm export: realm `custos`, a confidential client, a `groups` mapper, and two test users (an admin, and one in no group). It uses an **opt-in Compose profile `sso`**.
 - The **integration test** does a real login against real Keycloak: it fetches the login page, posts the test user's credentials, and follows the redirect to identity's callback.
 - The **negative cases** of the DONE check sign tokens with test keys and serve them as the provider's metadata and JWKS. A real provider won't hand out deliberately broken tokens, so this is the only way to exercise each failure:
   - bad signature (signed by an unknown key)
