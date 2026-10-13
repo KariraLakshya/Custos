@@ -6,6 +6,56 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-13 — Merge mix-up found and fixed; a broken release setting reverted
+
+**Commits:** branch `fix/land-stack-and-revert-changesets-action`; pull request number in `docs/state.md`.
+
+**What happened:** the five pull requests were set up as a chain, each built on the one before. When they were merged, only the first one went into the main codebase. The other four each merged into the branch beneath them, so the revocation speed-up, the design record, the dependency settings and the new refresh were not on the main codebase yet. We caught it by checking what the main codebase actually contained rather than trusting the green "merged" labels.
+
+**A second problem, predicted:** an automatic tool update for our release automation was also merged. We had flagged it as unsafe because it needs a newer version of a tool we haven't adopted, and the release run on the main codebase failed with exactly that message. Nothing was published (we don't publish yet), but every merge would have shown a red failure.
+
+**The fix:** one pull request that brings in the remaining four, with no conflicts, and puts the release automation back on the version that works. The settings that stop that tool update from being proposed again come in with it.
+
+**Lesson:** chains of dependent pull requests are not worth it when merging is a manual click. From now on each pull request goes straight to the main codebase, one at a time.
+
+_Why it matters:_ the work is not finished until it is on the main codebase, and a red release run would have hidden real failures later.
+
+## 2026-10-13 — The vault now refreshes revocations from one small signed page
+
+**Commits:** branch `feat/vault-status-list-resync`; pull request number in `docs/state.md`. This builds the design you approved earlier today (ADR 0013).
+
+**What shipped:** the vault's ten-second safety-net refresh used to download every revocation notice ever issued and re-check each one. It now fetches a single 1-kilobyte signed page that marks each revoked agent with one bit, checks one signature, and merges it in. With about eleven hundred revocations that is the difference between several seconds of checking and a couple of milliseconds, and it stays flat as the list grows.
+
+**Safety properties, each with a test that tries to break it:** a page signed by the wrong key, altered after signing, naming the wrong issuer, or for the wrong purpose is refused and changes nothing. A page can only add revocations, never remove one. Freshness comes from the page's signed timestamp, so replaying an old page buys only what is left of its window; and a push alone no longer counts as proof that the vault is up to date. An agent the vault has never been told about is refused, and the audit log says that, not "revoked".
+
+**Proof:** the full test suites and end-to-end tests pass. The real services were also run with the instant notice switched off, so only the new refresh could tell the vault: the revoked agent was cut off within 6 seconds.
+
+**Worth knowing:** the revocation service and the vault now rely on their clocks agreeing to within a few seconds (a setting, five by default). If they drift further apart the vault refuses the page and, past the freshness limit, refuses every call rather than guess. The refusal message says to check the clocks.
+
+_Why it matters:_ the "revoked in under a second" promise no longer slows down as the number of revoked agents grows.
+
+## 2026-10-13 — The revocation list is no longer re-signed on every request
+
+**Commits:** branch `perf/revocation-memoize-tombstones`; pull request number in `docs/state.md`. Also records your approval of the plan to make revocation refresh cheap at scale (ADR 0013); that bigger change is next.
+
+**What shipped:** the revocation service used to re-sign every "this agent is revoked" notice each time anyone asked for the list: 1.3 seconds of work per request with about a thousand revocations, and the dashboard asked every 1.5 seconds. It now remembers the signed notices (they never change once issued), so the same request takes 17 to 38 milliseconds. A new revocation signs only itself.
+
+**Proof:** new automated tests show a notice is signed once and reused, that a changed notice is always signed afresh (so a stale one can never be served), and that a signing failure is not remembered. The real service was measured before and after.
+
+_Why it matters:_ an open dashboard, which the demo asks people to keep on screen, no longer keeps the revocation service busy, so instant revocations are not competing with it.
+
+## 2026-10-13 — A measured plan for making revocation cheap at scale (proposal, no code yet)
+
+**Commits:** branch `docs/adr-0013-status-list-resync`; pull request number in `docs/state.md`. Nothing is built; this is a design proposal for your decision.
+
+**What we found:** with about a thousand revoked agents, the vault's safety-net refresh asks the revocation service for the full list of revocation notices (315 KiB) and the service signs every one of them again (1.3 seconds). If the vault restarts it also re-checks every one (3.5 seconds). These grow with every revocation ever made. The standards-based alternative, one small signed page (1 KiB) that marks each revoked agent with a single bit, costs 28 milliseconds and 2 milliseconds to check, however many agents there are.
+
+**The proposal:** the vault refreshes from that signed page instead, and the instant notices stay exactly as they are. The page carries a signed timestamp, so an old copy replayed by an attacker can no longer pass as fresh. It relies on each pass being tied to an agent the vault has seen recently, which holds today and needs a rethink only if passes are ever made to survive a vault restart.
+
+**Also found:** the dashboard asks for the expensive full list every 1.5 seconds, so an open dashboard keeps the revocation service busy, and the demo tells people to keep it open. A small separate fix (remember the signed notices instead of re-signing) removes that and should land before the demo is shown to anyone.
+
+_Why it matters:_ the "revoked in under a second" promise has to keep holding at thousands of agents, not just hundreds. This is the change that makes that true, and it needs two decisions from you before anyone writes code.
+
 ## 2026-10-12 — One command to run the whole product locally
 
 **Commits:** branch `feat/demo-command`; pull request number in `docs/state.md`. Also: the revocation-key change from yesterday (pull request #67) was merged into the main codebase.
@@ -16,7 +66,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **Proof:** automated tests cover all of that against the real database. The real thing was also run: the whole walkthrough (register an agent, refused before a grant, allowed after, the other tool still refused, revoked and cut off) worked, and killing one service shut the others down with every port freed and every key cancelled. Not tested automatically: pressing Ctrl-C itself.
 
-**Also this week:** all seven waiting dependency updates were refreshed. Five pass every check and look safe. One (the release-automation tool) passes checks but would quietly break our release workflow, which the checks never run; it needs a small edit first. One (a bundle of developer-tool updates) fails because it pulls in a TypeScript version our linter doesn't support yet.
+**Also this week:** all seven waiting dependency updates were refreshed. Five pass every check and look safe. Two are wrong to merge: the release-automation update needs a newer version of a tool we haven't adopted, and the developer-tool bundle pulls in a TypeScript version our linter doesn't support yet. A configuration change now tells Dependabot to stop proposing those two upgrades, so they won't come back until the tools catch up.
 
 _Why it matters:_ this is what a senior engineer or a first customer will try first. It turns "an afternoon of setup" into one command.
 

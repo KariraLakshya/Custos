@@ -1,13 +1,38 @@
 import {
+  BITSTRING_STATUS_LIST_CREDENTIAL_TYPE,
+  BITSTRING_STATUS_LIST_ENTRY_TYPE,
+  BITSTRING_STATUS_LIST_TYPE,
+  decodeStatusList,
   didWebToResolutionUrl,
+  isRevoked as isBitSet,
+  verifyCredential,
   verifyRevocationTombstone,
   type DidWebDocument,
+  type SignedCredential,
 } from "@custos/core";
 import { err, ok, type Result } from "@custos/contracts";
 
+export type IssuerError = { readonly code: "UNVERIFIABLE_ISSUER"; readonly reason: string };
+
 export type AcceptTombstoneError =
-  | { readonly code: "UNVERIFIABLE_ISSUER"; readonly reason: string }
-  | { readonly code: "INVALID_TOMBSTONE"; readonly reason: string };
+  IssuerError | { readonly code: "INVALID_TOMBSTONE"; readonly reason: string };
+
+export type ResyncError =
+  | IssuerError
+  | { readonly code: "INVALID_STATUS_LIST"; readonly reason: string }
+  | { readonly code: "STATUS_LIST_OUT_OF_BOUNDS"; readonly reason: string };
+
+export type TrackAgentError = {
+  readonly code: "INVALID_CREDENTIAL_STATUS";
+  readonly reason: string;
+};
+
+/**
+ * What the local view says about one agent. `unknown` is its own answer, not
+ * "not revoked": a view that has never been told which bit is this agent's
+ * cannot vouch for it, so the caller denies (fail closed).
+ */
+export type AgentVerdict = "ok" | "revoked" | "unknown";
 
 export interface RevocationCacheStatus {
   readonly revokedCount: number;
@@ -17,21 +42,34 @@ export interface RevocationCacheStatus {
 
 /**
  * The hot path's local view of who has been revoked (CLAUDE.md section 3:
- * "the hot path reads locally and never blocks on the cold path"). Updated
- * by pushed tombstones from the revocation service and by a periodic resync;
- * `isRevoked` is an in-memory set lookup, no database or network.
+ * "the hot path reads locally and never blocks on the cold path"). Two inputs
+ * feed it: pushed tombstones (fast, one agent each) and a periodic resync
+ * from the signed status list (ADR 0013). `verdict` is an in-memory lookup,
+ * no database or network.
  *
- * Bounded staleness is deliberate and explicit. If no resync has succeeded
- * within `maxStalenessMs`, the cache reports itself stale and the caller
- * denies — a brief control-plane outage must not silently turn into
- * indefinite trust in a possibly-outdated allow list.
+ * Bounded staleness is deliberate and explicit. The freshness of the view is
+ * the signed `validFrom` of the newest list applied, never the time it was
+ * received, so replaying an old list cannot buy a fresh window. If it is
+ * older than `maxStalenessMs` (plus the allowed clock skew) the cache reports
+ * itself stale and the caller denies.
  */
 export interface RevocationCache {
-  isRevoked(agentDid: string): boolean;
+  verdict(agentDid: string): AgentVerdict;
+  /**
+   * Records which status list bit is this agent's, from the `credentialStatus`
+   * entry of its credential. The caller has already verified the credential's
+   * signature and the agent's proof of possession; this checks that the entry
+   * points at the list this cache trusts and carries a well-formed index.
+   */
+  trackAgent(
+    agentDid: string,
+    credentialStatus: unknown,
+    now: Date,
+  ): Result<undefined, TrackAgentError>;
   isStale(now: Date): boolean;
   status(now: Date): RevocationCacheStatus;
   acceptTombstone(tombstone: string, now: Date): Promise<Result<string, AcceptTombstoneError>>;
-  resync(now: Date): Promise<Result<number, AcceptTombstoneError>>;
+  resync(now: Date): Promise<Result<number, ResyncError>>;
 }
 
 function errorMessage(error: unknown): string {
@@ -46,24 +84,37 @@ function errorMessage(error: unknown): string {
 const KEY_REFRESH_MIN_INTERVAL_MS = 5_000;
 
 /**
- * Resolves the revocation service's own DID document and caches the key.
- * Tombstones arrive on an unauthenticated endpoint, so an unverified one is
- * worthless: without this check anyone who can reach the vault could revoke
- * any agent.
+ * How long an agent's status list index is kept after its last token request.
+ * Must exceed the scoped token lifetime (60 s), so a live token is never left
+ * without an index. An agent that comes back asks for a new token and is
+ * tracked again.
+ */
+export const TRACKED_AGENT_RETENTION_MS = 5 * 60_000;
+
+interface ResolvedIssuer {
+  readonly didDocument: DidWebDocument;
+  readonly publicKey: Uint8Array;
+}
+
+/**
+ * Resolves the revocation service's own DID document and caches it. Tombstones
+ * arrive on an unauthenticated endpoint, so an unverified one is worthless:
+ * without this check anyone who can reach the vault could revoke any agent.
  *
  * `refresh` re-resolves after the key may have rotated (the revocation
- * service's key changes when its seed does, ADR 0012). Trust is unchanged: the key still comes
- * only from the issuer's own did:web URL. Rate-limited, see above.
+ * service's key changes when its seed does, ADR 0012). Trust is unchanged: the
+ * key still comes only from the issuer's own did:web URL. Rate-limited, see
+ * above; the tombstone and status list paths share the limit.
  */
-function createIssuerKeyResolver(params: {
+function createIssuerResolver(params: {
   readonly issuerDid: string;
   readonly fetchImpl: typeof fetch;
   readonly timeoutMs: number;
 }) {
-  let cached: Uint8Array | null = null;
+  let cached: ResolvedIssuer | null = null;
   let lastResolvedAt: number | null = null;
 
-  async function fetchKey(now: Date): Promise<Result<Uint8Array, AcceptTombstoneError>> {
+  async function fetchIssuer(now: Date): Promise<Result<ResolvedIssuer, IssuerError>> {
     lastResolvedAt = now.getTime();
     const url = didWebToResolutionUrl(params.issuerDid);
     try {
@@ -82,7 +133,7 @@ function createIssuerKeyResolver(params: {
         });
       }
       // Strip multibase "z" and the 2-byte multicodec ed25519-pub header.
-      cached = decodeBase58(multibase.slice(1)).slice(2);
+      cached = { didDocument, publicKey: decodeBase58(multibase.slice(1)).slice(2) };
       return ok(cached);
     } catch (error) {
       return err({ code: "UNVERIFIABLE_ISSUER", reason: `${url}: ${errorMessage(error)}` });
@@ -90,15 +141,15 @@ function createIssuerKeyResolver(params: {
   }
 
   return {
-    current: async (now: Date): Promise<Result<Uint8Array, AcceptTombstoneError>> =>
-      cached ? ok(cached) : fetchKey(now),
+    current: async (now: Date): Promise<Result<ResolvedIssuer, IssuerError>> =>
+      cached ? ok(cached) : fetchIssuer(now),
 
-    /** A freshly resolved key, or null if rate-limited or resolution failed. */
-    async refresh(now: Date): Promise<Uint8Array | null> {
+    /** A freshly resolved issuer, or null if rate-limited or resolution failed. */
+    async refresh(now: Date): Promise<ResolvedIssuer | null> {
       if (lastResolvedAt !== null && now.getTime() - lastResolvedAt < KEY_REFRESH_MIN_INTERVAL_MS) {
         return null;
       }
-      const resolved = await fetchKey(now);
+      const resolved = await fetchIssuer(now);
       return resolved.ok ? resolved.value : null;
     },
   };
@@ -128,20 +179,42 @@ function decodeBase58(input: string): Uint8Array {
   return Uint8Array.from(bytes.reverse());
 }
 
-/** Signature checks a resync runs before letting other work in (about 3 ms each). */
-const VERIFICATIONS_PER_YIELD = 50;
+/** Where the issuer publishes its status list, derived from its DID alone. */
+export function statusListUrlFor(issuerDid: string): string {
+  return didWebToResolutionUrl(issuerDid).replace(
+    /\/\.well-known\/did\.json$/,
+    "/status/revocation",
+  );
+}
 
-const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
-
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  return a.length === b.length && a.every((byte, i) => byte === b[i]);
+function popcount(bytes: Uint8Array): number {
+  let count = 0;
+  for (const byte of bytes) {
+    let b = byte;
+    while (b !== 0) {
+      count += b & 1;
+      b >>= 1;
+    }
+  }
+  return count;
 }
 
 export function createRevocationCache(params: {
   readonly issuerDid: string;
   readonly revocationUrl: string;
   readonly maxStalenessMs: number;
+  /**
+   * How far apart the revocation service's clock and this one may be. The
+   * list's signed `validFrom` is the revocation service's time, so the rule
+   * depends on the two clocks agreeing; explicit config, never an accident.
+   */
+  readonly maxClockSkewMs?: number;
   readonly onRevoked?: (agentDid: string) => Promise<void>;
+  /**
+   * Called when something is accepted but looks wrong, so it can be logged.
+   * Never changes a decision.
+   */
+  readonly onWarning?: (message: string) => void;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
 }): RevocationCache {
@@ -149,128 +222,239 @@ export function createRevocationCache(params: {
     issuerDid,
     revocationUrl,
     maxStalenessMs,
+    maxClockSkewMs = 5_000,
     onRevoked,
+    onWarning,
     fetchImpl = fetch,
     timeoutMs = 2_000,
   } = params;
 
-  const revoked = new Set<string>();
+  const expectedListUrl = statusListUrlFor(issuerDid);
+  // The same rule decides whether a list is acceptable and whether the view is
+  // stale, so a list is never accepted only to be stale on arrival.
+  const staleAfterMs = maxStalenessMs + maxClockSkewMs;
+
+  /** Agents revoked by a pushed tombstone, or found revoked by a resync. */
+  const revokedDids = new Set<string>();
+  /** Union of every status list applied. Bits are only ever added. */
+  let bits: Uint8Array | null = null;
+  /** Agents that asked for a token recently, and which bit is theirs. */
+  const tracked = new Map<string, { readonly index: number; readonly seenAt: number }>();
   let freshAsOf: Date | null = null;
-  const resolveIssuerKey = createIssuerKeyResolver({ issuerDid, fetchImpl, timeoutMs });
+  const resolveIssuer = createIssuerResolver({ issuerDid, fetchImpl, timeoutMs });
 
-  // Tombstones whose signature has already been checked, keyed on the exact
-  // string, valid only for the key that checked them. The resync re-fetches
-  // the whole (ever-growing) list, and this keeps it from re-verifying
-  // entries it has already proven. It only ever skips work for a string that
-  // verified before; it never admits one that did not.
-  const verifiedAgents = new Map<string, string>();
-  let verifiedUnder: Uint8Array | null = null;
-  let verifications = 0;
-
-  function memoFor(publicKey: Uint8Array): Map<string, string> {
-    if (verifiedUnder === null || !sameBytes(verifiedUnder, publicKey)) {
-      verifiedAgents.clear();
-      verifiedUnder = publicKey;
-    }
-    return verifiedAgents;
+  function bitSet(index: number): boolean {
+    if (bits === null) return false;
+    // Past the end of the list means no revocation was published for it as of
+    // the list's `validFrom`: revoked indexes are inside the list by
+    // construction (the list is sized to the highest revoked one).
+    const read = isBitSet(bits, index);
+    return read.ok && read.value;
   }
 
-  async function apply(
+  async function applyTombstone(
     tombstone: string,
     now: Date,
-    markFresh: boolean,
   ): Promise<Result<string, AcceptTombstoneError>> {
-    const publicKey = await resolveIssuerKey.current(now);
-    if (!publicKey.ok) return publicKey;
+    const issuer = await resolveIssuer.current(now);
+    if (!issuer.ok) return issuer;
 
-    let agentDid = memoFor(publicKey.value).get(tombstone);
-    if (agentDid === undefined) {
-      verifications += 1;
-      let verified = verifyRevocationTombstone({ tombstone, publicKey: publicKey.value });
-      let keyUsed = publicKey.value;
-      if (!verified.ok) {
-        // The issuer may have rotated its key since it was cached: re-resolve
-        // once and retry before rejecting.
-        const refreshed = await resolveIssuerKey.refresh(now);
-        if (refreshed) {
-          keyUsed = refreshed;
-          verified = verifyRevocationTombstone({ tombstone, publicKey: refreshed });
-        }
+    let verified = verifyRevocationTombstone({ tombstone, publicKey: issuer.value.publicKey });
+    if (!verified.ok) {
+      // The issuer may have rotated its key since it was cached: re-resolve
+      // once and retry before rejecting.
+      const refreshed = await resolveIssuer.refresh(now);
+      if (refreshed) {
+        verified = verifyRevocationTombstone({ tombstone, publicKey: refreshed.publicKey });
       }
-      if (!verified.ok) {
-        return err({ code: "INVALID_TOMBSTONE", reason: verified.error.code });
-      }
-      agentDid = verified.value.agentDid;
-      memoFor(keyUsed).set(tombstone, agentDid);
+    }
+    if (!verified.ok) {
+      return err({ code: "INVALID_TOMBSTONE", reason: verified.error.code });
     }
 
-    const isNew = !revoked.has(agentDid);
-    revoked.add(agentDid);
-    if (markFresh) freshAsOf = now;
+    const { agentDid } = verified.value;
+    const isNew = !revokedDids.has(agentDid);
+    revokedDids.add(agentDid);
+    // A pushed tombstone does not refresh the view: it is signed but replayable,
+    // and freshness must only come from a list's signed `validFrom`.
     // Fan out to the tool adapters only the first time, so a re-broadcast
     // does not re-hit every connector.
     if (isNew && onRevoked) await onRevoked(agentDid);
     return ok(agentDid);
   }
 
+  async function verifyList(
+    credential: SignedCredential,
+    now: Date,
+  ): Promise<Result<{ list: Uint8Array; validFrom: Date }, ResyncError>> {
+    const issuer = await resolveIssuer.current(now);
+    if (!issuer.ok) return issuer;
+
+    let verified = await verifyCredential({ credential, didDocument: issuer.value.didDocument });
+    if (!verified.ok) {
+      // Same key-rotation allowance as for a tombstone.
+      const refreshed = await resolveIssuer.refresh(now);
+      if (refreshed) {
+        verified = await verifyCredential({ credential, didDocument: refreshed.didDocument });
+      }
+    }
+    if (!verified.ok) {
+      return err({ code: "INVALID_STATUS_LIST", reason: `signature: ${verified.error.code}` });
+    }
+
+    const invalid = (reason: string) => err({ code: "INVALID_STATUS_LIST" as const, reason });
+    if (credential.issuer !== issuerDid)
+      return invalid("issuer is not the trusted revocation service");
+    if (credential.id !== expectedListUrl) return invalid("credential id is not the trusted list");
+    if (
+      !Array.isArray(credential.type) ||
+      !credential.type.includes(BITSTRING_STATUS_LIST_CREDENTIAL_TYPE)
+    ) {
+      return invalid("not a Bitstring Status List credential");
+    }
+    const subject = credential.credentialSubject as {
+      type?: unknown;
+      statusPurpose?: unknown;
+      encodedList?: unknown;
+    };
+    if (subject.type !== BITSTRING_STATUS_LIST_TYPE) return invalid("subject is not a status list");
+    if (subject.statusPurpose !== "revocation") return invalid("status purpose is not revocation");
+    if (typeof subject.encodedList !== "string") return invalid("missing encodedList");
+
+    const validFrom = new Date(credential.validFrom);
+    if (Number.isNaN(validFrom.getTime())) return invalid("validFrom is not a date");
+    const ageMs = now.getTime() - validFrom.getTime();
+    if (ageMs < -maxClockSkewMs) {
+      return err({
+        code: "STATUS_LIST_OUT_OF_BOUNDS",
+        reason: `validFrom is ${Math.round(-ageMs / 1000)} s ahead of this clock; check the services' clocks`,
+      });
+    }
+    if (ageMs > staleAfterMs) {
+      return err({
+        code: "STATUS_LIST_OUT_OF_BOUNDS",
+        reason: `validFrom is ${Math.round(ageMs / 1000)} s old, past the staleness bound; check the services' clocks`,
+      });
+    }
+
+    // The service signs a fresh list on every request, so a healthy one is a
+    // moment old. Older than the skew means the revocation service's clock is
+    // behind this one, or the list was replayed; either way someone should look.
+    if (ageMs > maxClockSkewMs) {
+      onWarning?.(
+        `status list is ${Math.round(ageMs / 1000)} s old on arrival: the revocation service's clock may be behind this one, or the list was replayed`,
+      );
+    }
+
+    const decoded = decodeStatusList(subject.encodedList);
+    if (!decoded.ok) return invalid(`encodedList: ${decoded.error.code}`);
+    return ok({ list: decoded.value, validFrom });
+  }
+
   return {
-    isRevoked: (agentDid) => revoked.has(agentDid),
+    verdict(agentDid) {
+      if (revokedDids.has(agentDid)) return "revoked";
+      const entry = tracked.get(agentDid);
+      if (entry === undefined) return "unknown";
+      return bitSet(entry.index) ? "revoked" : "ok";
+    },
+
+    trackAgent(agentDid, credentialStatus, now) {
+      const invalid = (reason: string) =>
+        err({ code: "INVALID_CREDENTIAL_STATUS" as const, reason });
+      if (credentialStatus === null || typeof credentialStatus !== "object") {
+        return invalid("credentialStatus is missing");
+      }
+      const status = credentialStatus as {
+        type?: unknown;
+        statusPurpose?: unknown;
+        statusListCredential?: unknown;
+        statusListIndex?: unknown;
+      };
+      if (status.type !== BITSTRING_STATUS_LIST_ENTRY_TYPE)
+        return invalid("not a status list entry");
+      if (status.statusPurpose !== "revocation") return invalid("status purpose is not revocation");
+      if (status.statusListCredential !== expectedListUrl) {
+        return invalid("entry points at a list this vault does not trust");
+      }
+      // A string of decimal digits, per the spec. Anything else is malformed,
+      // never read as "not revoked".
+      if (
+        typeof status.statusListIndex !== "string" ||
+        !/^(0|[1-9][0-9]{0,15})$/.test(status.statusListIndex)
+      ) {
+        return invalid("statusListIndex is not a non-negative integer");
+      }
+      const statusListIndex = Number(status.statusListIndex);
+      if (!Number.isSafeInteger(statusListIndex)) {
+        return invalid("statusListIndex is too large to be exact");
+      }
+      // Re-inserting moves the agent to the back, so the oldest entries are
+      // always at the front and pruning stops at the first one still live.
+      tracked.delete(agentDid);
+      tracked.set(agentDid, { index: statusListIndex, seenAt: now.getTime() });
+      for (const [did, entry] of tracked) {
+        if (now.getTime() - entry.seenAt <= TRACKED_AGENT_RETENTION_MS) break;
+        tracked.delete(did);
+      }
+      return ok(undefined);
+    },
 
     isStale(now) {
       if (freshAsOf === null) return true;
-      return now.getTime() - freshAsOf.getTime() > maxStalenessMs;
+      return now.getTime() - freshAsOf.getTime() > staleAfterMs;
     },
 
     status(now) {
       return {
-        revokedCount: revoked.size,
+        revokedCount: Math.max(revokedDids.size, bits === null ? 0 : popcount(bits)),
         freshAsOf: freshAsOf?.toISOString() ?? null,
-        stale: freshAsOf === null || now.getTime() - freshAsOf.getTime() > maxStalenessMs,
+        stale: freshAsOf === null || now.getTime() - freshAsOf.getTime() > staleAfterMs,
       };
     },
 
-    acceptTombstone: (tombstone, now) => apply(tombstone, now, true),
+    acceptTombstone: (tombstone, now) => applyTombstone(tombstone, now),
 
     async resync(now) {
-      const url = `${revocationUrl.replace(/\/$/, "")}/revocations`;
-      let tombstones: readonly string[];
+      const url = `${revocationUrl.replace(/\/$/, "")}/status/revocation`;
+      let credential: SignedCredential;
       try {
         const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
         if (!response.ok) {
           return err({ code: "UNVERIFIABLE_ISSUER", reason: `${url}: HTTP ${response.status}` });
         }
-        const body = (await response.json()) as { tombstones?: unknown };
-        if (!Array.isArray(body.tombstones)) {
-          return err({ code: "UNVERIFIABLE_ISSUER", reason: `${url}: malformed resync payload` });
-        }
-        tombstones = body.tombstones as readonly string[];
+        credential = (await response.json()) as SignedCredential;
       } catch (error) {
         return err({ code: "UNVERIFIABLE_ISSUER", reason: `${url}: ${errorMessage(error)}` });
       }
-
-      let unverifiable: AcceptTombstoneError | null = null;
-      let verifiedAtLastYield = verifications;
-      for (const tombstone of tombstones) {
-        // Signature checks are synchronous: left alone, a long list holds the
-        // event loop and a pushed tombstone or /call waits behind it. Give
-        // other work a turn every so often.
-        if (verifications - verifiedAtLastYield >= VERIFICATIONS_PER_YIELD) {
-          await yieldToEventLoop();
-          verifiedAtLastYield = verifications;
-        }
-        const accepted = await apply(tombstone, now, false);
-        if (accepted.ok) continue;
-        if (accepted.error.code === "UNVERIFIABLE_ISSUER") return accepted;
-        // A single bad entry must not stop the rest being applied, but the
-        // list is then incomplete: it may be missing a revocation, so it
-        // must not count as fresh. Bounded staleness then fails closed.
-        unverifiable ??= accepted.error;
+      if (credential === null || typeof credential !== "object") {
+        return err({ code: "INVALID_STATUS_LIST", reason: `${url}: malformed resync payload` });
       }
-      if (unverifiable) return err(unverifiable);
-      // An empty list is still a successful sync — it means nobody is
-      // revoked, which is exactly as fresh as a list with entries.
-      freshAsOf = now;
-      return ok(tombstones.length);
+
+      const verified = await verifyList(credential, now);
+      if (!verified.ok) return verified;
+      const { list, validFrom } = verified.value;
+
+      // Revocation is permanent, so a list can only add: OR it in, never replace.
+      // A shorter or older list therefore cannot un-revoke anything.
+      const merged = new Uint8Array(Math.max(list.length, bits?.length ?? 0));
+      if (bits !== null) merged.set(bits);
+      for (let i = 0; i < list.length; i += 1) merged[i] = (merged[i] ?? 0) | (list[i] ?? 0);
+      bits = merged;
+
+      // Tell the connectors about agents the list newly shows as revoked. Only
+      // agents with a live token are tracked, and those are the ones with
+      // anything to cut off.
+      for (const [did, entry] of tracked) {
+        if (revokedDids.has(did) || !bitSet(entry.index)) continue;
+        revokedDids.add(did);
+        if (onRevoked) await onRevoked(did);
+      }
+
+      // Freshness is the list's own signed time, capped at now, and never moves back.
+      const asOf = validFrom.getTime() > now.getTime() ? now : validFrom;
+      if (freshAsOf === null || asOf.getTime() > freshAsOf.getTime()) freshAsOf = asOf;
+      return ok(popcount(list));
     },
   };
 }

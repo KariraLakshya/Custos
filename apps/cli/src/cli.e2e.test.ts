@@ -165,6 +165,9 @@ async function withPhase3Stack<T>(
     serviceKey: revocationServiceKey,
     didDomain: `127.0.0.1:${ports.revocation}`,
     subscriberUrls: [vaultUrl],
+    // The vault takes freshness from the status list's signed time (ADR 0013),
+    // so both must read the same clock when a test moves it.
+    ...(vaultClock ? { clock: vaultClock } : {}),
   });
   await revocationApp.listen({ port: ports.revocation, host: "127.0.0.1" });
 

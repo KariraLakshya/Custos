@@ -73,7 +73,14 @@ export async function issueToolToken(params: {
   readonly action: string;
   readonly now: Date;
   readonly ttlSeconds?: number;
-  readonly revocation: { isRevoked(agentDid: string): boolean };
+  readonly revocation: {
+    trackAgent(
+      agentDid: string,
+      credentialStatus: unknown,
+      now: Date,
+    ): Result<undefined, { readonly reason: string }>;
+    verdict(agentDid: string): "ok" | "revoked" | "unknown";
+  };
   readonly trustedIssuer: TrustedIssuer;
   readonly proofOfPossession: ProofCheck;
 }): Promise<Result<IssuedToolToken, IssueToolTokenError>> {
@@ -156,7 +163,14 @@ export async function issueToolToken(params: {
   // claimant means nothing, and would put its claimed name in the audit log.
   // A revoked agent gets no new tokens: revocation closes the issuance path
   // as well as the call path.
-  if (revocation.isRevoked(agentId)) {
+  // The credential names the status list bit that is this agent's. It is read
+  // only now that the credential is verified and the caller has proved it holds
+  // the agent's key, and it is what lets the hot path look the agent up later.
+  const tracked = revocation.trackAgent(agentId, agentCredential.credentialStatus, now);
+  if (!tracked.ok) {
+    return err({ code: "INVALID_AGENT_CREDENTIAL", reason: tracked.error.reason });
+  }
+  if (revocation.verdict(agentId) !== "ok") {
     return err({ code: "AGENT_REVOKED", agentId });
   }
 
