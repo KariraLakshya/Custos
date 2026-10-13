@@ -167,6 +167,7 @@ export async function buildServer(options: {
       issuerDid: options.revocationIssuerDid ?? "did:web:localhost%3A4003",
       revocationUrl: options.revocationUrl ?? "http://localhost:4003",
       maxStalenessMs: options.revocationMaxStalenessMs ?? 30_000,
+      onWarning: (message) => app.log.warn(message),
       ...(options.revocationMaxClockSkewMs === undefined
         ? {}
         : { maxClockSkewMs: options.revocationMaxClockSkewMs }),

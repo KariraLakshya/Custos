@@ -22,7 +22,13 @@ Keep this to what the next session must act on before anything else. Clear items
 - [x] PR #64 (handover) merged.
 - [x] PR #65 (resync cost + Windows key ACL) merged 2026-10-11.
 - [x] PR #67 (stable revocation signing key, ADR 0012) merged 2026-10-12; ADR 0012 is Accepted by that merge.
-- [ ] **Merge the `feat/demo-command` PR** (`pnpm demo`; see Implemented). Then: **Fix 3b** (ADR first, `Next up` 1) and the Dependabot PRs below.
+- [ ] **Five local branches, none pushed, none through Linux CI. Merge in this order, each PR based on the one before:**
+  1. `feat/demo-command` (`pnpm demo`). **Waits on the user's Ctrl-C check** (ports 4001–4005 free and no active `demo-` key after Ctrl-C, in PowerShell and Git Bash).
+  2. `chore/dependabot-config` (ignore TypeScript 7 and `changesets/action` 2). After it merges: close #31, comment `@dependabot recreate` on #37.
+  3. `docs/adr-0013-status-list-resync` (ADR 0013, accepted).
+  4. `perf/revocation-memoize-tombstones` (sign each tombstone once; `GET /revocations` 1.3 s to ~30 ms).
+  5. `feat/vault-status-list-resync` (the resync itself; breaking only in that `REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS` is new and optional).
+     Pushing publishes them (the repository is public), so it needs the user's yes. If the Ctrl-C check cannot happen soon, branches 4 and 5 can be rebased onto `main` instead; the cost is resolving `state.md`/`progress.md` conflicts.
 - [ ] **Dependabot (rebased 2026-10-12): #30, #35, #45, #57, #58 pass CI and look safe; merging is the user's call.** #31 (`changesets/action` 1.9→2.1) and #37 (dev-dependencies group, pulls TypeScript 7.0) are wrong to merge: `release.yml` already records that action v2 needs Changesets CLI v3 (we are on v2), and typescript-eslint does not support TS 7. `dependabot.yml` now ignores both major bumps (this PR). **After it merges:** close #31, and comment `@dependabot recreate` on #37 so it is regenerated without TypeScript 7.
 - [ ] **Phase 5 DONE check:** non-author README run. Pre-run dry run from a fresh clone done 2026-10-08 (found the fix above); brief for the tester in `docs/readme-test.md`.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.

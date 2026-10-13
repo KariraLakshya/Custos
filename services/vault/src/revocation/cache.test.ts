@@ -556,6 +556,49 @@ describe("revocation cache", () => {
       expect(cache.status(at(1_000)).freshAsOf).toBe(NOW.toISOString());
     });
 
+    // A healthy list is a moment old on arrival, so an old one is either clock
+    // drift or a replay. Both deserve a log line even though the list is accepted.
+    describe("warning about an old list", () => {
+      async function resyncAged(ageMs: number) {
+        const who = issuer();
+        const warnings: string[] = [];
+        const old = await listFrom(who, { validFrom: at(-ageMs) });
+        const cache = createRevocationCache({
+          issuerDid: ISSUER_DID,
+          revocationUrl: REVOCATION_URL,
+          maxStalenessMs: 30_000,
+          maxClockSkewMs: 5_000,
+          onWarning: (message) => warnings.push(message),
+          fetchImpl: fetchServing(who.didDocument, () => old) as unknown as typeof fetch,
+        });
+        const result = await cache.resync(NOW);
+        return { result, warnings };
+      }
+
+      it("warns when an accepted list is older than the skew, and mentions clocks", async () => {
+        const { result, warnings } = await resyncAged(20_000);
+
+        expect(result.ok).toBe(true);
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toContain("clock");
+        expect(warnings[0]).toContain("20 s");
+      });
+
+      it("stays quiet for a list that is within the skew", async () => {
+        const { result, warnings } = await resyncAged(2_000);
+
+        expect(result.ok).toBe(true);
+        expect(warnings).toEqual([]);
+      });
+
+      it("does not warn about a list it refuses for age (the refusal says it)", async () => {
+        const { result, warnings } = await resyncAged(60_000);
+
+        expect(result.ok).toBe(false);
+        expect(warnings).toEqual([]);
+      });
+    });
+
     it("refuses a list dated in the future beyond the allowed skew", async () => {
       const who = issuer();
       const future = await listFrom(who, { validFrom: at(6_000) });
@@ -633,6 +676,7 @@ describe("revocation cache", () => {
       ["a padded index", entryFor("01")],
       ["an empty index", entryFor("")],
       ["an absurdly large index", entryFor("9".repeat(30))],
+      ["an index too large to hold exactly", entryFor("9007199254740993")],
     ])("refuses %s", (_name, entry) => {
       const c = cache();
 

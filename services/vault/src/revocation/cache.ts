@@ -210,6 +210,11 @@ export function createRevocationCache(params: {
    */
   readonly maxClockSkewMs?: number;
   readonly onRevoked?: (agentDid: string) => Promise<void>;
+  /**
+   * Called when something is accepted but looks wrong, so it can be logged.
+   * Never changes a decision.
+   */
+  readonly onWarning?: (message: string) => void;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
 }): RevocationCache {
@@ -219,6 +224,7 @@ export function createRevocationCache(params: {
     maxStalenessMs,
     maxClockSkewMs = 5_000,
     onRevoked,
+    onWarning,
     fetchImpl = fetch,
     timeoutMs = 2_000,
   } = params;
@@ -331,6 +337,15 @@ export function createRevocationCache(params: {
       });
     }
 
+    // The service signs a fresh list on every request, so a healthy one is a
+    // moment old. Older than the skew means the revocation service's clock is
+    // behind this one, or the list was replayed; either way someone should look.
+    if (ageMs > maxClockSkewMs) {
+      onWarning?.(
+        `status list is ${Math.round(ageMs / 1000)} s old on arrival: the revocation service's clock may be behind this one, or the list was replayed`,
+      );
+    }
+
     const decoded = decodeStatusList(subject.encodedList);
     if (!decoded.ok) return invalid(`encodedList: ${decoded.error.code}`);
     return ok({ list: decoded.value, validFrom });
@@ -371,6 +386,9 @@ export function createRevocationCache(params: {
         return invalid("statusListIndex is not a non-negative integer");
       }
       const statusListIndex = Number(status.statusListIndex);
+      if (!Number.isSafeInteger(statusListIndex)) {
+        return invalid("statusListIndex is too large to be exact");
+      }
       // Re-inserting moves the agent to the back, so the oldest entries are
       // always at the front and pruning stops at the first one still live.
       tracked.delete(agentDid);
