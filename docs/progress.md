@@ -14,6 +14,8 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **The fix:** a one-word change so it reads the kind of file we actually have. Once it works it will start suggesting updates for the database and cache images. Big version jumps in those are your call.
 
+**Also in this change:** the tool used to bundle every developer-tool update into one pull request, so a single risky upgrade made the whole bundle fail (twice). It now bundles only small updates; big version jumps arrive one at a time so each can be judged on its own. Three upgrades are put on hold on purpose, with the reason written next to each.
+
 _Why it matters:_ a checker that fails quietly is the same as no checker; this puts the container images under the same watch as everything else.
 
 ## 2026-10-13 — Merge mix-up found and fixed; a broken release setting reverted
