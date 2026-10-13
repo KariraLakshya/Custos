@@ -14,7 +14,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **The fix:** the test now looks only at its own record and checks that one signature, which takes about 5 seconds instead of 25. It still tests exactly what it was meant to test.
 
-**Still to do:** other tests behave the same way, more slowly, and the development database keeps growing. The real remedy is tests that clean up after themselves, or an occasional reset of the development database (which deletes its data, so it needs your yes).
+**Still to do:** that one test still has the server sign every stored record on each read (about 5 seconds now), and the development database keeps growing. The other audit tests only look at their own agent's records and are fast. The real remedy is tests that clean up after themselves, or an occasional reset of the development database (which deletes its data, so it needs your yes).
 
 _Why it matters:_ a test that quietly gets slower every run eventually fails for no real reason, and people stop trusting failures.
 
