@@ -15,7 +15,9 @@ updates:
         update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7
-  - package-ecosystem: "docker"
+  # infra/docker holds docker-compose.yml, no Dockerfile: the "docker" ecosystem
+  # finds nothing there and fails every run ("No Dockerfiles nor Kubernetes YAML").
+  - package-ecosystem: "docker-compose"
     directory: "/infra/docker"
     schedule:
       interval: "weekly"
