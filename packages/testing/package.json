@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@custos/control-plane-auth": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.3"
   },
   "devDependencies": {
     "@custos/tsconfig": "workspace:*",
