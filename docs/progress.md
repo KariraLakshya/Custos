@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-13 — Merge mix-up found and fixed; a broken release setting reverted
+
+**Commits:** branch `fix/land-stack-and-revert-changesets-action`; pull request number in `docs/state.md`.
+
+**What happened:** the five pull requests were set up as a chain, each built on the one before. When they were merged, only the first one went into the main codebase. The other four each merged into the branch beneath them, so the revocation speed-up, the design record, the dependency settings and the new refresh were not on the main codebase yet. We caught it by checking what the main codebase actually contained rather than trusting the green "merged" labels.
+
+**A second problem, predicted:** an automatic tool update for our release automation was also merged. We had flagged it as unsafe because it needs a newer version of a tool we haven't adopted, and the release run on the main codebase failed with exactly that message. Nothing was published (we don't publish yet), but every merge would have shown a red failure.
+
+**The fix:** one pull request that brings in the remaining four, with no conflicts, and puts the release automation back on the version that works. The settings that stop that tool update from being proposed again come in with it.
+
+**Lesson:** chains of dependent pull requests are not worth it when merging is a manual click. From now on each pull request goes straight to the main codebase, one at a time.
+
+_Why it matters:_ the work is not finished until it is on the main codebase, and a red release run would have hidden real failures later.
+
 ## 2026-10-13 — The vault now refreshes revocations from one small signed page
 
 **Commits:** branch `feat/vault-status-list-resync`; pull request number in `docs/state.md`. This builds the design you approved earlier today (ADR 0013).
