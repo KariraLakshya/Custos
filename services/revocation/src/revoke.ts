@@ -96,11 +96,26 @@ export async function revokeAgent(params: {
  * Re-signed rather than stored so there is exactly one tombstone format and
  * one verification path in the system.
  */
+/**
+ * Tombstones already signed, keyed on the exact claims that were signed.
+ * Ed25519 signing is deterministic and a revoked row never changes, so a
+ * remembered string is byte-identical to one signed again; it only saves the
+ * work. One memo belongs to one signing key (the service's, fixed for the life
+ * of the process). A row whose contents differ in any field has a different
+ * key and is signed afresh.
+ */
+export type TombstoneMemo = Map<string, string>;
+
+export function createTombstoneMemo(): TombstoneMemo {
+  return new Map();
+}
+
 export async function listTombstones(params: {
   readonly db: RevocationDb;
   readonly signer: TombstoneSigner;
+  readonly memo: TombstoneMemo;
 }): Promise<Result<readonly string[], RevokeAgentError>> {
-  const { db, signer } = params;
+  const { db, signer, memo } = params;
 
   const rows = await db
     .select()
@@ -109,19 +124,24 @@ export async function listTombstones(params: {
 
   const tombstones: string[] = [];
   for (const row of rows) {
-    const issued = await issueRevocationTombstone({
-      tombstone: {
-        agentDid: row.agentDid,
-        statusListIndex: row.statusListIndex,
-        // `revokedAt` is non-null by the query above.
-        revokedAt: row.revokedAt!.toISOString(),
-        ...(row.reason === null ? {} : { reason: row.reason }),
-      },
-      signer,
-    });
+    const claims = {
+      agentDid: row.agentDid,
+      statusListIndex: row.statusListIndex,
+      // `revokedAt` is non-null by the query above.
+      revokedAt: row.revokedAt!.toISOString(),
+      ...(row.reason === null ? {} : { reason: row.reason }),
+    };
+    const key = JSON.stringify(claims);
+    const cached = memo.get(key);
+    if (cached !== undefined) {
+      tombstones.push(cached);
+      continue;
+    }
+    const issued = await issueRevocationTombstone({ tombstone: claims, signer });
     if (!issued.ok) {
       return err({ code: "SIGNING_FAILED", reason: issued.error.reason });
     }
+    memo.set(key, issued.value);
     tombstones.push(issued.value);
   }
 

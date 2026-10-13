@@ -6,6 +6,16 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-13 — The revocation list is no longer re-signed on every request
+
+**Commits:** branch `perf/revocation-memoize-tombstones`; pull request number in `docs/state.md`. Also records your approval of the plan to make revocation refresh cheap at scale (ADR 0013); that bigger change is next.
+
+**What shipped:** the revocation service used to re-sign every "this agent is revoked" notice each time anyone asked for the list: 1.3 seconds of work per request with about a thousand revocations, and the dashboard asked every 1.5 seconds. It now remembers the signed notices (they never change once issued), so the same request takes 17 to 38 milliseconds. A new revocation signs only itself.
+
+**Proof:** new automated tests show a notice is signed once and reused, that a changed notice is always signed afresh (so a stale one can never be served), and that a signing failure is not remembered. The real service was measured before and after.
+
+_Why it matters:_ an open dashboard, which the demo asks people to keep on screen, no longer keeps the revocation service busy, so instant revocations are not competing with it.
+
 ## 2026-10-13 — A measured plan for making revocation cheap at scale (proposal, no code yet)
 
 **Commits:** branch `docs/adr-0013-status-list-resync`; pull request number in `docs/state.md`. Nothing is built; this is a design proposal for your decision.

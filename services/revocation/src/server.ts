@@ -14,7 +14,7 @@ import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { z } from "zod";
 import { allocateStatusListIndex } from "./agents/allocate.js";
-import { listTombstones, revokeAgent } from "./revoke.js";
+import { createTombstoneMemo, listTombstones, revokeAgent } from "./revoke.js";
 import { buildStatusListCredential } from "./status/credential.js";
 import { createHttpBroadcaster, type TombstoneBroadcaster } from "./broadcast.js";
 import type { RevocationDb } from "./db/client.js";
@@ -120,6 +120,7 @@ export async function buildServer(options: {
     domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https"
   }://${domain}/status/revocation`;
 
+  const tombstoneMemo = createTombstoneMemo();
   const tombstoneSigner = { sign: (data: Uint8Array) => keyProvider.sign(keyId, data) };
   const credentialSigner = {
     id: verificationMethodId,
@@ -229,7 +230,7 @@ export async function buildServer(options: {
     // above, so a same-origin restriction would only be theatre — this lets
     // Phase 5's dashboard (apps/dashboard) read it directly from the browser.
     reply.header("access-control-allow-origin", "*");
-    const result = await listTombstones({ db, signer: tombstoneSigner });
+    const result = await listTombstones({ db, signer: tombstoneSigner, memo: tombstoneMemo });
     if (!result.ok) {
       reply.code(502);
       return { error: result.error };
