@@ -8,6 +8,11 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: "development"
+    ignore:
+      # typescript-eslint does not support TypeScript 7 yet ("typescript-eslint
+      # does not support TS 7.0"), so a major bump fails lint. Lift this when it does.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7
   - package-ecosystem: "docker"
@@ -20,5 +25,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # v2 of the action needs Changesets CLI v3; this project is on v2 (see the
+      # comment in release.yml). Lift this together with the CLI upgrade.
+      - dependency-name: "changesets/action"
+        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7

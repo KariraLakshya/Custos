@@ -16,7 +16,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **Proof:** automated tests cover all of that against the real database. The real thing was also run: the whole walkthrough (register an agent, refused before a grant, allowed after, the other tool still refused, revoked and cut off) worked, and killing one service shut the others down with every port freed and every key cancelled. Not tested automatically: pressing Ctrl-C itself.
 
-**Also this week:** all seven waiting dependency updates were refreshed. Five pass every check and look safe. One (the release-automation tool) passes checks but would quietly break our release workflow, which the checks never run; it needs a small edit first. One (a bundle of developer-tool updates) fails because it pulls in a TypeScript version our linter doesn't support yet.
+**Also this week:** all seven waiting dependency updates were refreshed. Five pass every check and look safe. Two are wrong to merge: the release-automation update needs a newer version of a tool we haven't adopted, and the developer-tool bundle pulls in a TypeScript version our linter doesn't support yet. A configuration change now tells Dependabot to stop proposing those two upgrades, so they won't come back until the tools catch up.
 
 _Why it matters:_ this is what a senior engineer or a first customer will try first. It turns "an afternoon of setup" into one command.
 
