@@ -27,6 +27,10 @@ const fieldsSchema = baseEnvSchema.extend({
   // allow list. Explicit configuration, never an accident.
   REVOCATION_MAX_STALENESS_MS: z.coerce.number().int().positive().default(30_000),
   REVOCATION_RESYNC_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
+  // How far the revocation service's clock and this one may differ. A resync
+  // takes its freshness from the status list's signed time, so the rule
+  // depends on the two clocks agreeing (ADR 0013). Explicit config.
+  REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS: z.coerce.number().int().nonnegative().default(5),
   AUDIT_URL: z.string().min(1).default("http://localhost:4004"),
   // Its calls to other Custos services authenticate with exactly one of:
   // this API key (ADR 0008), or a client certificate through Envoy

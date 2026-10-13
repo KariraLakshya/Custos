@@ -10,12 +10,13 @@ export type InvokeToolError =
   | { readonly code: "ACTION_MISMATCH" }
   | { readonly code: "AGENT_REVOKED"; readonly agentId: string }
   | { readonly code: "REVOCATION_STATE_STALE"; readonly reason: string }
+  | { readonly code: "REVOCATION_STATE_UNKNOWN_AGENT"; readonly agentId: string }
   | { readonly code: "UNKNOWN_TOOL"; readonly tool: string }
   | ConnectorCallError;
 
 /** The hot path's local revocation view — no database, no network. */
 export interface RevocationGate {
-  isRevoked(agentDid: string): boolean;
+  verdict(agentDid: string): "ok" | "revoked" | "unknown";
   isStale(now: Date): boolean;
 }
 
@@ -88,9 +89,17 @@ export async function invokeTool(params: {
     return err({ code: "ACTION_MISMATCH" });
   }
 
-  if (revocation.isRevoked(claims.sub)) {
+  const verdict = revocation.verdict(claims.sub);
+  if (verdict === "revoked") {
     report("deny", "revocation", "agent is revoked");
     return err({ code: "AGENT_REVOKED", agentId: claims.sub });
+  }
+  // The view was never told which bit is this agent's (it asks for a token
+  // through `/tokens`, which records it). Not the same as revoked, so it is
+  // recorded as its own reason, but it still denies.
+  if (verdict === "unknown") {
+    report("deny", "revocation-state-unknown", "no status list index is known for this agent");
+    return err({ code: "REVOCATION_STATE_UNKNOWN_AGENT", agentId: claims.sub });
   }
   // Fail closed on bounded staleness: if the local view is too old to trust,
   // deny rather than serve an allow decision from a stale cache.

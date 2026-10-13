@@ -69,7 +69,7 @@ function statusFor(code: string): number {
   // local view means we cannot safely say either way — both deny. A denied
   // policy grant is the same shape of decision: authenticated, not permitted.
   if (code === "AGENT_REVOKED" || code === "POLICY_DENIED") return 403;
-  if (code === "REVOCATION_STATE_STALE") return 503;
+  if (code === "REVOCATION_STATE_STALE" || code === "REVOCATION_STATE_UNKNOWN_AGENT") return 503;
   if (code === "UNKNOWN_ACTION" || code === "INVALID_INPUT") return 400;
   return 502;
 }
@@ -130,6 +130,8 @@ export async function buildServer(options: {
   readonly tokenProofMaxSkewSeconds?: number;
   readonly revocationUrl?: string;
   readonly revocationMaxStalenessMs?: number;
+  /** Allowed clock difference with the revocation service, in ms (ADR 0013). */
+  readonly revocationMaxClockSkewMs?: number;
   /** Omitted in tests, which drive the cache directly and deterministically. */
   readonly revocationResyncIntervalMs?: number;
   readonly auditUrl?: string;
@@ -165,6 +167,10 @@ export async function buildServer(options: {
       issuerDid: options.revocationIssuerDid ?? "did:web:localhost%3A4003",
       revocationUrl: options.revocationUrl ?? "http://localhost:4003",
       maxStalenessMs: options.revocationMaxStalenessMs ?? 30_000,
+      onWarning: (message) => app.log.warn(message),
+      ...(options.revocationMaxClockSkewMs === undefined
+        ? {}
+        : { maxClockSkewMs: options.revocationMaxClockSkewMs }),
       // A revoked agent is cut off at the tool itself, not merely refused a
       // fresh token — "adapters honour revocation" (build plan, Phase 3).
       onRevoked: async (agentDid) => {

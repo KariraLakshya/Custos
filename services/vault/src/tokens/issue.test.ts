@@ -7,6 +7,7 @@ import {
   createLocalSecretCipher,
   generateKeyPair,
   issueCredential,
+  err,
   ok,
   sign,
   type SignedCredential,
@@ -21,8 +22,19 @@ import { issueToolToken } from "./issue.js";
 import { createInMemoryReplayCache, type ReplayCache } from "./replay-cache.js";
 import { createTrustedIssuer, type TrustedIssuer } from "./trusted-issuer.js";
 
+type RevocationView = Parameters<typeof issueToolToken>[0]["revocation"];
+
 /** Nobody revoked — the baseline these tests assume. */
-const neverRevoked = { isRevoked: () => false };
+const neverRevoked = {
+  trackAgent: () => ok(undefined),
+  verdict: () => "ok" as const,
+};
+
+/** A view in which exactly this agent is revoked. */
+const revokedAgent = (did: string) => ({
+  trackAgent: () => ok(undefined),
+  verdict: (candidate: string) => (candidate === did ? ("revoked" as const) : ("ok" as const)),
+});
 
 /** Stands in for the revocation service so registration can succeed here. */
 let nextStatusListIndex = 200_000;
@@ -164,7 +176,7 @@ async function withGrantedAgent<T>(
     readonly tool: string;
     readonly request: (overrides?: {
       proofOfPossession?: Awaited<ReturnType<typeof proofCheck>>;
-      revocation?: { isRevoked(did: string): boolean };
+      revocation?: RevocationView;
       now?: Date;
     }) => ReturnType<typeof issueToolToken>;
   }) => Promise<T>,
@@ -291,7 +303,7 @@ describe("issueToolToken", () => {
       const tool = await toolWithSecret();
       await grantToolAccess(vaultDb, agent.agentDid, tool);
       await grantToolAccess(vaultDb, other.agentDid, tool);
-      const revocation = { isRevoked: (did: string) => did === agent.agentDid };
+      const revocation = revokedAgent(agent.agentDid);
       const request = async (who: Registered) =>
         issueToolToken({
           db: vaultDb,
@@ -634,10 +646,86 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
     await withGrantedAgent(4228, async ({ agent, request }) => {
       const result = await request({
         proofOfPossession: await proofCheck(generateKeyPair().secretKey),
-        revocation: { isRevoked: (did) => did === agent.agentDid },
+        revocation: revokedAgent(agent.agentDid),
       });
 
       expect(result.ok === false && result.error.code).toBe("INVALID_PROOF_OF_POSSESSION");
+    });
+  });
+
+  describe("recording which status list bit is the agent's (ADR 0013)", () => {
+    function recordingView(trackResult: "ok" | "refuse" = "ok") {
+      const tracked: Array<{ did: string; status: unknown }> = [];
+      const view: RevocationView = {
+        trackAgent: (did, status) => {
+          tracked.push({ did, status });
+          return trackResult === "ok"
+            ? ok(undefined)
+            : err({ reason: "entry points at a list this vault does not trust" });
+        },
+        verdict: () => "ok",
+      };
+      return { view, tracked };
+    }
+
+    it("passes the credential's own status entry to the revocation view, before deciding", async () => {
+      await withGrantedAgent(4230, async ({ agent, request }) => {
+        const { view, tracked } = recordingView();
+
+        const result = await request({ revocation: view });
+
+        expect(result.ok).toBe(true);
+        expect(tracked).toEqual([
+          { did: agent.agentDid, status: agent.credential.credentialStatus },
+        ]);
+        expect(tracked[0]?.status).toMatchObject({ type: "BitstringStatusListEntry" });
+      });
+    });
+
+    it("refuses a credential whose status entry the view will not accept", async () => {
+      await withGrantedAgent(4231, async ({ request }) => {
+        const { view } = recordingView("refuse");
+
+        const result = await request({ revocation: view });
+
+        expect(result).toEqual({
+          ok: false,
+          error: {
+            code: "INVALID_AGENT_CREDENTIAL",
+            reason: "entry points at a list this vault does not trust",
+          },
+        });
+      });
+    });
+
+    it("records nothing for a caller that cannot prove it holds the agent's key", async () => {
+      await withGrantedAgent(4232, async ({ request }) => {
+        const { view, tracked } = recordingView();
+
+        const result = await request({
+          revocation: view,
+          proofOfPossession: await proofCheck(generateKeyPair().secretKey),
+        });
+
+        expect(result.ok === false && result.error.code).toBe("INVALID_PROOF_OF_POSSESSION");
+        expect(tracked).toEqual([]);
+      });
+    });
+
+    it("denies an agent the view reports as revoked right after recording it", async () => {
+      await withGrantedAgent(4233, async ({ agent, request }) => {
+        const view: RevocationView = {
+          trackAgent: () => ok(undefined),
+          verdict: () => "revoked",
+        };
+
+        const result = await request({ revocation: view });
+
+        expect(result).toEqual({
+          ok: false,
+          error: { code: "AGENT_REVOKED", agentId: agent.agentDid },
+        });
+      });
     });
   });
 

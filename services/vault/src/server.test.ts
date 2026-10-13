@@ -134,7 +134,8 @@ function agentEvents(events: readonly unknown[]): unknown[] {
 
 function freshEmptyRevocationCache(): RevocationCache {
   return {
-    isRevoked: () => false,
+    verdict: () => "ok",
+    trackAgent: () => ok(undefined),
     isStale: () => false,
     status: () => ({ revokedCount: 0, freshAsOf: new Date().toISOString(), stale: false }),
     acceptTombstone: async () => ok("noop"),
