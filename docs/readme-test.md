@@ -4,6 +4,7 @@ Thanks for helping. Custos is a trust layer for AI agents. We need to know wheth
 
 ## The rules
 
+- Follow the **numbered steps by hand**. Skip the "Quick start: one command" section (`pnpm demo`); it is a separate path, not what we are testing here.
 - Use **only** [the README](../README.md), from "Quickstart: zero to a revoked agent" through the end of step 4. Step 5 (the SDK) is optional.
 - **Don't ask the author for help while you're doing it.** If you're stuck for more than 10 minutes, write down where and why, then use the README's Troubleshooting table. If that doesn't get you moving again, stop. That's a valid result.
 - Run commands as written. If you have to change one to make it work, note what you changed.

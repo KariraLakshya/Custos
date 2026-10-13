@@ -13,6 +13,7 @@
     "dev": "docker compose -f infra/docker/docker-compose.yml up -d",
     "dev:mtls": "node infra/mtls/certs.mjs && node infra/mtls/render-envoy.mjs && docker compose -f infra/docker/docker-compose.yml --profile mtls up -d envoy",
     "dev:sso": "docker compose -f infra/docker/docker-compose.yml --profile sso up -d keycloak",
+    "demo": "pnpm migrate && pnpm build && node apps/admin/dist/bin.js demo",
     "dev:down": "docker compose -f infra/docker/docker-compose.yml --profile mtls --profile sso down",
     "build": "turbo run build",
     "test": "turbo run test",

@@ -27,6 +27,20 @@ About 10 minutes. By the end you will have registered an agent, watched it be re
 
 Every command runs from the repository root.
 
+### Quick start: one command
+
+If you only want to see Custos working, install and start the databases, then let one command do the rest:
+
+```bash
+pnpm install
+pnpm dev        # Postgres and Redis in Docker; wait a few seconds for Postgres
+pnpm demo       # migrate, build, create keys, start all five services, store the stand-in tools
+```
+
+It prints the dashboard address and your operator key, then keeps running; press Ctrl-C to stop everything. Then follow **step 4** below in a second terminal, in an empty directory. All the keys it generates stay in memory and the database: nothing is written to disk, the API keys expire in 12 hours, and they are revoked when you stop it. Each run uses new keys, so credentials from an earlier run stop verifying.
+
+The numbered steps below do the same thing by hand, one service per terminal. They are what the first-time-reader check (`docs/readme-test.md`) follows.
+
 ### 1. Install, start the databases, build
 
 ```bash
@@ -315,6 +329,8 @@ custos login      # opens the sign-in page; demo user alice / alice-dev-password
 
 | Symptom                                                                                      | Cause and fix                                                                                                                                                                                                                                                                                                                                  |
 | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm demo` or `pnpm migrate` fails with `ECONNREFUSED … 5433`                               | Postgres isn't ready yet. Wait a few seconds after `pnpm dev` and try again; check Docker Desktop is running.                                                                                                                                                                                                                                  |
+| `pnpm demo` says ports are already in use                                                    | An earlier demo or manual run is still holding them. Stop it. If it was killed rather than stopped with Ctrl-C, find the leftovers: `Get-NetTCPConnection -LocalPort 4001,4002,4003,4004,4005 -State Listen` (PowerShell) and stop those `node` processes.                                                                                     |
 | `pnpm dev` fails with `failed to connect to the docker API`                                  | Docker Desktop isn't running. Start it and wait until it's ready.                                                                                                                                                                                                                                                                              |
 | Revocation exits with `REVOCATION_SIGNING_SEED … expected string`                            | Set the seed in the **same terminal** before starting revocation (step 2). Reuse the original seed on restarts.                                                                                                                                                                                                                                |
 | Identity exits with `IDENTITY_ISSUER_SEED … expected string`                                 | Set the seed in the **same terminal** before starting identity (step 2).                                                                                                                                                                                                                                                                       |
