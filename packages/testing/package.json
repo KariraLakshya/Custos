@@ -30,7 +30,7 @@
     "@custos/tsconfig": "workspace:*",
     "@custos/vitest-config": "workspace:*",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.11",
+    "vitest": "^5.0.4",
     "@types/pg": "^8.11.10",
     "pg": "^8.23.1"
   }
