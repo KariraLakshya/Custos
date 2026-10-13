@@ -1,6 +1,6 @@
 # 0013: The vault resyncs revocation from the signed status list
 
-**Status:** Accepted 2026-10-13 by the user (design as written; tombstone memoization first). The status-list resync itself is not built yet; the memoization shipped in the PR that accepted this ADR.
+**Status:** Accepted 2026-10-13 by the user (design as written; tombstone memoization first). Implemented 2026-10-13 (memoization in one PR, the resync in the next); see Implementation notes.
 
 ## Context
 
@@ -51,3 +51,15 @@ Memoize signed tombstones in the revocation service, keyed on the exact row cont
 ## Outcome of the separate fix
 
 Tombstones are now remembered in the revocation service (`createTombstoneMemo`, `services/revocation/src/revoke.ts`). Measured at 1,064 revocations, warm `GET /revocations` over 127.0.0.1: 17–38 ms, against 1,276 ms before; the first call after a start still signs every row once (1.4 s). A revocation made afterwards signs only its own row. Over `localhost` curl adds about 200 ms of address fallback on Windows; that is the client, not the service.
+
+## Implementation notes
+
+- **An index past the end of the list means "not revoked", not denied.** The revocation service sizes the list to its highest _revoked_ index (minimum 131,072), so every revoked index is inside it by construction. Denying past-the-end would refuse every agent registered since the last resync and would make the list's size reveal how many agents exist. Only a malformed index (not a string of decimal digits) is refused. This corrects an earlier draft of decision 3.
+- **`trackAgent` takes the whole `credentialStatus` entry** and checks type, purpose, the list address (derived from `REVOCATION_ISSUER_DID`) and the index. `statusListIndex` is a string in the spec.
+- **A pushed tombstone no longer refreshes freshness.** It is signed but replayable; only a list's signed `validFrom` counts. Pushes still revoke immediately.
+- **The gate returns a verdict** (`ok`, `revoked`, `unknown`). `unknown` is audited as `revocation-state-unknown` and answered `REVOCATION_STATE_UNKNOWN_AGENT` (HTTP 503), never as revoked.
+- **Clock rule.** A list is accepted when `-skew <= now - validFrom <= REVOCATION_MAX_STALENESS_MS + skew`; the view is stale on the same bound. `REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS` defaults to 5. Test harnesses that move the vault's clock must move the revocation service's too.
+- **Retention of tracked agents** is 5 minutes (`TRACKED_AGENT_RETENTION_MS`, above the fixed 60 s token lifetime). The set of DIDs known revoked still grows by one per revocation.
+- **Connector fan-out narrows** to tracked agents. The vault's own gate still denies everyone else, and an agent without a live token has nothing in a connector to cut off.
+- **Live check, 2026-10-13, 1,102 revocations, push disabled:** the vault booted and verified its first list in 1.9 s including process start, and an agent revoked afterwards was refused 6 s later, by the resync alone.
+- **Removed:** the verified-tombstone memory and the yielding loop from PR #65, since the resync no longer reads tombstones.

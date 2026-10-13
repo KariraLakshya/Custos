@@ -14,7 +14,7 @@ import { createDb } from "../db/client.js";
 import { invokeTool } from "./invoke.js";
 
 /** Nobody revoked, state fresh — the baseline these tests assume. */
-const neverRevoked = { isRevoked: () => false, isStale: () => false };
+const neverRevoked = { verdict: () => "ok" as const, isStale: () => false };
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
 const db = createDb(databaseUrl);
@@ -170,6 +170,65 @@ describe("invokeTool", () => {
     });
 
     expect(result).toEqual({ ok: false, error: { code: "ACTION_MISMATCH" } });
+  });
+
+  describe("the revocation verdict", () => {
+    async function callWith(verdict: "ok" | "revoked" | "unknown") {
+      const tool = `test-tool-${randomUUID()}`;
+      await storeToolCredential({ db, cipher, tool, secret: "sk_test_x" });
+      const now = new Date();
+      const agent = "did:web:localhost:agents:a1";
+      const { token, publicKey } = await mintToken({
+        sub: agent,
+        tool,
+        action: "list-customers",
+        iat: Math.floor(now.getTime() / 1000),
+        exp: Math.floor(now.getTime() / 1000) + 60,
+      });
+      const events: unknown[] = [];
+      const connector = recordingConnector(tool);
+      const result = await invokeTool({
+        db,
+        cipher,
+        connectors: new Map([[tool, connector]]),
+        token,
+        vaultPublicKey: publicKey,
+        action: "list-customers",
+        input: {},
+        now,
+        revocation: { verdict: () => verdict, isStale: () => false },
+        auditReporter: { report: (event) => void events.push(event) },
+      });
+      return { result, events, agent, connector };
+    }
+
+    it("denies a revoked agent and records that it was revoked", async () => {
+      const { result, events, agent } = await callWith("revoked");
+
+      expect(result).toEqual({ ok: false, error: { code: "AGENT_REVOKED", agentId: agent } });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        policy: { rule: "revocation", decision: "deny" },
+        reason: "agent is revoked",
+      });
+    });
+
+    // Not the same as revoked, and the evidence log must not say it was.
+    it("denies an agent the view cannot place, and records that reason instead", async () => {
+      const { result, events, agent, connector } = await callWith("unknown");
+
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "REVOCATION_STATE_UNKNOWN_AGENT", agentId: agent },
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        policy: { rule: "revocation-state-unknown", decision: "deny" },
+        reason: "no status list index is known for this agent",
+      });
+      expect(JSON.stringify(events[0])).not.toContain("is revoked");
+      expect(connector.calls).toHaveLength(0);
+    });
   });
 
   it("rejects a token scoped to a tool with a registered connector but no stored credential", async () => {

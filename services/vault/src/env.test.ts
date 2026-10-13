@@ -22,6 +22,31 @@ describe("vault env", () => {
     ).toBe(5000);
   });
 
+  describe("clock skew allowed for the status list (ADR 0013)", () => {
+    const base = { VAULT_MASTER_KEY: validMasterKey, VAULT_SERVICE_KEY: SERVICE_KEY };
+
+    it("defaults to 5 seconds", () => {
+      expect(loadVaultEnv(base).REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS).toBe(5);
+    });
+
+    it("can be set, including to zero", () => {
+      expect(
+        loadVaultEnv({ ...base, REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS: "0" })
+          .REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS,
+      ).toBe(0);
+      expect(
+        loadVaultEnv({ ...base, REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS: "30" })
+          .REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS,
+      ).toBe(30);
+    });
+
+    it.each(["-1", "1.5", "soon"])("refuses %s", (value) => {
+      expect(() =>
+        loadVaultEnv({ ...base, REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS: value }),
+      ).toThrow(/REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS/);
+    });
+  });
+
   it("defaults the trusted issuer to the local identity service's DID", () => {
     expect(
       loadVaultEnv({ VAULT_MASTER_KEY: validMasterKey, VAULT_SERVICE_KEY: SERVICE_KEY })
