@@ -1,6 +1,6 @@
 # 0013: The vault resyncs revocation from the signed status list
 
-**Status:** Proposed 2026-10-13. Not accepted: no code is written until the user decides. Open questions are at the end.
+**Status:** Accepted 2026-10-13 by the user (design as written; tombstone memoization first). The status-list resync itself is not built yet; the memoization shipped in the PR that accepted this ADR.
 
 ## Context
 
@@ -44,11 +44,10 @@ A second finding, not specific to the vault: the dashboard polls `GET /revocatio
 - **Negative tests that must exist:** a list signed by another key is refused; a tampered list is refused; a list older than the staleness bound is refused and does not refresh; a list missing a known revocation cannot clear a bit already set; an agent with no remembered index is denied; a credential with a missing or foreign `statusListCredential` is refused at `/tokens`; a resync after a long outage still fails closed past the staleness bound; a list replayed at 29 s old refreshes only the remaining 1 s; a future-dated `validFrom` is refused; an out-of-range index is denied; a list signed by a new key after a seed change re-resolves the key once and applies.
 - **Scope.** Vault resync, `/tokens` index handling, and tests. No token-format change, no new dependency, no change to the push.
 
-## Separate fix (not part of this decision)
+## Separate fix (done: memoization)
 
 Memoize signed tombstones in the revocation service, keyed on the exact row contents. Ed25519 is deterministic and a revoked row never changes, so a cached string is identical to a fresh one. That takes `GET /revocations` from about 1.3 s to milliseconds for the dashboard and any other reader. It is small and independent, and should land before the demo is shown to anyone, since the demo keeps the dashboard open.
 
-## Questions for the user
+## Outcome of the separate fix
 
-1. Accept the design as written, which keeps the token format and defers the index-in-token question until the token key becomes persistent or a second vault appears (recommended)?
-2. Do the tombstone memoization first as its own small PR (recommended; it also stops the dashboard loading the service)?
+Tombstones are now remembered in the revocation service (`createTombstoneMemo`, `services/revocation/src/revoke.ts`). Measured at 1,064 revocations, warm `GET /revocations` over 127.0.0.1: 17–38 ms, against 1,276 ms before; the first call after a start still signs every row once (1.4 s). A revocation made afterwards signs only its own row. Over `localhost` curl adds about 200 ms of address fallback on Windows; that is the client, not the service.
