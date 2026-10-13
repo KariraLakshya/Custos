@@ -36,7 +36,7 @@
     "@custos/vault": "workspace:*",
     "@custos/vitest-config": "workspace:*",
     "fastify": "^5.12.5",
-    "typescript": "^5.7.2",
-    "vitest": "^4.1.11"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }
