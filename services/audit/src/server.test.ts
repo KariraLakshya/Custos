@@ -416,7 +416,18 @@ describe("audit POST /records authentication (ADR 0008)", () => {
 });
 
 describe("audit control-plane records (ADR 0008 §7)", () => {
-  async function pullVerified(app: Awaited<ReturnType<typeof buildServer>>, agentDid?: string) {
+  /**
+   * Pulls records and verifies their signatures. `onlyPrincipal` narrows to one
+   * principal's records by reading the unsigned claims first, so only those are
+   * verified. The dev database is shared and accumulates records from every
+   * test run; verifying all of them made a test's time grow with that history
+   * until it crossed the 30 s limit (it reached ~25 s alone at ~3,000 records).
+   */
+  async function pullVerified(
+    app: Awaited<ReturnType<typeof buildServer>>,
+    agentDid?: string,
+    onlyPrincipal?: string,
+  ) {
     const pulled = await app.inject({
       method: "GET",
       url: agentDid === undefined ? "/records" : `/records?agentId=${encodeURIComponent(agentDid)}`,
@@ -424,7 +435,16 @@ describe("audit control-plane records (ADR 0008 §7)", () => {
     const { records } = pulled.json() as { records: readonly string[] };
     const didResponse = await app.inject({ method: "GET", url: "/.well-known/did.json" });
     const publicKey = publicKeyFrom(didResponse.json() as DidWebDocument);
-    return records.map((record) => {
+    const wanted =
+      onlyPrincipal === undefined
+        ? records
+        : records.filter((record) => {
+            const claims = JSON.parse(
+              Buffer.from(record.split(".")[0] ?? "", "base64url").toString("utf8"),
+            ) as { principal?: { name?: string } };
+            return claims.principal?.name === onlyPrincipal;
+          });
+    return wanted.map((record) => {
       const verified = verifyAuditRecord({ record, publicKey });
       if (!verified.ok) throw new Error(`record failed verification: ${verified.error.code}`);
       return verified.value;
@@ -491,7 +511,7 @@ describe("audit control-plane records (ADR 0008 §7)", () => {
       },
     });
     expect(posted.statusCode).toBe(201);
-    const mine = (await pullVerified(app)).filter((record) => record.principal?.name === name);
+    const mine = await pullVerified(app, undefined, name);
     expect(mine).toHaveLength(1);
     expect(mine[0]).not.toHaveProperty("agentDid");
     expect(mine[0]?.authorityChain).toEqual([]);

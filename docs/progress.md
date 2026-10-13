@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-13 — A test that got slower every time we ran the tests
+
+**Commits:** branch `fix/audit-test-scales-with-dev-db`; pull request number in `docs/state.md`.
+
+**What happened:** while upgrading the test tool, one audit test started failing. It was not the upgrade: the same test also failed on the current code. Every time the full test suite runs it leaves records in the shared development database, and that test checked the signature of every record ever written. It had grown from seconds to about 25, and under load it passed the 30-second limit. It never failed on the automatic checks because they always start from an empty database.
+
+**The fix:** the test now looks only at its own record and checks that one signature, which takes about 5 seconds instead of 25. It still tests exactly what it was meant to test.
+
+**Still to do:** other tests behave the same way, more slowly, and the development database keeps growing. The real remedy is tests that clean up after themselves, or an occasional reset of the development database (which deletes its data, so it needs your yes).
+
+_Why it matters:_ a test that quietly gets slower every run eventually fails for no real reason, and people stop trusting failures.
+
 ## 2026-10-13 — Fixing a dependency checker that had never worked on our container files
 
 **Commits:** branch `fix/dependabot-docker-compose`; pull request number in `docs/state.md`.
