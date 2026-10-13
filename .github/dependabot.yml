@@ -6,16 +6,30 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
     groups:
+      # Only minor and patch updates are bundled. A major update arrives as its own
+      # PR, so one bad major cannot block the rest (the old bundle, #37 and #74,
+      # failed because of its majors).
       dev-dependencies:
         dependency-type: "development"
+        update-types: ["minor", "patch"]
     ignore:
       # typescript-eslint does not support TypeScript 7 yet ("typescript-eslint
       # does not support TS 7.0"), so a major bump fails lint. Lift this when it does.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # The project targets Node 22 LTS; types for a newer Node would describe APIs
+      # it does not run on.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # Changesets CLI 3 pairs with changesets/action 2; the release workflow is on
+      # action v1 and CLI 2 (see the comment in release.yml). Upgrade both together.
+      - dependency-name: "@changesets/cli"
+        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7
-  - package-ecosystem: "docker"
+  # infra/docker holds docker-compose.yml, no Dockerfile: the "docker" ecosystem
+  # finds nothing there and fails every run ("No Dockerfiles nor Kubernetes YAML").
+  - package-ecosystem: "docker-compose"
     directory: "/infra/docker"
     schedule:
       interval: "weekly"

@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-13 — Fixing a dependency checker that had never worked on our container files
+
+**Commits:** branch `fix/dependabot-docker-compose`; pull request number in `docs/state.md`.
+
+**What we found:** the automatic tool that proposes dependency updates has a section for container images. It was pointed at a folder that holds a different kind of container file than the one it knows how to read, so that section had silently failed on every weekly run since the project was set up. It only showed up now because changing the tool's settings made it run everything again.
+
+**The fix:** a one-word change so it reads the kind of file we actually have. Once it works it will start suggesting updates for the database and cache images. Big version jumps in those are your call.
+
+**Also in this change:** the tool used to bundle every developer-tool update into one pull request, so a single risky upgrade made the whole bundle fail (twice). It now bundles only small updates; big version jumps arrive one at a time so each can be judged on its own. Three upgrades are put on hold on purpose, with the reason written next to each.
+
+_Why it matters:_ a checker that fails quietly is the same as no checker; this puts the container images under the same watch as everything else.
+
 ## 2026-10-13 — Merge mix-up found and fixed; a broken release setting reverted
 
 **Commits:** branch `fix/land-stack-and-revert-changesets-action`; pull request number in `docs/state.md`.
