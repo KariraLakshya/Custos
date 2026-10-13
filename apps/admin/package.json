@@ -18,7 +18,7 @@
     "@custos/control-plane-auth": "workspace:*",
     "commander": "^12.1.0",
     "drizzle-orm": "^0.45.2",
-    "pg": "^8.13.1"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@custos/testing": "workspace:*",
