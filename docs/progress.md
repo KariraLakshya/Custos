@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-13 — A measured plan for making revocation cheap at scale (proposal, no code yet)
+
+**Commits:** branch `docs/adr-0013-status-list-resync`; pull request number in `docs/state.md`. Nothing is built; this is a design proposal for your decision.
+
+**What we found:** with about a thousand revoked agents, the vault's safety-net refresh asks the revocation service for the full list of revocation notices (315 KiB) and the service signs every one of them again (1.3 seconds). If the vault restarts it also re-checks every one (3.5 seconds). These grow with every revocation ever made. The standards-based alternative, one small signed page (1 KiB) that marks each revoked agent with a single bit, costs 28 milliseconds and 2 milliseconds to check, however many agents there are.
+
+**The proposal:** the vault refreshes from that signed page instead, and the instant notices stay exactly as they are. The page carries a signed timestamp, so an old copy replayed by an attacker can no longer pass as fresh. It relies on each pass being tied to an agent the vault has seen recently, which holds today and needs a rethink only if passes are ever made to survive a vault restart.
+
+**Also found:** the dashboard asks for the expensive full list every 1.5 seconds, so an open dashboard keeps the revocation service busy, and the demo tells people to keep it open. A small separate fix (remember the signed notices instead of re-signing) removes that and should land before the demo is shown to anyone.
+
+_Why it matters:_ the "revoked in under a second" promise has to keep holding at thousands of agents, not just hundreds. This is the change that makes that true, and it needs two decisions from you before anyone writes code.
+
 ## 2026-10-12 — One command to run the whole product locally
 
 **Commits:** branch `feat/demo-command`; pull request number in `docs/state.md`. Also: the revocation-key change from yesterday (pull request #67) was merged into the main codebase.
