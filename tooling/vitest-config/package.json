@@ -6,7 +6,8 @@
   "type": "module",
   "main": "./index.ts",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./hermetic-db": "./hermetic-db.ts"
   },
   "scripts": {
     "test": "vitest run",
@@ -14,10 +15,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vitest/coverage-v8": "^5.0.4"
+    "@vitest/coverage-v8": "^5.0.4",
+    "drizzle-orm": "^0.45.3",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@custos/tsconfig": "workspace:*",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.7.2",
     "vitest": "^5.0.4"
   }
