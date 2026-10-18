@@ -567,6 +567,23 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
     });
   });
 
+  it("still refuses a replay in the last second a proof would be accepted", async () => {
+    // verifyPossessionProof floors `now` to whole seconds, so a proof stays valid
+    // until just before (iat + skew + 1) s. The replay memory must last that long.
+    await withGrantedAgent(4234, async ({ agent, request }) => {
+      const replayCache = createInMemoryReplayCache();
+      const issuedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+      const once = await proofCheck(agent.secretKey, { replayCache, now: issuedAt });
+      expect((await request({ proofOfPossession: once, now: issuedAt })).ok).toBe(true);
+
+      const lastAcceptedInstant = new Date(issuedAt.getTime() + MAX_SKEW * 1000 + 500);
+      expect(await request({ proofOfPossession: once, now: lastAcceptedInstant })).toEqual({
+        ok: false,
+        error: { code: "INVALID_PROOF_OF_POSSESSION", reason: "REPLAYED" },
+      });
+    });
+  });
+
   it("accepts a fresh proof for every request", async () => {
     await withGrantedAgent(4224, async ({ agent, request }) => {
       const replayCache = createInMemoryReplayCache();

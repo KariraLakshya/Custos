@@ -13,3 +13,6 @@ export * from "./status/bitstring-status-list.js";
 export * from "./revocation/tombstone.js";
 export * from "./audit/record.js";
 export * from "./proof/possession.js";
+export * from "./federation/trust-anchor.js";
+export * from "./federation/status-view.js";
+export * from "./federation/verify-agent.js";

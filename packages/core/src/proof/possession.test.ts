@@ -9,6 +9,7 @@ import {
   REGISTRATION_PROOF_TYPE,
   verifyPossessionProof,
   type PossessionProofClaims,
+  proofReplayExpiresAtMs,
 } from "./possession.js";
 
 const AUDIENCE = "did:web:localhost%3A4001";
@@ -219,5 +220,38 @@ describe("buildTokenRequestProof", () => {
     const a = await buildTokenRequestProof({ audience: VAULT_TOKENS, secretKey, now: NOW });
     const b = await buildTokenRequestProof({ audience: VAULT_TOKENS, secretKey, now: NOW });
     expect(a).not.toBe(b);
+  });
+});
+
+describe("proofReplayExpiresAtMs", () => {
+  it("keeps a proof id until the proof can no longer be accepted, one whole second past iat + skew", () => {
+    expect(proofReplayExpiresAtMs(100, 30)).toBe(131_000);
+  });
+
+  it("is never earlier than the last instant verifyPossessionProof still accepts", () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const iat = 1_000;
+    const skew = 30;
+    const proof = (async () =>
+      issuePossessionProof({
+        claims: { typ: "t", aud: "a", iat, jti: "j" },
+        sign: async (data) => sign(data, secretKey),
+      }))();
+    return proof.then((issued) => {
+      if (!issued.ok) throw new Error("fixture");
+      // The last millisecond at which the proof is still accepted:
+      const lastAccepted = new Date((iat + skew + 1) * 1000 - 1);
+      expect(
+        verifyPossessionProof({
+          proof: issued.value,
+          publicKey,
+          expectedType: "t",
+          expectedAudience: "a",
+          now: lastAccepted,
+          maxSkewSeconds: skew,
+        }).ok,
+      ).toBe(true);
+      expect(proofReplayExpiresAtMs(iat, skew)).toBeGreaterThan(lastAccepted.getTime());
+    });
   });
 });
