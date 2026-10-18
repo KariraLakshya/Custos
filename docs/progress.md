@@ -6,6 +6,34 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-17 — Phase 6 begins: how one company's system will check another company's agent
+
+**Commits:** `95e1e8f` (tests get their own throwaway database), `681bd58` (the checking logic and a replay fix), `147dbdf` (docs). Pushed to branch `feat/phase-6-foreign-verifier`; pull request #93 is open, waiting for the automatic checks and your merge.
+
+**What happened:** Phase 6 is the "it's big" milestone: two separate organisations, each with its own Custos, where one can trust the other's agents without phoning home. We settled the design first and wrote it down as a decision record (ADR 0014), then built its first piece.
+
+**The design, in plain terms:** each organisation keeps a short list of the other organisations it trusts, with their public keys written in ahead of time. When an agent from another organisation shows up, the receiving side checks the agent's signed identity card against that list, checks that the agent really holds its own secret key, and checks a "banned agents" list that the other organisation publishes. None of that needs the other organisation's servers to be running. The banned list is posted somewhere independent and re-stamped regularly, so the receiving side can tell the difference between "nothing has changed" and "I haven't heard from them in too long", and refuses everyone from that organisation if the list gets too old. That is deliberate: it keeps a revoked agent from sneaking through just because a server was off.
+
+**What shipped (the first building block):** the checking logic itself, with no network in it, and the test suite that goes with it. It refuses forged cards, tampered cards, copied cards used without the secret key, replayed requests, expired cards, banned agents, and a banned list that is too old, and each of those refusals has its own test. We also checked that the tests are strict: we deliberately broke the checking code eleven different ways and the tests caught every one.
+
+**Also decided:** agents' identity cards currently never expire. We want them to end on a time limit, when their task is done, or when their credits run out; the time limit is part of this phase and the other two ride on revocation. It is logged on the Notion "additional features" page.
+
+**Still to do:** the publisher that posts the banned list, the receiving-side poller, and the two-company end-to-end demo with the first company completely switched off. The earlier work to stop tests from filling the development database is bundled into the same pull request.
+
+_Why it matters:_ this is the part that makes Custos more than a single-company tool. The hard rule for it, that the receiving side must work with the other side switched off, is now designed and has its first tested building block.
+
+## 2026-10-16 — Clean slate for the development database, and a refreshed map of the code
+
+**Commits:** not yet committed or pushed.
+
+**What happened:** we emptied the development database and rebuilt it from the project's own setup files, so it now holds only what the project creates. It had filled up with thousands of leftover test records, and a few tables left behind by an unrelated experiment on another branch. We also refreshed the "map" of the code that Claude uses to find its way around quickly, so a new session starts with an accurate picture.
+
+**How we checked:** the full test suite ran against the empty database. Everything passed except one vault test, which could not start because the code editor itself was using the network port that test needs. That is a clash on this computer, not a fault in Custos, and the test passed before.
+
+**The permanent fix:** each test run now creates its own throwaway database, runs all the project's setup steps on it, and deletes it when finished. The shared development database is no longer touched by tests, so it cannot fill up again and tests always start from a known-clean state. If a run is killed halfway, the next run cleans up its leftovers. We ran the whole suite several times and the development database's contents did not change at all. One Dependabot update (Vite, the front-end build tool) was deliberately left open, and an unused project ("zelosify recruit") was removed from Docker to free disk space.
+
+_Why it matters:_ tests run against a known-clean database are easier to trust, and the next work session starts from a current map instead of a stale one.
+
 ## 2026-10-13 — A test that got slower every time we ran the tests
 
 **Commits:** branch `fix/audit-test-scales-with-dev-db`; pull request number in `docs/state.md`.

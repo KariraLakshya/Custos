@@ -17,6 +17,13 @@ export const REGISTRATION_PROOF_TYPE = "custos-registration-proof";
 /** A token request to the vault (ADR 0007 decision 3); `aud` is the vault's `/tokens` URL. */
 export const TOKEN_REQUEST_PROOF_TYPE = "custos-token-request-proof";
 
+/**
+ * A call from an agent of one organisation to a service of another (ADR 0014);
+ * `aud` is the receiving organisation's own identifier, never the vault's URL,
+ * so a proof made for one cannot be replayed at the other.
+ */
+export const FOREIGN_CALL_PROOF_TYPE = "custos-foreign-call-proof";
+
 export interface PossessionProofClaims {
   /** Which kind of proof this is; see `REGISTRATION_PROOF_TYPE`. */
   readonly typ: string;
@@ -120,6 +127,16 @@ export function verifyPossessionProof(params: {
   return ok(claims);
 }
 
+/**
+ * When a verifier may forget a proof's `jti`. `verifyPossessionProof` floors
+ * `now` to whole seconds, so a proof is still accepted until just before
+ * `(iat + maxSkew + 1)` s; remembering it only until `iat + maxSkew` leaves up
+ * to a second in which a captured proof can be replayed.
+ */
+export function proofReplayExpiresAtMs(iat: number, maxSkewSeconds: number): number {
+  return (iat + maxSkewSeconds + 1) * 1000;
+}
+
 export interface RegistrationRequest {
   readonly publicKey: Uint8Array;
   /** The agent's private key. Stays with the agent — never sent anywhere. */
@@ -155,6 +172,31 @@ export async function buildRegistrationRequest(params: {
     secretKey,
     body: { publicKey: publicKeyToMultibase(publicKey), proof: proof.value },
   };
+}
+
+/**
+ * Proof an agent attaches to a call into another organisation (ADR 0014):
+ * made with its own key, addressed to the receiver's identifier, fresh and
+ * single-use.
+ */
+export async function buildForeignCallProof(params: {
+  readonly audience: string;
+  readonly secretKey: Uint8Array;
+  readonly now: Date;
+  readonly jti?: string;
+}): Promise<string> {
+  const proof = await issuePossessionProof({
+    claims: {
+      typ: FOREIGN_CALL_PROOF_TYPE,
+      aud: params.audience,
+      iat: Math.floor(params.now.getTime() / 1000),
+      jti: params.jti ?? crypto.randomUUID(),
+    },
+    sign: async (data) => sign(data, params.secretKey),
+  });
+  // Signing with an in-memory key cannot fail short of a programmer error.
+  if (!proof.ok) throw new Error(proof.error.reason);
+  return proof.value;
 }
 
 /**

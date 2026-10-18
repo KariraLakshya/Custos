@@ -5,8 +5,10 @@
 export { generateKeyPair, sign } from "./crypto/ed25519.js";
 export { didWebFromDomain, publicKeyToMultibase } from "./did/did-web.js";
 export {
+  buildForeignCallProof,
   buildRegistrationRequest,
   buildTokenRequestProof,
+  FOREIGN_CALL_PROOF_TYPE,
   issuePossessionProof,
   REGISTRATION_PROOF_TYPE,
   TOKEN_REQUEST_PROOF_TYPE,

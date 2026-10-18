@@ -1,6 +1,7 @@
 import {
   issueScopedToken,
   multibaseToPublicKey,
+  proofReplayExpiresAtMs,
   TOKEN_REQUEST_PROOF_TYPE,
   verifyCredential,
   verifyPossessionProof,
@@ -148,7 +149,7 @@ export async function issueToolToken(params: {
   // spend its proof ids. Kept until the proof would be stale anyway.
   const replay = proofOfPossession.replayCache.record(
     `${agentId} ${proof.value.jti}`,
-    (proof.value.iat + proofOfPossession.maxSkewSeconds) * 1000,
+    proofReplayExpiresAtMs(proof.value.iat, proofOfPossession.maxSkewSeconds),
     now.getTime(),
   );
   if (replay !== "fresh") {

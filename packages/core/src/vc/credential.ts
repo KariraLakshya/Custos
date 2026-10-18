@@ -15,6 +15,12 @@ export interface UnsignedCredential {
   readonly type: readonly string[];
   readonly issuer: string;
   readonly validFrom: string;
+  /**
+   * When the credential stops being valid. Optional: agent credentials do not
+   * carry one today. A published status list must (ADR 0014): its issuer commits
+   * to how long a verifier may rely on it.
+   */
+  readonly validUntil?: string;
   readonly credentialSubject: Record<string, unknown>;
   /**
    * Points at this credential's single bit in a published Bitstring Status
