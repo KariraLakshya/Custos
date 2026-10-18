@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-17 — Phase 6 begins: how one company's system will check another company's agent
 
-**Commits:** not yet committed or pushed; work is on branch `feat/phase-6-foreign-verifier`.
+**Commits:** `95e1e8f` (tests get their own throwaway database), `681bd58` (the checking logic and a replay fix), `147dbdf` (docs). Pushed to branch `feat/phase-6-foreign-verifier`; pull request #93 is open, waiting for the automatic checks and your merge.
 
 **What happened:** Phase 6 is the "it's big" milestone: two separate organisations, each with its own Custos, where one can trust the other's agents without phoning home. We settled the design first and wrote it down as a decision record (ADR 0014), then built its first piece.
 
