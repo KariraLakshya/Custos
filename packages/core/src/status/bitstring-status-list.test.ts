@@ -2,6 +2,7 @@ import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   BITSTRING_STATUS_LIST_CREDENTIAL_TYPE,
+  MAXIMUM_STATUS_LIST_BYTES,
   MINIMUM_STATUS_LIST_ENTRIES,
   buildStatusListEntry,
   buildStatusListSubject,
@@ -9,6 +10,7 @@ import {
   decodeStatusList,
   encodeStatusList,
   isRevoked,
+  revokedIndexes,
   setRevoked,
 } from "./bitstring-status-list.js";
 
@@ -250,5 +252,43 @@ describe("buildStatusListSubject", () => {
 
   it("exposes the credential type constant callers wrap the subject in", () => {
     expect(BITSTRING_STATUS_LIST_CREDENTIAL_TYPE).toBe("BitstringStatusListCredential");
+  });
+});
+
+describe("revokedIndexes", () => {
+  it("lists every set bit in ascending order, and nothing for an empty list", () => {
+    let list = createStatusList();
+    expect(revokedIndexes(list)).toEqual([]);
+    for (const index of [131_071, 0, 7, 8, 1_000]) {
+      const next = setRevoked(list, index, true);
+      if (!next.ok) throw new Error("fixture");
+      list = next.value;
+    }
+    expect(revokedIndexes(list)).toEqual([0, 7, 8, 1_000, 131_071]);
+  });
+
+  it("agrees with isRevoked for every index it reports", () => {
+    let list = createStatusList();
+    const next = setRevoked(list, 4_242, true);
+    if (!next.ok) throw new Error("fixture");
+    list = next.value;
+    for (const index of revokedIndexes(list)) {
+      expect(isRevoked(list, index)).toEqual({ ok: true, value: true });
+    }
+  });
+});
+
+describe("decodeStatusList: decompressed size", () => {
+  it("refuses a small gzip stream that expands past the cap", async () => {
+    const bomb = gzipSync(new Uint8Array(MAXIMUM_STATUS_LIST_BYTES + 1));
+    expect(bomb.length).toBeLessThan(100_000);
+    const result = decodeStatusList(`u${bomb.toString("base64url")}`);
+    expect(result.ok).toBe(false);
+  });
+
+  it("accepts a list exactly at the cap", async () => {
+    const atCap = gzipSync(new Uint8Array(MAXIMUM_STATUS_LIST_BYTES));
+    const result = decodeStatusList(`u${atCap.toString("base64url")}`);
+    expect(result.ok && result.value.length).toBe(MAXIMUM_STATUS_LIST_BYTES);
   });
 });

@@ -5,6 +5,7 @@ import {
   resolveOutgoingServiceAuth,
 } from "@custos/control-plane-auth";
 import { createDb } from "./db/client.js";
+import { createHttpListFetcher } from "./published/reconcile.js";
 import { loadRevocationEnv } from "./env.js";
 import { createSigningKey } from "./keys/signing-key.js";
 import { buildServer } from "./server.js";
@@ -57,6 +58,20 @@ const app = await buildServer({
   didDomain: env.REVOCATION_DID_DOMAIN,
   subscriberUrls: env.REVOCATION_SUBSCRIBER_URLS,
   statusTtlMs: env.REVOCATION_STATUS_TTL_MS,
+  // The env schema guarantees the window and interval are present with the URL.
+  ...(env.REVOCATION_PUBLISHED_LIST_URL === undefined
+    ? {}
+    : {
+        publishedList: {
+          maxAgeSeconds: env.REVOCATION_PUBLISHED_MAX_AGE_SECONDS!,
+          maxClockSkewSeconds: env.REVOCATION_PUBLISHED_MAX_CLOCK_SKEW_SECONDS,
+          pollIntervalMs: env.REVOCATION_PUBLISHED_POLL_SECONDS! * 1000,
+          fetchList: createHttpListFetcher({
+            url: env.REVOCATION_PUBLISHED_LIST_URL,
+            timeoutMs: 5_000,
+          }),
+        },
+      }),
 });
 
 try {

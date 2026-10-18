@@ -1,15 +1,13 @@
 import { isNotNull } from "drizzle-orm";
 import {
-  BITSTRING_STATUS_LIST_CREDENTIAL_TYPE,
-  buildStatusListSubject,
   createStatusList,
-  issueCredential,
+  issueStatusListCredential,
   setRevoked,
   type CredentialSigner,
   type SignedCredential,
 } from "@custos/core";
 import { err, ok, type Result } from "@custos/contracts";
-import { statusListEntries } from "../db/schema.js";
+import { externalRevokedIndexes, statusListEntries } from "../db/schema.js";
 import type { RevocationDb } from "../db/client.js";
 
 export type StatusListCredentialError = {
@@ -29,16 +27,21 @@ async function buildBitstring(db: RevocationDb): Promise<Uint8Array> {
     .select({ statusListIndex: statusListEntries.statusListIndex })
     .from(statusListEntries)
     .where(isNotNull(statusListEntries.revokedAt));
+  // Revoked slots that came from the published list and have no row above.
+  const external = await db
+    .select({ statusListIndex: externalRevokedIndexes.statusListIndex })
+    .from(externalRevokedIndexes);
 
-  const highestIndex = rows.reduce((max, row) => Math.max(max, row.statusListIndex), 0);
+  const indexes = [...rows, ...external].map((row) => row.statusListIndex);
+  const highestIndex = indexes.reduce((max, index) => Math.max(max, index), 0);
   let list = createStatusList(highestIndex + 1);
-  for (const row of rows) {
-    const updated = setRevoked(list, row.statusListIndex, true);
+  for (const index of indexes) {
+    const updated = setRevoked(list, index, true);
     // Unreachable: the list is sized to the highest index above. Kept as a
     // hard failure rather than a silent skip — quietly dropping a bit would
     // publish a revoked agent as active.
     if (!updated.ok) {
-      throw new Error(`status list index ${row.statusListIndex} out of range`);
+      throw new Error(`status list index ${index} out of range`);
     }
     list = updated.value;
   }
@@ -59,26 +62,17 @@ export async function buildStatusListCredential(params: {
   readonly statusListCredentialUrl: string;
   readonly now: Date;
   readonly ttlMs?: number;
+  readonly validUntil?: Date;
 }): Promise<Result<SignedCredential, StatusListCredentialError>> {
-  const { db, issuerDid, signer, statusListCredentialUrl, now, ttlMs } = params;
-
-  const list = await buildBitstring(db);
-  const issued = await issueCredential({
-    unsignedCredential: {
-      "@context": ["https://www.w3.org/ns/credentials/v2"],
-      id: statusListCredentialUrl,
-      type: ["VerifiableCredential", BITSTRING_STATUS_LIST_CREDENTIAL_TYPE],
-      issuer: issuerDid,
-      validFrom: now.toISOString(),
-      credentialSubject: {
-        ...buildStatusListSubject({
-          id: `${statusListCredentialUrl}#list`,
-          list,
-          ...(ttlMs === undefined ? {} : { ttlMs }),
-        }),
-      },
-    },
+  const { db, issuerDid, signer, statusListCredentialUrl, now, ttlMs, validUntil } = params;
+  const issued = await issueStatusListCredential({
+    list: await buildBitstring(db),
+    issuerDid,
     signer,
+    statusListCredentialUrl,
+    now,
+    ...(ttlMs === undefined ? {} : { ttlMs }),
+    ...(validUntil === undefined ? {} : { validUntil }),
   });
   if (!issued.ok) {
     return err({ code: "SIGNING_FAILED", reason: issued.error.reason });

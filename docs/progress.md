@@ -6,6 +6,22 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-18 — A company's own system now listens for revocations made from outside it
+
+**Commits:** `4fe8919` (shared list builder, size cap, stale-tolerant check), `5632686` (the merge and the stop-answering rule), `baef9d4` (docs). Pushed to branch `feat/phase-6-status-publication`; pull request #94 is open, waiting for the automatic checks and your merge.
+
+**What happened:** last step we built the checking logic for a company B looking at another company's (A's) agent. This step handles the other half: when a security person at A fires an agent using the independent publisher (the tool that works even when A's main system is off), A's own main system has to learn about it too. Otherwise B would refuse the agent but A's own door staff would still let it in.
+
+**How it works:** if you turn the feature on, A's revocation service now reads the published "fired agents" list every few seconds, checks it is really signed by A's own key, and copies every firing into its own records. Firings are only ever added, never removed, so there is nothing to disagree about. If it learns of a firing for an agent it knows, it cuts that agent off straight away and tells the vault, exactly as a normal revocation would. If it learns of one for an agent it has no record of (for example after restoring from an old backup), it still remembers the number so that it can never publish that agent as active. Each of these is written to the audit trail.
+
+**The decision you made:** if A can't read the published list for longer than the allowed time, A stops answering "who is revoked", and A's own agents stop working until it can check again. You chose safety over keeping running. The allowed time is a setting with no default, and the whole feature is off unless you set the list's address, so nothing changes for anyone who isn't using it.
+
+**Also fixed:** a signed list could previously be made to unpack into any size; it now has a 16 MB ceiling, which also protects the receiving side B.
+
+**Still to do:** the publisher itself, the receiving-side poller, and the two-company end-to-end run with all of A switched off.
+
+_Why it matters:_ without this, "fire an agent from outside" would work for other companies but silently not for the company that did the firing.
+
 ## 2026-10-17 — Phase 6 begins: how one company's system will check another company's agent
 
 **Commits:** `95e1e8f` (tests get their own throwaway database), `681bd58` (the checking logic and a replay fix), `147dbdf` (docs). Pushed to branch `feat/phase-6-foreign-verifier`; pull request #93 is open, waiting for the automatic checks and your merge.

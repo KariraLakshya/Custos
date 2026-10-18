@@ -334,3 +334,48 @@ describe("applyStatusList", () => {
     expect([...reversed.list]).toEqual([0b1000_0000, 0, 0b0000_0001]);
   });
 });
+
+describe("verifyForeignStatusList: acceptStale", () => {
+  it("still refuses a stale list by default, but with acceptStale returns its bits and a notAfter in the past", async () => {
+    const org = makeOrganisation({ maxStatusAgeSeconds: 60 });
+    const old = await issueList(org, {
+      revoked: [5],
+      validFrom: new Date(NOW.getTime() - 3_600_000),
+    });
+    expect(await verify(old, org)).toMatchObject({ error: { code: "LIST_STALE" } });
+
+    const result = await verifyForeignStatusList({
+      credential: old,
+      anchor: org.anchor,
+      now: NOW,
+      maxClockSkewSeconds: SKEW,
+      acceptStale: true,
+    });
+    if (!result.ok) throw new Error(result.error.code);
+    expect(isRevoked(result.value.list, 5)).toEqual({ ok: true, value: true });
+    expect(result.value.notAfter.getTime()).toBeLessThan(NOW.getTime());
+  });
+
+  it("does not relax any other check: a forged or tampered stale list is still refused", async () => {
+    const org = makeOrganisation({ maxStatusAgeSeconds: 60 });
+    const accept = (credential: unknown) =>
+      verifyForeignStatusList({
+        credential,
+        anchor: org.anchor,
+        now: NOW,
+        maxClockSkewSeconds: SKEW,
+        acceptStale: true,
+      });
+    const old = new Date(NOW.getTime() - 3_600_000);
+    const forged = await issueList(org, { signWith: generateKeyPair(), validFrom: old });
+    expect(await accept(forged)).toMatchObject({ error: { code: "LIST_SIGNATURE_INVALID" } });
+    const tampered = mutate(await issueList(org, { validFrom: old }), (d) => {
+      sub(d).statusPurpose = "suspension";
+    });
+    expect(await accept(tampered)).toMatchObject({ error: { code: "LIST_SIGNATURE_INVALID" } });
+    const noUntil = await issueList(org, { validUntil: null, validFrom: old });
+    expect(await accept(noUntil)).toMatchObject({ error: { code: "LIST_NO_VALID_UNTIL" } });
+    const future = await issueList(org, { validFrom: new Date(NOW.getTime() + 60_000) });
+    expect(await accept(future)).toMatchObject({ error: { code: "LIST_FUTURE_DATED" } });
+  });
+});

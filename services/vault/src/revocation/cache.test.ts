@@ -458,6 +458,21 @@ describe("revocation cache", () => {
         expect(cache.isStale(NOW)).toBe(true);
       });
 
+      it("a 503 PUBLISHED_STATE_UNKNOWN: the revocation service cannot confirm its published list (ADR 0014)", async () => {
+        const who = issuer();
+        const cache = cacheWith(async (url: string | URL) =>
+          String(url) === ISSUER_DID_URL
+            ? Response.json(who.didDocument)
+            : Response.json({ error: "PUBLISHED_STATE_UNKNOWN" }, { status: 503 }),
+        );
+
+        const result = await cache.resync(NOW);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error.reason).toContain("HTTP 503");
+        expect(cache.isStale(NOW)).toBe(true);
+      });
+
       it("an unreachable revocation service", async () => {
         const cache = cacheWith(async () => {
           throw new Error("ECONNREFUSED");

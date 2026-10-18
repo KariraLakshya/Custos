@@ -10,6 +10,7 @@ export * from "./vc/document-loader.js";
 export * from "./vc/credential.js";
 export * from "./token/scoped-token.js";
 export * from "./status/bitstring-status-list.js";
+export * from "./status/status-list-credential.js";
 export * from "./revocation/tombstone.js";
 export * from "./audit/record.js";
 export * from "./proof/possession.js";
