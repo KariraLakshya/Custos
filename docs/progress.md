@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-18 — A company's own system now listens for revocations made from outside it
 
-**Commits:** not yet committed or pushed; work is on branch `feat/phase-6-status-publication`.
+**Commits:** `4fe8919` (shared list builder, size cap, stale-tolerant check), `5632686` (the merge and the stop-answering rule), `baef9d4` (docs). Pushed to branch `feat/phase-6-status-publication`; pull request #94 is open, waiting for the automatic checks and your merge.
 
 **What happened:** last step we built the checking logic for a company B looking at another company's (A's) agent. This step handles the other half: when a security person at A fires an agent using the independent publisher (the tool that works even when A's main system is off), A's own main system has to learn about it too. Otherwise B would refuse the agent but A's own door staff would still let it in.
 
