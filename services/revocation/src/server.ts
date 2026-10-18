@@ -14,10 +14,21 @@ import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { z } from "zod";
 import { allocateStatusListIndex } from "./agents/allocate.js";
+import {
+  createPublishedListReconciler,
+  type PublishedListReconciler,
+} from "./published/reconcile.js";
 import { createTombstoneMemo, listTombstones, revokeAgent } from "./revoke.js";
 import { buildStatusListCredential } from "./status/credential.js";
 import { createHttpBroadcaster, type TombstoneBroadcaster } from "./broadcast.js";
 import type { RevocationDb } from "./db/client.js";
+
+declare module "fastify" {
+  interface FastifyInstance {
+    /** Present only when the published-list merge is on (ADR 0014). */
+    publishedList?: PublishedListReconciler;
+  }
+}
 
 // Re-exported so other packages' e2e tests can boot a real instance of this
 // service in-process, matching services/{identity,vault}/src/server.ts.
@@ -97,6 +108,20 @@ export async function buildServer(options: {
   readonly serverFactory?: EnvoyOnlyTlsListener["serverFactory"];
   /** Injectable for tests; defaults to a fire-and-forget HTTP push. */
   readonly auditReporter?: AuditReporter;
+  /**
+   * Turns on the published-list merge (ADR 0014). Off when absent. While on,
+   * `GET /status/revocation` and `GET /revocations` answer 503 until a
+   * published list has been verified, and again once the newest one is past
+   * its window; `POST /revocations` and `POST /agents` are never held back.
+   */
+  readonly publishedList?: {
+    /** Required, no default: how long a verified published list may be relied on. */
+    readonly maxAgeSeconds: number;
+    readonly maxClockSkewSeconds: number;
+    readonly fetchList: () => Promise<unknown>;
+    /** Merge now and then at this interval. Tests leave it unset and call `reconcileOnce`. */
+    readonly pollIntervalMs?: number;
+  };
 }): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({
     loggerInstance: createLogger({ level: "silent" }),
@@ -127,7 +152,47 @@ export async function buildServer(options: {
     sign: (input: { readonly data: Uint8Array }) => keyProvider.sign(keyId, input.data),
   };
 
-  app.get("/health", async () => ({ status: "ok", service: "revocation" }));
+  const reconciler =
+    options.publishedList === undefined
+      ? undefined
+      : createPublishedListReconciler({
+          db,
+          anchor: {
+            statusIssuerDid: serviceDid,
+            statusIssuerPublicKey: await keyProvider.getPublicKey(keyId),
+            statusListId: statusListCredentialUrl,
+            maxStatusAgeSeconds: options.publishedList.maxAgeSeconds,
+          },
+          fetchList: options.publishedList.fetchList,
+          maxClockSkewSeconds: options.publishedList.maxClockSkewSeconds,
+          revoke: (agentId, reason, now) =>
+            revokeAgent({ db, broadcaster, signer: tombstoneSigner, agentId, reason, now }),
+          report: (event) => auditReporter.report(event),
+        });
+  if (reconciler !== undefined) {
+    app.decorate("publishedList", reconciler);
+    const pollIntervalMs = options.publishedList?.pollIntervalMs;
+    if (pollIntervalMs !== undefined) {
+      app.addHook("onReady", async () => {
+        reconciler.start(
+          pollIntervalMs,
+          () => clock.now(),
+          (error) => app.log.warn({ error }, "published list merge failed"),
+        );
+      });
+    }
+    app.addHook("onClose", async () => reconciler.stop());
+  }
+  // While the merge is on and the published state is not confirmed, this service
+  // cannot say that anyone is not revoked, so it says nothing (ADR 0014).
+  const publishedStateUnknown = (): boolean =>
+    reconciler !== undefined && !reconciler.isOpen(clock.now());
+
+  app.get("/health", async () => ({
+    status: "ok",
+    service: "revocation",
+    ...(reconciler === undefined ? {} : { published: reconciler.status(clock.now()) }),
+  }));
 
   // The key every subscriber verifies tombstones against.
   app.get("/.well-known/did.json", async () => didDocument);
@@ -230,6 +295,10 @@ export async function buildServer(options: {
     // above, so a same-origin restriction would only be theatre — this lets
     // Phase 5's dashboard (apps/dashboard) read it directly from the browser.
     reply.header("access-control-allow-origin", "*");
+    if (publishedStateUnknown()) {
+      reply.code(503);
+      return { error: "PUBLISHED_STATE_UNKNOWN" };
+    }
     const result = await listTombstones({ db, signer: tombstoneSigner, memo: tombstoneMemo });
     if (!result.ok) {
       reply.code(502);
@@ -239,6 +308,10 @@ export async function buildServer(options: {
   });
 
   app.get("/status/revocation", async (_request, reply) => {
+    if (publishedStateUnknown()) {
+      reply.code(503);
+      return { error: "PUBLISHED_STATE_UNKNOWN" };
+    }
     const result = await buildStatusListCredential({
       db,
       issuerDid: serviceDid,

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { integer, pgTable, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 /**
  * One row per registered agent. The row is created at registration time (the
@@ -22,3 +22,17 @@ export const statusListEntries = pgTable("status_list_entries", {
 });
 
 export type StatusListEntryRow = typeof statusListEntries.$inferSelect;
+
+/**
+ * Revoked slots that came from the published status list (ADR 0014) and have no
+ * row in `status_list_entries`, for example after this database was restored
+ * from a backup older than the agent. They are kept so the list this service
+ * serves can never clear a bit the publisher set. Rolling this back is
+ * `DROP TABLE external_revoked_indexes` (nothing else refers to it).
+ */
+export const externalRevokedIndexes = pgTable("external_revoked_indexes", {
+  statusListIndex: integer("status_list_index").primaryKey(),
+  // The signed `validFrom` of the published list that first carried this bit.
+  firstSeenInListAt: timestamp("first_seen_in_list_at", { withTimezone: true }).notNull(),
+  mergedAt: timestamp("merged_at", { withTimezone: true }).notNull().defaultNow(),
+});

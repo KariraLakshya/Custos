@@ -33,6 +33,16 @@ const fieldsSchema = baseEnvSchema.extend({
   // verifier may cache the list before refetching. CLAUDE.md section 3
   // requires this bound be explicit configuration, never an accident.
   REVOCATION_STATUS_TTL_MS: z.coerce.number().int().positive().default(30_000),
+  // The published status list this service merges into its own state (ADR 0014).
+  // Unset: the feature is off and nothing changes. Set: the window and the poll
+  // interval are required (no defaults), because while it is on this service
+  // stops answering "who is revoked" once the newest verified list is past its
+  // window.
+  REVOCATION_PUBLISHED_LIST_URL: z.string().url().optional(),
+  REVOCATION_PUBLISHED_MAX_AGE_SECONDS: z.coerce.number().int().positive().optional(),
+  REVOCATION_PUBLISHED_POLL_SECONDS: z.coerce.number().int().positive().optional(),
+  // How far the publisher's clock may be ahead of this one.
+  REVOCATION_PUBLISHED_MAX_CLOCK_SKEW_SECONDS: z.coerce.number().int().nonnegative().default(5),
   // Revocations and status allocations are reported here (ADR 0008 §7).
   AUDIT_URL: z.string().min(1).default("http://localhost:4004"),
   // Its calls to other Custos services authenticate with exactly one of:
@@ -54,6 +64,33 @@ const fieldsSchema = baseEnvSchema.extend({
 });
 
 export const envSchema = fieldsSchema.superRefine((env, ctx) => {
+  if (
+    env.REVOCATION_PUBLISHED_MAX_AGE_SECONDS !== undefined &&
+    env.REVOCATION_PUBLISHED_POLL_SECONDS !== undefined &&
+    env.REVOCATION_PUBLISHED_POLL_SECONDS >= env.REVOCATION_PUBLISHED_MAX_AGE_SECONDS
+  ) {
+    // A list is only fresh for the window; polling no faster than that would keep
+    // the gate closed most of the time.
+    ctx.addIssue({
+      code: "custom",
+      path: ["REVOCATION_PUBLISHED_POLL_SECONDS"],
+      message: "must be shorter than REVOCATION_PUBLISHED_MAX_AGE_SECONDS",
+    });
+  }
+  if (env.REVOCATION_PUBLISHED_LIST_URL !== undefined) {
+    for (const name of [
+      "REVOCATION_PUBLISHED_MAX_AGE_SECONDS",
+      "REVOCATION_PUBLISHED_POLL_SECONDS",
+    ] as const) {
+      if (env[name] === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: [name],
+          message: `required when REVOCATION_PUBLISHED_LIST_URL is set`,
+        });
+      }
+    }
+  }
   if (env.REVOCATION_SERVICE_KEY === undefined && env.REVOCATION_MTLS_CERT === undefined) {
     ctx.addIssue({
       code: "custom",
