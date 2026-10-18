@@ -9,7 +9,7 @@ import {
   isUsableAnchorWindow,
   parseTimestamp,
   pinnedDidDocument,
-  type TrustAnchor,
+  type StatusAnchor,
 } from "./trust-anchor.js";
 
 declare const verifiedBrand: unique symbol;
@@ -62,10 +62,18 @@ function malformed(reason: string): Result<never, ForeignStatusListError> {
  */
 export async function verifyForeignStatusList(params: {
   readonly credential: unknown;
-  readonly anchor: TrustAnchor;
+  readonly anchor: StatusAnchor;
   readonly now: Date;
   /** Explicit configuration: how far the publisher's clock may be ahead of ours. */
   readonly maxClockSkewSeconds: number;
+  /**
+   * Accept a correctly signed list that is past its window. Only for a caller
+   * that unions revocations in and never acts on freshness (A merging its own
+   * published list): a stale list's bits are still true, because a revocation
+   * is permanent. The returned `notAfter` is then in the past, and the caller
+   * must not count the list as a fresh confirmation. Default: refuse.
+   */
+  readonly acceptStale?: boolean;
 }): Promise<Result<VerifiedForeignStatusList, ForeignStatusListError>> {
   const { credential, anchor, now, maxClockSkewSeconds } = params;
 
@@ -123,7 +131,9 @@ export async function verifyForeignStatusList(params: {
   const notAfter = new Date(
     Math.min(validUntil.getTime(), validFrom.getTime() + anchor.maxStatusAgeSeconds * 1000),
   );
-  if (now.getTime() >= notAfter.getTime()) return err({ code: "LIST_STALE" });
+  if (params.acceptStale !== true && now.getTime() >= notAfter.getTime()) {
+    return err({ code: "LIST_STALE" });
+  }
 
   const decoded = decodeStatusList(credentialSubject.encodedList);
   if (!decoded.ok) return malformed(`encodedList: ${decoded.error.code}`);

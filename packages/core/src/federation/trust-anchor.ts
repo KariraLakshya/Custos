@@ -26,6 +26,12 @@ export interface TrustAnchor {
   readonly enabled: boolean;
 }
 
+/** The part of an anchor that describes a status list; all a list check needs. */
+export type StatusAnchor = Pick<
+  TrustAnchor,
+  "statusIssuerDid" | "statusIssuerPublicKey" | "statusListId" | "maxStatusAgeSeconds"
+>;
+
 /** An exact match on the issuer a credential names; nothing fuzzier. */
 export function selectTrustAnchor(
   anchors: readonly TrustAnchor[],
@@ -36,7 +42,7 @@ export function selectTrustAnchor(
 }
 
 /** The anchor's numbers are configuration, but a bad one must fail closed, not open. */
-export function isUsableAnchorWindow(anchor: TrustAnchor): boolean {
+export function isUsableAnchorWindow(anchor: Pick<TrustAnchor, "maxStatusAgeSeconds">): boolean {
   return Number.isSafeInteger(anchor.maxStatusAgeSeconds) && anchor.maxStatusAgeSeconds > 0;
 }
 

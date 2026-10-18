@@ -13,6 +13,13 @@ import { err, ok, type Result } from "../result.js";
 export const MINIMUM_STATUS_LIST_ENTRIES = 131_072;
 
 /**
+ * The most a list may expand to when decompressed (16 MiB: about 134 million
+ * entries, a thousand times the minimum). A gzip stream can be tiny and expand
+ * enormously; the list is fetched from outside, so the output is bounded.
+ */
+export const MAXIMUM_STATUS_LIST_BYTES = 16 * 1024 * 1024;
+
+/**
  * Multibase prefix `u` = base64url, no padding. Bitstring Status List types
  * `encodedList` as multibase, unlike StatusList2021's bare base64url.
  */
@@ -85,6 +92,19 @@ export function isRevoked(list: Uint8Array, index: number): Result<boolean, Stat
   return ok((list[byte]! & mask) !== 0);
 }
 
+/** Every index whose bit is set, in ascending order. */
+export function revokedIndexes(list: Uint8Array): number[] {
+  const indexes: number[] = [];
+  for (let byte = 0; byte < list.length; byte += 1) {
+    const value = list[byte]!;
+    if (value === 0) continue;
+    for (let bit = 0; bit < 8; bit += 1) {
+      if ((value & (0b1000_0000 >> bit)) !== 0) indexes.push(byte * 8 + bit);
+    }
+  }
+  return indexes;
+}
+
 /**
  * GZIP, then multibase base64url, per the spec's `encodedList`. Round-trip
  * stability is what matters here, not byte-identical output: gzip headers
@@ -111,7 +131,9 @@ export function decodeStatusList(encoded: string): Result<Uint8Array, StatusList
     if (compressed.length === 0) {
       return err({ code: "MALFORMED_STATUS_LIST", reason: "empty encoded list" });
     }
-    const list = new Uint8Array(gunzipSync(compressed));
+    const list = new Uint8Array(
+      gunzipSync(compressed, { maxOutputLength: MAXIMUM_STATUS_LIST_BYTES }),
+    );
     if (list.length === 0) {
       return err({ code: "MALFORMED_STATUS_LIST", reason: "decoded list is empty" });
     }
