@@ -9,7 +9,11 @@ import {
   type ControlPlaneGuard,
   type EnvoyOnlyTlsListener,
 } from "@custos/control-plane-auth";
-import { buildDidWebDocument, type KeyProvider } from "@custos/core";
+import {
+  buildDidWebDocument,
+  statusListCredentialUrl as statusListCredentialUrlFor,
+  type KeyProvider,
+} from "@custos/core";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -141,9 +145,7 @@ export async function buildServer(options: {
   });
   const serviceDid = didDocument.id;
   const verificationMethodId = didDocument.verificationMethod[0].id;
-  const statusListCredentialUrl = `${
-    domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https"
-  }://${domain}/status/revocation`;
+  const statusListCredentialUrl = statusListCredentialUrlFor(domain);
 
   const tombstoneMemo = createTombstoneMemo();
   const tombstoneSigner = { sign: (data: Uint8Array) => keyProvider.sign(keyId, data) };

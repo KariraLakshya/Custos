@@ -5,6 +5,19 @@ import {
   buildStatusListSubject,
 } from "./bitstring-status-list.js";
 
+/**
+ * Where a revocation identity's status list lives, derived from the domain its
+ * did:web is published under. The revocation service and the publisher both
+ * call this, so the list's identity (its credential `id` and what every agent's
+ * `credentialStatus` points at) cannot drift between them. `localhost` and
+ * `127.0.0.1` are `http`, as in did:web resolution; everything else is `https`.
+ */
+export function statusListCredentialUrl(domain: string): string {
+  const scheme =
+    domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https";
+  return `${scheme}://${domain}/status/revocation`;
+}
+
 export type IssueStatusListCredentialError = {
   readonly code: "SIGNING_FAILED";
   readonly reason: string;
