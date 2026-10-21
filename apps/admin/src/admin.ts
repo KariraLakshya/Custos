@@ -6,6 +6,7 @@ import {
   type Scope,
 } from "@custos/control-plane-auth";
 import { Command, InvalidArgumentError } from "commander";
+import { addPublishStatusCommands, type PublisherRuntime } from "./publisher/cli.js";
 
 const DURATION = /^([1-9][0-9]{0,4})([dh])$/;
 
@@ -30,6 +31,8 @@ export interface AdminDeps {
   readonly out: (line: string) => void;
   /** Runs `demo`; supplied by the entry point, which owns processes and signals. */
   readonly demo?: () => Promise<void>;
+  /** What `publish-status` needs from the outside world; absent in tests that don't use it. */
+  readonly publisher?: PublisherRuntime;
 }
 
 /**
@@ -134,6 +137,8 @@ export function createAdminCli(deps: AdminDeps): Command {
         deps.out(assignment(options.shell, key.variable, result.token));
       }
     });
+
+  if (deps.publisher !== undefined) addPublishStatusCommands(program, deps.publisher);
 
   return program;
 }

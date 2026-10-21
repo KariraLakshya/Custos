@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createApiKeyStore } from "@custos/control-plane-auth";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { runAdminCli } from "./admin.js";
+import { createDatabaseIndexReader } from "./publisher/database.js";
 import { startDemo } from "./demo.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
@@ -49,8 +50,29 @@ async function demo(): Promise<void> {
   await handle.finished;
 }
 
+/** A's revoked agents, read from its database with timeouts; one input to the publisher's union. */
+const databaseReader = createDatabaseIndexReader(databaseUrl, { timeoutMs: 5_000 });
+
+// `publish-status run` stops cleanly on Ctrl-C or a termination signal.
+const stop = new AbortController();
+process.once("SIGINT", () => stop.abort());
+process.once("SIGTERM", () => stop.abort());
+
 try {
-  await runAdminCli(process.argv, { store, clock, out, demo });
+  await runAdminCli(process.argv, {
+    store,
+    clock,
+    out,
+    demo,
+    publisher: {
+      env: process.env,
+      clock,
+      out,
+      readDatabaseIndexes: databaseReader.read,
+      signal: stop.signal,
+    },
+  });
 } finally {
+  await databaseReader.close();
   await db.$client.end();
 }
