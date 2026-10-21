@@ -118,7 +118,7 @@ Banned patterns, enforced rather than encouraged:
 - **New credential or token type** → extend `packages/core`'s existing envelope pattern (KMS-shaped injected signer, injected clock, bundled-never-fetched contexts). Reuse the pattern from ADR 0001 rather than re-deriving it.
 - **New control-plane service** → only when the workload shape genuinely differs from the existing four (identity is low-traffic/security-critical, vault is steady, revocation is bursty, audit is a write-heavy firehose). Don't add a network hop without an isolation reason — see the scaling-profile rationale in the tech stack doc.
 - **Deployment/enforcement hardening** (sidecar, egress NetworkPolicy, eBPF, edge verifier, TEE, content inspection) → explicitly `docs/build-plan.md`'s "Later" section. Interfaces should accommodate these; implementations wait for demand. Do not start them early.
-- **Cross-org federation (Phase 6)** → builds _on_ the MVP core, not alongside it. Do not start before Phase 5's SDK and README are done and the current phase line in `docs/build-plan.md` says so.
+- **Cross-org federation (Phase 6)** → builds _on_ the MVP core, not alongside it. Started 2026-10-16 ahead of Phase 5's non-author README check (a recorded deviation; see the current phase line in `docs/build-plan.md` and `docs/adr/0014-cross-org-federation.md`).
 
 ## 8. When does Claude stop and ask?
 

@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 6 — Cross-org federation, started 2026-10-16 by the founder's decision, _before_ Phase 5's DONE check.** Deliberate deviation from "do not start a phase until the previous one's DONE criteria pass": no non-author tester could be found. Phase 5's DONE check (the non-author README run, brief in `docs/readme-test.md`) stays open and is still owed. Phase 6 begins with an ADR, not code. Previously: Phase 5 — DONE check (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
+> **CURRENT: Phase 6 — Cross-org federation, started 2026-10-16 by the founder's decision, _before_ Phase 5's DONE check.** Deliberate deviation from "do not start a phase until the previous one's DONE criteria pass": no non-author tester could be found. Phase 5's DONE check (the non-author README run, brief in `docs/readme-test.md`) stays open and is still owed. ADR 0014 is Accepted and steps 1–3 are built (the foreign-agent verifier, A's merge of the published list, and the publisher); `packages/federation` and the two-stack end-to-end run remain. Previously: Phase 5 — DONE check (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
