@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-21 — The tool that fires an agent from outside the company system
 
-**Commits:** not yet committed or pushed; work is on branch `feat/phase-6-publisher`.
+**Commits:** `c0d89c3` (one shared way to work out the list's address), `eb44e1a` (the publisher tool), `e14234b` (docs). Pushed to branch `feat/phase-6-publisher`; pull request #103 is open, waiting for the automatic checks and your merge.
 
 **What happened:** until now, the "fired agents" list could only be produced by the company's own main system. That is the one thing the cross-company design cannot rely on, because the whole point is that firing an agent must still work when that system is switched off. This step builds the independent tool a security person runs from their own laptop to fire an agent and publish the updated list.
 
