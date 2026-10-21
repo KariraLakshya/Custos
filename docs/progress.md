@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-21 — The tool that fires an agent from outside the company system
+
+**Commits:** not yet committed or pushed; work is on branch `feat/phase-6-publisher`.
+
+**What happened:** until now, the "fired agents" list could only be produced by the company's own main system. That is the one thing the cross-company design cannot rely on, because the whole point is that firing an agent must still work when that system is switched off. This step builds the independent tool a security person runs from their own laptop to fire an agent and publish the updated list.
+
+**How it works:** the tool keeps a small journal file, like a sign-in book. Each time someone fires an agent it adds one line (when, which agent slot, who did it, why), writes it to disk, and only then signs and posts a fresh list. Every list is rebuilt from that book plus any earlier copies it can verify as its own, so deleting or rolling back the tool's working files cannot make it forget a firing. It refuses to start from nothing by accident, and it will not initialise itself if a list it already signed exists anywhere. The security person names the agent by its credential file (the tool checks it is genuine), or by a number typed twice, because firing is permanent and a typo must not fire the wrong agent. It also re-signs the list every so often even when nothing changed, so the receiving companies can tell "nothing changed" from "the publisher has gone quiet".
+
+**Checked against the real system:** the list this tool signs is accepted by the company's own revocation service, merged into its records, served back, and still there after that service restarts. We also deliberately broke the tool's safety rules twenty-nine ways and every break was caught by a test. Two real faults were found and fixed along the way: pressing Ctrl-C while the tool was busy could leave it waiting for the whole interval before stopping, and a crash while writing the journal could have left it unreadable and stopped the tool for good. It will also refuse to replace a good list if it is started with the wrong key, and it will not start a fresh list unless it has checked (or been told) that none exists. On Windows we found that a file another program is holding open cannot be replaced; the tool then reports "not published" rather than pretending, and leaves the previous list in place.
+
+**Not finished:** the tool's signing key is still a development stand-in kept in an environment setting; it must move to the cloud key service before real use, and this is written down as a blocker. The journal is the record of who fired whom and why for now; copying it into the official audit log is a separate follow-up.
+
+_Why it matters:_ this is the piece that makes "switch off the whole company and still revoke" actually possible.
+
 ## 2026-10-18 — A company's own system now listens for revocations made from outside it
 
 **Commits:** `4fe8919` (shared list builder, size cap, stale-tolerant check), `5632686` (the merge and the stop-answering rule), `baef9d4` (docs). Pushed to branch `feat/phase-6-status-publication`; pull request #94 is open, waiting for the automatic checks and your merge.
