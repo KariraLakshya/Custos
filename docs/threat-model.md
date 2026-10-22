@@ -162,3 +162,14 @@ What the controls above **don't** cover, stated so nobody assumes otherwise. Thi
 | mTLS rejects expired, wrong-CA, self-signed, mismatched-SAN certificates     | `packages/control-plane-auth/src/mtls-proxy.test.ts`, `mtls-node.test.ts`                              |
 | SSO rejects a bad signature, issuer, audience, nonce, and expired tokens     | `services/identity/src/sso/sso.test.ts` "refuses an ID token with …"                                   |
 | The full `pnpm test:e2e` lifecycle passes on the new flow                    | `packages/sdk/src/sdk.e2e.test.ts`, `packages/sdk/src/mtls.e2e.test.ts` (CI `ci.yml`, `pnpm test:e2e`) |
+
+### Phase 6 DONE criterion → proof
+
+| Criterion (`docs/build-plan.md`, ADR 0014)                                                                              | Test                                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| B verifies A's agent from its credential and A's published list, with A's services stopped and A's database unreachable | `apps/admin/src/federation.e2e.test.ts` (`pnpm --filter @custos/admin test:e2e`)                 |
+| Revoke at A (through the publisher, A off); B rejects within one poll interval                                          | same test, step 4: asserted within the 300 ms poll interval plus 2 s slack (measured 187-231 ms) |
+| B never contacts A                                                                                                      | same test: every request B makes is recorded and is to the static host only                      |
+| A stale list fails closed, a revoked agent stays revoked, a fresh list recovers                                         | same test, steps 5 and 6; unit cases in `packages/federation/src/*.test.ts`                      |
+
+Both organisations run on one machine and one Postgres server in this test; "A off" means A's services are closed and A's database refuses connections, not a second machine switched off.
