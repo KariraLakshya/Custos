@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-22 — The cross-company story, live on the dashboard
 
-**Commits:** not yet committed at the time of writing; branch `feat/federation-dashboard-panel`.
+**Commits:** `478ff8b` (the dashboard panel), `0092e86` (the one-command demo), `dbaa88a` (docs). Pushed to branch `feat/federation-dashboard-panel`; pull request #106 is open, not yet merged.
 
 **What shipped:** the extra you approved. One command, `pnpm demo:federation`, starts company A's systems and company B's audit log and dashboard on this computer. Two of A's agents start calling B every few seconds, and the dashboard's new "Across organisations" panel lists each of B's decisions about them. The presenter presses Enter to switch company A off: the agents keep working. Enter again fires agent 1 from A's security operator's tool: B refuses it at once, the panel shows it in red with a pop-up, and agent 2 carries on. In the rehearsal runs B refused the fired agent about 0.7 to 0.8 seconds after the firing was published (B checks A's list once a second, on its own).
 
