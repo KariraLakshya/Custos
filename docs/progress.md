@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-22 — The receiving company's door: checking another company's agent, with no phone call home
 
-**Commits:** not yet committed at the time of writing; this entry is updated with the hashes and the pull request number when the work is pushed. Branch `feat/phase-6-federation`.
+**Commits:** `44e4b34` (refusals now name the agent), `4e1c41e` (the door itself), `0700995` (docs). Pushed to branch `feat/phase-6-federation`; pull request #104 is open, not yet merged.
 
 **What shipped:** the piece that sits at company B's door and decides whether an agent from company A may come in. It checks the agent's signed identity card against the keys B wrote down in advance, checks the agent really holds its secret key, and checks A's published "fired agents" list. It makes no call to A's systems while deciding. A separate background helper keeps a verified copy of A's list up to date by fetching it from a fixed address B chose, never from an address an agent supplies.
 
