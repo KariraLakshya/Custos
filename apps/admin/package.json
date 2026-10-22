@@ -16,16 +16,16 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
+    "@custos/audit-client": "workspace:*",
     "@custos/control-plane-auth": "workspace:*",
     "@custos/core": "workspace:*",
+    "@custos/federation": "workspace:*",
     "commander": "^12.1.0",
     "drizzle-orm": "^0.45.3",
     "pg": "^8.23.1"
   },
   "devDependencies": {
     "@custos/audit": "workspace:*",
-    "@custos/audit-client": "workspace:*",
-    "@custos/federation": "workspace:*",
     "@custos/identity": "workspace:*",
     "@custos/revocation": "workspace:*",
     "@custos/sdk": "workspace:*",

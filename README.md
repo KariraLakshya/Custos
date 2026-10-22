@@ -343,7 +343,15 @@ Organisation B can accept agents that organisation A issued without ever calling
 - **B's trust anchor.** B writes down A's two public keys and the list's address once, out of band (`parseTrustAnchors` in `@custos/federation`).
 - **B's gate.** `createStatusCache` keeps a verified copy of A's list, fetched only from the configured address, and `createForeignAgentGate` checks each call: A's signature on the credential, the caller's proof that it holds the agent's key, and A's list. The answer is allowed, `401 UNAUTHORIZED` (the same for every bad credential or proof), `403 AGENT_REVOKED`, or `503 UNAVAILABLE` when B cannot confirm a recent list. A 503 still refuses. Allows and refusals of genuine agents are written to B's own audit log.
 
-To see the whole story run (two databases, A's real identity and revocation services, a static host, B's audit service):
+To watch it live, with the dashboard:
+
+```bash
+pnpm demo:federation
+```
+
+It starts A's identity and revocation services, B's audit service and the dashboard (ports 4001, 4003, 4004, 4005, plus 4006 for the list's file host), registers two agents at A and has them call B every few seconds. Open http://localhost:4005: the "Across organisations" panel shows B's decisions. Press Enter to switch A off (the agents keep working), Enter again to fire agent 1 through A's publisher (B refuses it, with a toast, while agent 2 carries on), and Enter or Ctrl-C to stop. In this demo A's database stays up, because B's audit service shares it; the test below switches it off too.
+
+To see the whole story run as a test (two databases, A's real identity and revocation services, a static host, B's audit service):
 
 ```bash
 pnpm --filter @custos/admin test:e2e

@@ -129,8 +129,8 @@ function resolveSeeds(deps: DemoDeps): Secrets {
   return seeds;
 }
 
-async function waitUntilReady(
-  deps: DemoDeps,
+export async function waitUntilReady(
+  deps: Pick<DemoDeps, "fetch" | "sleep">,
   service: ServiceSpec,
   hasExited: () => boolean,
 ): Promise<boolean> {

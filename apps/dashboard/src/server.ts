@@ -19,8 +19,25 @@ const indexHtmlPath = join(here, "index.html");
  * decisions off a dashboard is not a security boundary. `custos audit-log`
  * remains the command that independently verifies every record.
  */
-export function buildServer(): Server {
-  return createServer((_request, response) => {
+export function buildServer(options: { readonly assetDir?: string } = {}): Server {
+  // `foreign.js` is compiled from foreign.ts, so it exists next to the
+  // compiled server in dist/, not next to the source in src/; tests inject it.
+  const assetDir = options.assetDir ?? here;
+  return createServer((request, response) => {
+    const path = new URL(request.url ?? "/", "http://dashboard.invalid").pathname;
+    if (path === "/foreign.js") {
+      readFile(join(assetDir, "foreign.js"))
+        .then((script) => {
+          // A module script is refused by the browser under any other type.
+          response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+          response.end(script);
+        })
+        .catch(() => {
+          response.writeHead(404, { "content-type": "text/plain" });
+          response.end("dashboard: foreign.js not built");
+        });
+      return;
+    }
     readFile(indexHtmlPath)
       .then((html) => {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });

@@ -98,6 +98,10 @@
   }
   @keyframes slide-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   @keyframes fade-out { to { opacity: 0; } }
+  #foreign-panel { border-bottom: 1px solid var(--border); }
+  #foreign-panel[hidden] { display: none; }
+  #foreign-panel .hint { color: var(--muted); font-size: 11px; margin: -4px 0 10px; }
+  td.org { font-weight: 600; }
   footer { padding: 12px 20px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--border); }
 </style>
 </head>
@@ -127,6 +131,16 @@
   <div class="stat"><div class="value" id="stat-denied">0</div><div class="label">Denied</div></div>
   <div class="stat"><div class="value" id="stat-revoked">0</div><div class="label">Revoked agents</div></div>
 </div>
+<section class="panel" id="foreign-panel" hidden>
+  <h2>Across organisations</h2>
+  <div class="hint">This organisation's decisions about agents another organisation issued, checked from that organisation's signed credentials and its published revocation list. Only decisions made since this page opened are shown.</div>
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Organisation</th><th>Agent</th><th>Tool</th><th>Decision</th><th>Why</th></tr>
+    </thead>
+    <tbody id="foreign-body"></tbody>
+  </table>
+</section>
 <main>
   <div class="panel" id="revoked-panel">
     <h2>Revoked agents</h2>
@@ -168,11 +182,24 @@
   const revokedListEl = document.getElementById("revoked-list");
   const feedBodyEl = document.getElementById("feed-body");
   const bannersEl = document.getElementById("banners");
+  const foreignPanelEl = document.getElementById("foreign-panel");
+  const foreignBodyEl = document.getElementById("foreign-body");
 
   auditUrlInput.value = localStorage.getItem(STORAGE_KEYS.audit) || "http://localhost:4004";
   revocationUrlInput.value = localStorage.getItem(STORAGE_KEYS.revocation) || "http://localhost:4003";
 
   let pollTimer = null;
+  const pageOpenedAt = Date.now();
+  // The cross-organisation panel's parsing lives in a separate module. It is
+  // loaded on its own, so if it fails only that panel is off: the rest of the
+  // page keeps working exactly as before.
+  let foreign = null;
+  import("/foreign.js").then(
+    (module) => { foreign = module; },
+    () => { foreign = null; },
+  );
+  let foreignPolled = false;
+  const seenForeignKeys = new Set();
   const seenRecordKeys = new Set();
   const seenRevokedKeys = new Set();
 
@@ -311,13 +338,52 @@
     }
   }
 
+  /**
+   * Decisions about other organisations' agents (policy.rule "foreign:<org>"),
+   * since the page opened. Every field comes from another organisation, so it
+   * is only ever written with textContent (el()). No toast on the first poll:
+   * the page must not announce what happened before it was opened.
+   */
+  function renderForeign(records) {
+    if (foreign === null) return;
+    const views = records
+      .map(foreign.foreignViewOf)
+      .filter((view) => view !== undefined && foreign.recordedSince(view, pageOpenedAt))
+      .reverse();
+    foreignPanelEl.hidden = views.length === 0;
+    foreignBodyEl.innerHTML = "";
+    for (const view of views) {
+      const key = [view.recordedAt, view.organisation, view.agentDid, view.decision, view.code].join("|");
+      const isNew = !seenForeignKeys.has(key);
+      if (isNew) {
+        seenForeignKeys.add(key);
+        const message = foreignPolled ? foreign.cutOffMessage(view, shortDid(view.agentDid)) : undefined;
+        if (message !== undefined) showBanner(message);
+      }
+      const row = document.createElement("tr");
+      if (isNew && foreignPolled) row.className = "new-row";
+      row.appendChild(el("td", "", new Date(view.recordedAt).toLocaleTimeString()));
+      row.appendChild(el("td", "org", view.organisation));
+      row.appendChild(el("td", "agent", shortDid(view.agentDid)));
+      row.appendChild(el("td", "", view.tool || ""));
+      const decisionCell = document.createElement("td");
+      decisionCell.appendChild(el("span", "badge " + view.decision, view.decision === "allow" ? "allowed" : "refused"));
+      row.appendChild(decisionCell);
+      row.appendChild(el("td", "", view.code || ""));
+      foreignBodyEl.appendChild(row);
+    }
+    foreignPolled = true;
+  }
+
   async function poll() {
     const auditUrl = auditUrlInput.value.trim();
     const revocationUrl = revocationUrlInput.value.trim();
 
     try {
       const { records } = await fetchJson(auditUrl, "/records");
-      renderFeed(records.map(decodeEnvelopeUnverified).filter(Boolean));
+      const decoded = records.map(decodeEnvelopeUnverified).filter(Boolean);
+      renderFeed(decoded);
+      renderForeign(decoded);
       setDot(auditDot, true);
     } catch {
       setDot(auditDot, false);
