@@ -6,6 +6,22 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-22 — The receiving company's door: checking another company's agent, with no phone call home
+
+**Commits:** not yet committed at the time of writing; this entry is updated with the hashes and the pull request number when the work is pushed. Branch `feat/phase-6-federation`.
+
+**What shipped:** the piece that sits at company B's door and decides whether an agent from company A may come in. It checks the agent's signed identity card against the keys B wrote down in advance, checks the agent really holds its secret key, and checks A's published "fired agents" list. It makes no call to A's systems while deciding. A separate background helper keeps a verified copy of A's list up to date by fetching it from a fixed address B chose, never from an address an agent supplies.
+
+**How it works:** every entry attempt ends in one of three answers. Refused as unrecognised (the same blunt answer for every kind of bad card, so an outsider cannot learn which companies B trusts or which check failed), refused because the agent was fired, or "try again shortly" if B's copy of A's list is missing or too old. The last one still refuses; it only says the refusal may be temporary. If B cannot confirm the list is recent, nobody from A gets in.
+
+**Record keeping:** when an agent that proved who it is is let in, or turned away because it was fired or the list was stale, B writes a signed audit entry saying which agent, from which company, and why. Attempts by strangers with forged cards are only logged, not recorded as evidence, so nobody can flood the audit trail with junk.
+
+**Checked:** 123 new tests, plus the core checker's tests. We deliberately broke the new code 18 ways (follow redirects, accept an oversized download, skip the signature check on the list, answer "revoked" with the wrong code, and so on) and 17 were caught immediately; the one that was not changes nothing observable. One change reached back into the earlier step: refusals made after the agent proved itself now carry the agent's identity, so the audit entry cannot be fooled by forged input.
+
+**Not finished:** the next step is the full two-company run with company A switched off completely. A restart of B's door forgets its copy of A's list until it fetches a new one, so B refuses everyone until then, by design. One known gap is written down: the agent's proof does not name the specific action, so a proof intercepted in transit could be used once for a different action within a few seconds.
+
+_Why it matters:_ this is the half of the headline claim that B can act on its own. The remaining step proves it with A completely off.
+
 ## 2026-10-22 — Where Phase 6 stands, and what can be shown today
 
 **Commits:** none new in code; this entry records the state after pull request #103 (the publisher tool) was merged on 2026-10-22. Steps 1 and 2 were merged on 2026-10-18.
