@@ -31,6 +31,8 @@ export interface AdminDeps {
   readonly out: (line: string) => void;
   /** Runs `demo`; supplied by the entry point, which owns processes and signals. */
   readonly demo?: () => Promise<void>;
+  /** Runs `demo-federation`; supplied by the entry point, like `demo`. */
+  readonly demoFederation?: () => Promise<void>;
   /** What `publish-status` needs from the outside world; absent in tests that don't use it. */
   readonly publisher?: PublisherRuntime;
 }
@@ -112,6 +114,18 @@ export function createAdminCli(deps: AdminDeps): Command {
     .action(async () => {
       if (deps.demo === undefined) throw new Error("the demo is not available here");
       await deps.demo();
+    });
+
+  program
+    .command("demo-federation")
+    .description(
+      "Two organisations on this machine: A's agents checked by B, A switched off, one agent fired",
+    )
+    .action(async () => {
+      if (deps.demoFederation === undefined) {
+        throw new Error("the federation demo is not available here");
+      }
+      await deps.demoFederation();
     });
 
   program

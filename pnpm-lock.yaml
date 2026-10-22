@@ -65,12 +65,18 @@ importers:
 
   apps/admin:
     dependencies:
+      '@custos/audit-client':
+        specifier: workspace:*
+        version: link:../../packages/audit-client
       '@custos/control-plane-auth':
         specifier: workspace:*
         version: link:../../packages/control-plane-auth
       '@custos/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@custos/federation':
+        specifier: workspace:*
+        version: link:../../packages/federation
       commander:
         specifier: ^12.1.0
         version: 12.1.0
@@ -84,12 +90,6 @@ importers:
       '@custos/audit':
         specifier: workspace:*
         version: link:../../services/audit
-      '@custos/audit-client':
-        specifier: workspace:*
-        version: link:../../packages/audit-client
-      '@custos/federation':
-        specifier: workspace:*
-        version: link:../../packages/federation
       '@custos/identity':
         specifier: workspace:*
         version: link:../../services/identity

@@ -4,7 +4,7 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
-  "description": "Custos — a trust layer for AI agents",
+  "description": "Custos \u2014 a trust layer for AI agents",
   "engines": {
     "node": ">=22"
   },
@@ -14,6 +14,7 @@
     "dev:mtls": "node infra/mtls/certs.mjs && node infra/mtls/render-envoy.mjs && docker compose -f infra/docker/docker-compose.yml --profile mtls up -d envoy",
     "dev:sso": "docker compose -f infra/docker/docker-compose.yml --profile sso up -d keycloak",
     "demo": "pnpm migrate && pnpm build && node apps/admin/dist/bin.js demo",
+    "demo:federation": "pnpm migrate && pnpm build && node apps/admin/dist/bin.js demo-federation",
     "dev:down": "docker compose -f infra/docker/docker-compose.yml --profile mtls --profile sso down",
     "build": "turbo run build",
     "test": "turbo run test",
