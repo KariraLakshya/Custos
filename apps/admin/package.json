@@ -12,7 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
     "@custos/control-plane-auth": "workspace:*",
@@ -22,7 +23,12 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
+    "@custos/audit": "workspace:*",
+    "@custos/audit-client": "workspace:*",
+    "@custos/federation": "workspace:*",
+    "@custos/identity": "workspace:*",
     "@custos/revocation": "workspace:*",
+    "@custos/sdk": "workspace:*",
     "@custos/testing": "workspace:*",
     "@custos/tsconfig": "workspace:*",
     "@custos/vitest-config": "workspace:*",

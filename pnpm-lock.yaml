@@ -81,9 +81,24 @@ importers:
         specifier: ^8.23.1
         version: 8.23.1
     devDependencies:
+      '@custos/audit':
+        specifier: workspace:*
+        version: link:../../services/audit
+      '@custos/audit-client':
+        specifier: workspace:*
+        version: link:../../packages/audit-client
+      '@custos/federation':
+        specifier: workspace:*
+        version: link:../../packages/federation
+      '@custos/identity':
+        specifier: workspace:*
+        version: link:../../services/identity
       '@custos/revocation':
         specifier: workspace:*
         version: link:../../services/revocation
+      '@custos/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@custos/testing':
         specifier: workspace:*
         version: link:../../packages/testing
