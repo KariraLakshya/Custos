@@ -6,9 +6,37 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-22 — The receiving company's door: checking another company's agent, with no phone call home
+
+**Commits:** `44e4b34` (refusals now name the agent), `4e1c41e` (the door itself), `0700995` (docs). Pushed to branch `feat/phase-6-federation`; pull request #104 is open, not yet merged.
+
+**What shipped:** the piece that sits at company B's door and decides whether an agent from company A may come in. It checks the agent's signed identity card against the keys B wrote down in advance, checks the agent really holds its secret key, and checks A's published "fired agents" list. It makes no call to A's systems while deciding. A separate background helper keeps a verified copy of A's list up to date by fetching it from a fixed address B chose, never from an address an agent supplies.
+
+**How it works:** every entry attempt ends in one of three answers. Refused as unrecognised (the same blunt answer for every kind of bad card, so an outsider cannot learn which companies B trusts or which check failed), refused because the agent was fired, or "try again shortly" if B's copy of A's list is missing or too old. The last one still refuses; it only says the refusal may be temporary. If B cannot confirm the list is recent, nobody from A gets in.
+
+**Record keeping:** when an agent that proved who it is is let in, or turned away because it was fired or the list was stale, B writes a signed audit entry saying which agent, from which company, and why. Attempts by strangers with forged cards are only logged, not recorded as evidence, so nobody can flood the audit trail with junk.
+
+**Checked:** 123 new tests, plus the core checker's tests. We deliberately broke the new code 18 ways (follow redirects, accept an oversized download, skip the signature check on the list, answer "revoked" with the wrong code, and so on) and 17 were caught immediately; the one that was not changes nothing observable. One change reached back into the earlier step: refusals made after the agent proved itself now carry the agent's identity, so the audit entry cannot be fooled by forged input.
+
+**Not finished:** the next step is the full two-company run with company A switched off completely. A restart of B's door forgets its copy of A's list until it fetches a new one, so B refuses everyone until then, by design. One known gap is written down: the agent's proof does not name the specific action, so a proof intercepted in transit could be used once for a different action within a few seconds.
+
+_Why it matters:_ this is the half of the headline claim that B can act on its own. The remaining step proves it with A completely off.
+
+## 2026-10-22 — Where Phase 6 stands, and what can be shown today
+
+**Commits:** none new in code; this entry records the state after pull request #103 (the publisher tool) was merged on 2026-10-22. Steps 1 and 2 were merged on 2026-10-18.
+
+**Where we are:** three of the five Phase 6 steps are on the main branch: the checking logic for another company's agent, the company's own system listening for firings made from outside, and the independent publisher tool. A build-tool security notice that was failing the project's automatic security check was also fixed by pinning to a patched version. Still to build: the receiving side's regular fetching of the published list and its record-keeping (step 4), then a full two-company run with the first company completely switched off (step 5).
+
+**Can a demo be shown?** Yes, for one company. Starting the demo with one command opens the dashboard, which shows every allow and deny as it happens; registering an agent, giving it one tool, watching it be allowed and then refused on another tool, and then firing it and watching the next call refused within about a second all works on screen. What cannot be shown yet is the cross-company part: it has no visual, and there is no one-command two-company run until step 5. It has only been rehearsed by us, not by someone who has never seen the project, so Phase 5's stranger check is still owed.
+
+**Waiting on you:** whether step 5 should also add a small dashboard panel showing a company A agent being allowed and then refused after A's operator fires it, with A switched off. It would make the headline claim visible, but it is extra to the plan, so it is only built if you say yes.
+
+_Why it matters:_ it tells you what you can honestly show an investor or a senior today, and what to wait for.
+
 ## 2026-10-21 — The tool that fires an agent from outside the company system
 
-**Commits:** `c0d89c3` (one shared way to work out the list's address), `eb44e1a` (the publisher tool), `e14234b` (docs). Pushed to branch `feat/phase-6-publisher`; pull request #103 is open, waiting for the automatic checks and your merge. It also pins the build tool Vite to a fixed version, because a new security notice (high severity, development tooling only) appeared against the old one and was failing the automatic security check on the whole project.
+**Commits:** `c0d89c3` (one shared way to work out the list's address), `eb44e1a` (the publisher tool), `e14234b` (docs). Pushed to branch `feat/phase-6-publisher`; pull request #103 was merged on 2026-10-22. It also pins the build tool Vite to a fixed version, because a new security notice (high severity, development tooling only) appeared against the old one and was failing the automatic security check on the whole project.
 
 **What happened:** until now, the "fired agents" list could only be produced by the company's own main system. That is the one thing the cross-company design cannot rely on, because the whole point is that firing an agent must still work when that system is switched off. This step builds the independent tool a security person runs from their own laptop to fire an agent and publish the updated list.
 

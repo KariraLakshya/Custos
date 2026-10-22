@@ -514,6 +514,49 @@ describe("verifyForeignAgent: where its revocation bit lives", () => {
   });
 });
 
+describe("verifyForeignAgent: post-proof denials name the verified agent", () => {
+  // The gate audits these denials. The identity must come from core, which
+  // read it after the signature and the proof verified, never from raw input.
+  const identity = (agent: Agent) => ({
+    agentDid: agent.did,
+    issuerDid: "did:web:a.example",
+    domain: "a.example",
+  });
+
+  it.each([
+    ["AGENT_REVOKED", async (org: Organisation) => ({ view: await viewOf(org, { revoked: [7] }) })],
+    ["STATUS_UNAVAILABLE", async () => ({ view: undefined })],
+    [
+      "STATUS_STALE",
+      async (org: Organisation) => ({
+        view: await viewOf(
+          org,
+          { validFrom: new Date(NOW.getTime() - 1_200_000) },
+          new Date(NOW.getTime() - 1_200_000),
+        ),
+      }),
+    ],
+    [
+      "STATUS_VIEW_MISMATCH",
+      async () => ({
+        view: await viewOf(makeOrganisation({ statusListId: "https://c.example/s" }), {
+          id: "https://c.example/s",
+        }),
+      }),
+    ],
+  ])("%s carries agentDid, issuerDid and domain", async (code, makeCall) => {
+    const org = makeOrganisation({ maxStatusAgeSeconds: 600 });
+    const agent = await issueAgent(org, { index: 7 });
+    expect(await run(org, agent, await makeCall(org))).toMatchObject(denied(code, identity(agent)));
+  });
+
+  it("STATUS_ENTRY_INVALID carries agentDid, issuerDid and domain", async () => {
+    const org = makeOrganisation();
+    const agent = await issueAgent(org, { noStatus: true });
+    expect(await run(org, agent)).toMatchObject(denied("STATUS_ENTRY_INVALID", identity(agent)));
+  });
+});
+
 describe("verifyForeignAgent: revocation and freshness", () => {
   it("refuses a revoked agent", async () => {
     const org = makeOrganisation();

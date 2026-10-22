@@ -27,6 +27,17 @@ export interface ForeignReplayGuard {
 }
 export type ReplayVerdict = "fresh" | "replayed" | "full";
 
+/**
+ * Who a denial is about. Only attached to denials made after the credential's
+ * signature and the caller's proof of possession both verified, so it is never
+ * an attacker's claim; a caller (the gate) may audit on it.
+ */
+export interface VerifiedForeignIdentity {
+  readonly agentDid: string;
+  readonly issuerDid: string;
+  readonly domain: string;
+}
+
 export type ForeignDenial =
   | { readonly code: "MALFORMED_INPUT"; readonly reason: string }
   | { readonly code: "NO_TRUST_ANCHOR" }
@@ -40,11 +51,11 @@ export type ForeignDenial =
   | { readonly code: "PROOF_REJECTED"; readonly reason: VerifyPossessionProofError["code"] }
   | { readonly code: "PROOF_REPLAYED" }
   | { readonly code: "REPLAY_GUARD_FULL" }
-  | { readonly code: "STATUS_ENTRY_INVALID"; readonly reason: string }
-  | { readonly code: "STATUS_UNAVAILABLE" }
-  | { readonly code: "STATUS_VIEW_MISMATCH" }
-  | { readonly code: "AGENT_REVOKED" }
-  | { readonly code: "STATUS_STALE" };
+  | ({ readonly code: "STATUS_ENTRY_INVALID"; readonly reason: string } & VerifiedForeignIdentity)
+  | ({ readonly code: "STATUS_UNAVAILABLE" } & VerifiedForeignIdentity)
+  | ({ readonly code: "STATUS_VIEW_MISMATCH" } & VerifiedForeignIdentity)
+  | ({ readonly code: "AGENT_REVOKED" } & VerifiedForeignIdentity)
+  | ({ readonly code: "STATUS_STALE" } & VerifiedForeignIdentity);
 
 export interface ForeignAgent {
   readonly agentDid: string;
@@ -185,35 +196,43 @@ export async function verifyForeignAgent(params: {
   if (verdict === "replayed") return err({ code: "PROOF_REPLAYED" });
   if (verdict === "full") return err({ code: "REPLAY_GUARD_FULL" });
 
+  const who: VerifiedForeignIdentity = {
+    agentDid,
+    issuerDid: anchor.credentialIssuerDid,
+    domain: anchor.domain,
+  };
+
   // 7. Where its revocation bit lives. A foreign agent with no status entry
   // cannot be checked for revocation, so it is refused.
   const status = credential.credentialStatus;
-  if (!isRecord(status)) return err({ code: "STATUS_ENTRY_INVALID", reason: "missing" });
+  if (!isRecord(status)) return err({ code: "STATUS_ENTRY_INVALID", reason: "missing", ...who });
   if (status.type !== BITSTRING_STATUS_LIST_ENTRY_TYPE || status.statusPurpose !== "revocation") {
-    return err({ code: "STATUS_ENTRY_INVALID", reason: "not a revocation entry" });
+    return err({ code: "STATUS_ENTRY_INVALID", reason: "not a revocation entry", ...who });
   }
   if (status.statusListCredential !== anchor.statusListId) {
     return err({
       code: "STATUS_ENTRY_INVALID",
       reason: "points at a list that is not the anchor's",
+      ...who,
     });
   }
   if (typeof status.statusListIndex !== "string" || !DECIMAL_INDEX.test(status.statusListIndex)) {
-    return err({ code: "STATUS_ENTRY_INVALID", reason: "index is not a decimal number" });
+    return err({ code: "STATUS_ENTRY_INVALID", reason: "index is not a decimal number", ...who });
   }
   const statusListIndex = Number(status.statusListIndex);
 
   // 8. Revoked is checked before stale: a revocation is never cleared, so a
   // revoked agent is answered as revoked even when the list has aged out.
   const view = params.statusViewFor(anchor);
-  if (view === undefined) return err({ code: "STATUS_UNAVAILABLE" });
+  if (view === undefined) return err({ code: "STATUS_UNAVAILABLE", ...who });
   // The view must have been verified for this anchor's list, not another's.
-  if (view.statusListId !== anchor.statusListId) return err({ code: "STATUS_VIEW_MISMATCH" });
+  if (view.statusListId !== anchor.statusListId)
+    return err({ code: "STATUS_VIEW_MISMATCH", ...who });
   const bit = isRevoked(view.list, statusListIndex);
   // An index past the end of the list means "not revoked" (ADR 0013): the list
   // is sized to its highest revoked index, so every revoked index is inside it.
-  if (bit.ok && bit.value) return err({ code: "AGENT_REVOKED" });
-  if (now.getTime() >= view.notAfter.getTime()) return err({ code: "STATUS_STALE" });
+  if (bit.ok && bit.value) return err({ code: "AGENT_REVOKED", ...who });
+  if (now.getTime() >= view.notAfter.getTime()) return err({ code: "STATUS_STALE", ...who });
 
   return ok({
     agentDid,
