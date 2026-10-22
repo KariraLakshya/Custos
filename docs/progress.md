@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-22 — The headline demo works end to end, in a test: company A switched off, its agents still checked, and firing one still works
 
-**Commits:** not yet committed at the time of writing; branch `feat/phase-6-two-stack-e2e`. This entry is updated with hashes and the pull request number when pushed.
+**Commits:** `a907db8` (a second test database for company A), `bb7c94a` (the two-company run), `745600b` (docs). Pushed to branch `feat/phase-6-two-stack-e2e`; pull request #105 is open, not yet merged.
 
 **What shipped:** the final step of the cross-company plan. One automated run plays out the whole story with two separate companies, each with its own database. Company A registers two agents, and company B lets them in. Then everything of A's is shut down: its services stop and its database refuses all connections. B still lets A's agents in, because it only needs A's signed identity cards and A's published "fired agents" list, which lives on an ordinary file host, not on A. A's security person then fires one agent from their own laptop. B refuses that agent about a fifth of a second later (measured 187 to 231 milliseconds over three runs; the test allows up to about two seconds). Next the file host disappears too. Once B's copy of the list is too old to trust, B refuses everyone from A, but still names the fired agent as fired. When a fresh list is published again, the other agent gets back in, and the fired one stays out.
 
