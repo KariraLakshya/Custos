@@ -6,6 +6,22 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-22 — The headline demo works end to end, in a test: company A switched off, its agents still checked, and firing one still works
+
+**Commits:** `a907db8` (a second test database for company A), `bb7c94a` (the two-company run), `745600b` (docs). Pushed to branch `feat/phase-6-two-stack-e2e`; pull request #105 is open, not yet merged.
+
+**What shipped:** the final step of the cross-company plan. One automated run plays out the whole story with two separate companies, each with its own database. Company A registers two agents, and company B lets them in. Then everything of A's is shut down: its services stop and its database refuses all connections. B still lets A's agents in, because it only needs A's signed identity cards and A's published "fired agents" list, which lives on an ordinary file host, not on A. A's security person then fires one agent from their own laptop. B refuses that agent about a fifth of a second later (measured 187 to 231 milliseconds over three runs; the test allows up to about two seconds). Next the file host disappears too. Once B's copy of the list is too old to trust, B refuses everyone from A, but still names the fired agent as fired. When a fresh list is published again, the other agent gets back in, and the fired one stays out.
+
+**How we know it is real:** the run records every network request B makes, and every one went to the file host, none to A. B's own audit log holds a signed record of each decision, and the run checks those signatures. We also deliberately broke it three ways (skip the firing, never let time pass, point B at A instead of the file host), and each break made the run fail. It takes about four seconds and passed three times in a row.
+
+**Honest limit:** both companies run on one computer and share one database server. "A switched off" here means A's programs are stopped and A's database refuses connections, not a second machine pulled from the wall. A two-machine run has not been done.
+
+**Decided:** you accepted this one-machine run as finishing Phase 6 (22 October). The plan's wording is "machine A switched off", which this run approximates but does not literally do; a two-machine run stays optional for a later demo.
+
+**Next:** the cross-company panel you approved for the dashboard, so the story can be shown live on screen rather than only in a test.
+
+_Why it matters:_ this is the "it's big" milestone in the build plan: an agent trusted across two companies, and revocable, with the issuing company completely off.
+
 ## 2026-10-22 — The receiving company's door: checking another company's agent, with no phone call home
 
 **Commits:** `44e4b34` (refusals now name the agent), `4e1c41e` (the door itself), `0700995` (docs). Pushed to branch `feat/phase-6-federation`; pull request #104 is open, not yet merged.

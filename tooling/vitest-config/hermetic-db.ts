@@ -55,10 +55,17 @@ async function dropStale(admin: pg.Client, nowMs: number): Promise<void> {
   }
 }
 
-export async function setup(): Promise<void> {
-  const adminUrl = process.env.DATABASE_URL ?? DEFAULT_URL;
+/**
+ * Creates and migrates one more test database, named like the hermetic one so
+ * a killed run's leftover is swept by the next run. For a test that needs a
+ * second, independent organisation's database (the Phase 6 two-stack e2e).
+ * Returns its URL; drop it with `dropTestDatabase`.
+ */
+export async function createMigratedTestDatabase(adminUrl: string): Promise<{
+  readonly name: string;
+  readonly url: string;
+}> {
   const name = testDatabaseName(Date.now(), randomBytes(4).toString("hex"));
-
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   try {
@@ -71,17 +78,32 @@ export async function setup(): Promise<void> {
     await admin.end(); // ends the session, which releases the lock
   }
 
-  const testUrl = withDatabase(adminUrl, name);
-  const pool = new pg.Pool({ connectionString: testUrl, max: 1 });
+  const url = withDatabase(adminUrl, name);
+  const pool = new pg.Pool({ connectionString: url, max: 1 });
   try {
     await migrate(drizzle(pool), { migrationsFolder });
   } finally {
     await pool.end();
   }
+  return { name, url };
+}
 
+export async function dropTestDatabase(adminUrl: string, name: string): Promise<void> {
+  const admin = new pg.Client({ connectionString: adminUrl });
+  await admin.connect();
+  try {
+    await admin.query(`DROP DATABASE IF EXISTS ${quoted(name)} WITH (FORCE)`);
+  } finally {
+    await admin.end();
+  }
+}
+
+export async function setup(): Promise<void> {
+  const adminUrl = process.env.DATABASE_URL ?? DEFAULT_URL;
+  const { name, url } = await createMigratedTestDatabase(adminUrl);
   created = { name, adminUrl, previous: process.env.DATABASE_URL };
   // Test workers are started after global setup and inherit this.
-  process.env.DATABASE_URL = testUrl;
+  process.env.DATABASE_URL = url;
 }
 
 export async function teardown(): Promise<void> {
@@ -90,12 +112,5 @@ export async function teardown(): Promise<void> {
   created = undefined;
   if (previous === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = previous;
-
-  const admin = new pg.Client({ connectionString: adminUrl });
-  await admin.connect();
-  try {
-    await admin.query(`DROP DATABASE IF EXISTS ${quoted(name)} WITH (FORCE)`);
-  } finally {
-    await admin.end();
-  }
+  await dropTestDatabase(adminUrl, name);
 }

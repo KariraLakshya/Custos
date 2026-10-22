@@ -10,7 +10,7 @@ MCP and A2A define how agents talk. Custos decides whether an agent should be tr
 
 **Where it's going:** a hosted Custos, where a developer connects their agents and tools and Custos runs identity, credential custody, revocation and audit as a managed cloud service. The services here are the core of that offering, and they're being hardened toward it.
 
-**Status:** early stage. The MVP runs end to end locally: identity, vault, revocation, allowlists, audit, CLI, SDK, and the dashboard. It is a development build, not yet hosted. The key that signs agent credentials can live in AWS KMS; the other services' signing keys are still in memory. Nothing here is hardened for production: [docs/threat-model.md](./docs/threat-model.md) lists what is and isn't protected. See [docs/build-plan.md](./docs/build-plan.md).
+**Status:** early stage. The MVP runs end to end locally: identity, vault, revocation, allowlists, audit, CLI, SDK, and the dashboard. It is a development build, not yet hosted. Cross-organisation federation (an organisation accepting another's agents, with the issuer switched off) is built and proven by an end-to-end test on one machine. The key that signs agent credentials can live in AWS KMS; the other services' signing keys are still in memory. Nothing here is hardened for production: [docs/threat-model.md](./docs/threat-model.md) lists what is and isn't protected. See [docs/build-plan.md](./docs/build-plan.md).
 
 ---
 
@@ -325,6 +325,32 @@ custos login      # opens the sign-in page; demo user alice / alice-dev-password
 
 `custos login` saves a key that lasts 8 hours (`SSO_SESSION_HOURS`) to `~/.custos/operator.key`, owner-only, and never prints it. `register`, `grant` and `deprovision` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Only people in a group listed in `SSO_GROUP_SCOPES` can sign in: the demo user `bob` is in none, so he's refused. Everything they do appears in the audit log under their email. The demo realm's passwords and client secret are for local use only.
 
+### Optional: trust another organisation's agents (federation)
+
+Organisation B can accept agents that organisation A issued without ever calling A, even while A is switched off (ADR 0014). Three pieces:
+
+- **A's publisher.** `custos-admin publish-status` runs on A's security operator's machine. It signs A's list of revoked agents and writes it to a file that any static host serves (a bucket, a CDN). Revoking works with all of A's services off. The seed is A's revocation signing seed, from the environment only:
+
+  ```bash
+  CUSTOS_PUBLISHER_SIGNING_SEED=<A's REVOCATION_SIGNING_SEED> pnpm -s custos-admin publish-status revoke \
+    --domain <A's revocation domain> --dir ./publisher --out ./site/status.json --validity-seconds 3600 \
+    --credential agent.json --identity-did <A's identity DID> --identity-public-key <its key, from /.well-known/did.json> \
+    --operator <your name> --reason <why>
+  ```
+
+  The first publish needs `publish-status init` with the same `--domain`, `--dir`, `--out` and `--validity-seconds`; `pnpm -s custos-admin publish-status --help` lists every option. The signing key is a development seed for now and must move to KMS before real use.
+
+- **B's trust anchor.** B writes down A's two public keys and the list's address once, out of band (`parseTrustAnchors` in `@custos/federation`).
+- **B's gate.** `createStatusCache` keeps a verified copy of A's list, fetched only from the configured address, and `createForeignAgentGate` checks each call: A's signature on the credential, the caller's proof that it holds the agent's key, and A's list. The answer is allowed, `401 UNAUTHORIZED` (the same for every bad credential or proof), `403 AGENT_REVOKED`, or `503 UNAVAILABLE` when B cannot confirm a recent list. A 503 still refuses. Allows and refusals of genuine agents are written to B's own audit log.
+
+To see the whole story run (two databases, A's real identity and revocation services, a static host, B's audit service):
+
+```bash
+pnpm --filter @custos/admin test:e2e
+```
+
+It registers two agents at A, has B accept them, stops A's services and makes A's database refuse connections, and has B accept them again. It then revokes one through the publisher (B refuses it within one poll), takes the host away until the list goes stale (B refuses both), and publishes again (B lets the other back in). Both organisations share one Postgres server and one machine in this run. B has no HTTP endpoint of its own yet: an application embeds the gate.
+
 ## Troubleshooting
 
 | Symptom                                                                                      | Cause and fix                                                                                                                                                                                                                                                                                                                                  |
@@ -392,7 +418,7 @@ CUSTOS_TEST_KMS_KEY_ID=<key id or ARN> pnpm --filter @custos/identity test:kms
 ## Repository layout
 
 - `apps/`: `cli` (the `custos` command) and `dashboard`
-- `packages/`: `core` (crypto, DIDs, credentials; pure, no I/O), `sdk`, `contracts`, `connectors` (per-tool adapters), `config`, `observability`, `testing`
+- `packages/`: `core` (crypto, DIDs, credentials; pure, no I/O), `sdk`, `contracts`, `connectors` (per-tool adapters), `federation` (accepting another organisation's agents), `config`, `observability`, `testing`
 - `services/`: `identity`, `vault`, `revocation`, `audit`
 - `infra/`: Docker Compose and database migrations
 - `docs/`: build plan, architecture decision records (`docs/adr/`), progress log
