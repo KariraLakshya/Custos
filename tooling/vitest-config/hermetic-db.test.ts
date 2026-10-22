@@ -1,6 +1,8 @@
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  createMigratedTestDatabase,
+  dropTestDatabase,
   setup,
   teardown,
   testDatabaseAgeStamp,
@@ -110,4 +112,28 @@ describe("hermetic database", () => {
   it("teardown without setup does nothing", async () => {
     await expect(teardown()).resolves.toBeUndefined();
   });
+});
+
+describe("createMigratedTestDatabase", () => {
+  it(
+    "creates a second migrated database, named so a killed run's leftover is swept, and drops it",
+    async () => {
+      const { name, url } = await createMigratedTestDatabase(adminUrl);
+      try {
+        expect(testDatabaseAgeStamp(name)).toBeTypeOf("number");
+        expect(await exists(name)).toBe(true);
+        const tables = await withClient(url, async (c) => {
+          const { rows } = await c.query<{ tablename: string }>(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+          );
+          return rows.map((row) => row.tablename);
+        });
+        expect(tables).toContain("agents");
+      } finally {
+        await dropTestDatabase(adminUrl, name);
+      }
+      expect(await exists(name)).toBe(false);
+    },
+    SLOW,
+  );
 });
