@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-25 — The "revoke" key can now live in Amazon's locked key store
 
-**Commits:** `a8fb0f5` (moving the key-store code into its own shared piece), `80ab292` (the revocation service and the publisher using it), `1c1802c` (documentation), `c002590` (a fix found in review: firing an agent during an Amazon outage is now always written down). On branch `feat/revocation-signing-kms`; **not yet pushed or merged**. (Pull request #108 from the entry below has since been merged into the main version.)
+**Commits:** `a8fb0f5` (moving the key-store code into its own shared piece), `80ab292` (the revocation service and the publisher using it), `1c1802c` (documentation), `c002590` (a fix found in review: firing an agent during an Amazon outage is now always written down). Pushed on 25 October to branch `feat/revocation-signing-kms`; pull request #110 is open, not yet merged. (Pull request #108 from the entry below has since been merged into the main version.)
 
 **What changed:** Custos has one especially powerful key: the one that signs the list of "fired" agents. It is used by our revocation service and by the publisher, the tool a security person runs to fire an agent even when the rest of the system is switched off. Until now that key could only be a secret text value copied onto each machine, and anyone who could read that machine could have signed a fake list that quietly "un-fires" an agent. Both can now use a key held inside Amazon's key service (AWS KMS) instead. There the key is created inside Amazon's hardware and can never be copied out. Custos only asks Amazon to sign, every use is logged, and access can be withdrawn with one click. The identity service already worked this way; now the revocation side does too. The old secret-value mode stays for demos and development, so `pnpm demo` is unchanged.
 
@@ -31,7 +31,7 @@ We deliberately broke the new checks four ways, and every break was caught.
 
 **What's left for you:**
 
-- Push this branch and merge it.
+- Merge pull request #110 once its automatic checks pass.
 - Remove the broad "manage any key" permission from the `custos-dev` Amazon user, unless more live tests are planned (it was needed to create today's test key).
 - Update the Notion risk page.
 
