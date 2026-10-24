@@ -65,8 +65,22 @@ export async function buildStatusListCredential(params: {
   readonly validUntil?: Date;
   readonly memo?: StatusListMemo;
 }): Promise<Result<SignedCredential, StatusListCredentialError>> {
-  const { db, issuerDid, signer, statusListCredentialUrl, now, ttlMs, validUntil, memo } = params;
-  const list = await buildBitstring(db);
+  const { db, ...rest } = params;
+  return signStatusList({ ...rest, list: await buildBitstring(db) });
+}
+
+/** Signs `list`, reusing `memo`'s last signature when it applies (ADR 0016). */
+export async function signStatusList(params: {
+  readonly list: Uint8Array;
+  readonly issuerDid: string;
+  readonly signer: CredentialSigner;
+  readonly statusListCredentialUrl: string;
+  readonly now: Date;
+  readonly ttlMs?: number;
+  readonly validUntil?: Date;
+  readonly memo?: StatusListMemo;
+}): Promise<Result<SignedCredential, StatusListCredentialError>> {
+  const { list, issuerDid, signer, statusListCredentialUrl, now, ttlMs, validUntil, memo } = params;
   const sign = async (): Promise<Result<SignedCredential, StatusListCredentialError>> => {
     const issued = await issueStatusListCredential({
       list,

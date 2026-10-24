@@ -465,20 +465,19 @@ describe("revocation service", () => {
   });
 
   // ADR 0016: with the key in KMS every signature is a billed, rate-limited
-  // call, and this route is open to anyone.
+  // call, and this route is open to anyone. Counting signatures needs a list
+  // nothing else changes, so those tests are in status/credential.test.ts: the
+  // other test files revoke agents in the same database while these run.
   describe("status list signature reuse", () => {
-    function countingKey(options: { failing?: () => boolean } = {}) {
+    function failingKey(options: { failing?: () => boolean } = {}) {
       const inner = testSigningKey();
-      const counter = { signs: 0 };
       return {
-        counter,
         signingKey: {
           keyId: inner.keyId,
           keyProvider: {
             ...inner.keyProvider,
             getPublicKey: (id: string) => inner.keyProvider.getPublicKey(id),
             sign: async (id: string, data: Uint8Array) => {
-              counter.signs += 1;
               if (options.failing?.()) throw new Error("ThrottlingException");
               return inner.keyProvider.sign(id, data);
             },
@@ -498,7 +497,7 @@ describe("revocation service", () => {
     }
 
     async function buildReusingServer(
-      signingKey: ReturnType<typeof countingKey>["signingKey"],
+      signingKey: ReturnType<typeof failingKey>["signingKey"],
       clock: { now(): Date },
     ) {
       return buildServer({
@@ -518,36 +517,8 @@ describe("revocation service", () => {
       return { status: response.statusCode, body: response.json() as SignedCredential };
     };
 
-    it("signs once for repeated requests within the window, serving the same list", async () => {
-      const key = countingKey();
-      const time = movableClock("2026-09-07T10:00:00.000Z");
-      const app = await buildReusingServer(key.signingKey, time.clock);
-
-      const first = await getList(app);
-      time.advance(4_999);
-      const responses = await Promise.all(Array.from({ length: 20 }, () => getList(app)));
-
-      expect(key.counter.signs).toBe(1);
-      for (const response of responses) {
-        expect(response.status).toBe(200);
-        expect(response.body).toEqual(first.body);
-      }
-    });
-
-    it("shares one signature between requests that arrive together", async () => {
-      const key = countingKey();
-      const app = await buildReusingServer(
-        key.signingKey,
-        movableClock("2026-09-07T10:00:00.000Z").clock,
-      );
-
-      await Promise.all(Array.from({ length: 10 }, () => getList(app)));
-
-      expect(key.counter.signs).toBe(1);
-    });
-
     it("signs again at once when a revocation changes the list, inside the window", async () => {
-      const key = countingKey();
+      const key = failingKey();
       const time = movableClock("2026-09-07T10:00:00.000Z");
       const app = await buildReusingServer(key.signingKey, time.clock);
       const agentId = randomUUID();
@@ -573,36 +544,9 @@ describe("revocation service", () => {
       expect(bit.ok && bit.value).toBe(true);
     });
 
-    it("signs a fresh list once the window has passed", async () => {
-      const key = countingKey();
-      const time = movableClock("2026-09-07T10:00:00.000Z");
-      const app = await buildReusingServer(key.signingKey, time.clock);
-
-      const first = await getList(app);
-      time.advance(5_000);
-      const second = await getList(app);
-
-      expect(key.counter.signs).toBe(2);
-      expect(second.body.validFrom).toBe("2026-09-07T10:00:05.000Z");
-      expect(first.body.validFrom).toBe("2026-09-07T10:00:00.000Z");
-    });
-
-    it("signs a fresh list if the clock moves backwards", async () => {
-      const key = countingKey();
-      const time = movableClock("2026-09-07T10:00:00.000Z");
-      const app = await buildReusingServer(key.signingKey, time.clock);
-
-      await getList(app);
-      time.advance(-1_000);
-      const second = await getList(app);
-
-      expect(key.counter.signs).toBe(2);
-      expect(second.body.validFrom).toBe("2026-09-07T09:59:59.000Z");
-    });
-
     it("answers 502 when signing fails, and does not reuse the failure", async () => {
       let failing = true;
-      const key = countingKey({ failing: () => failing });
+      const key = failingKey({ failing: () => failing });
       const app = await buildReusingServer(
         key.signingKey,
         movableClock("2026-09-07T10:00:00.000Z").clock,
@@ -614,12 +558,11 @@ describe("revocation service", () => {
 
       failing = false;
       expect((await getList(app)).status).toBe(200);
-      expect(key.counter.signs).toBe(2);
     });
 
     it("keeps an agent revoked when signing its tombstone fails", async () => {
       let failing = false;
-      const key = countingKey({ failing: () => failing });
+      const key = failingKey({ failing: () => failing });
       const app = await buildReusingServer(
         key.signingKey,
         movableClock("2026-09-07T10:00:00.000Z").clock,
