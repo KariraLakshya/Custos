@@ -1,6 +1,6 @@
 # 0015: Proofs of possession are bound to the tool and action
 
-**Status:** Proposed 2026-10-24, extended 2026-10-25 to the vault at the founder's request. Built on branch `feat/foreign-proof-binds-action`; accepted when the founder merges it. Resolves the open item ADR 0014 recorded at steps 1 and 4 ("the proof does not bind the request"), and the same gap found in the vault's token-request proof (ADR 0007).
+**Status:** Proposed 2026-10-24, extended 2026-10-25 to the vault at the founder's request. **Accepted** 2026-10-25: merged to `main` in PR #108 (`97ae998`). Resolves the open item ADR 0014 recorded at steps 1 and 4 ("the proof does not bind the request"), and the same gap found in the vault's token-request proof (ADR 0007).
 
 ## Context
 
