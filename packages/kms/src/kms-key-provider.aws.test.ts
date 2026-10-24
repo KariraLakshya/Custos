@@ -1,4 +1,3 @@
-import { KMSClient } from "@aws-sdk/client-kms";
 import {
   buildDidWebDocument,
   generateKeyPair,
@@ -8,12 +7,13 @@ import {
   verifyCredential,
 } from "@custos/core";
 import { describe, expect, it } from "vitest";
+import { createKmsClient } from "./client.js";
 import { createKmsKeyProvider } from "./kms-key-provider.js";
 
 /**
  * Against real AWS KMS — the one thing the stand-in in kms-key-provider.test.ts
  * cannot prove: that KMS's actual key format and signatures work with Custos's
- * own verification. Opt-in, never in CI: `pnpm --filter @custos/identity
+ * own verification. Opt-in, never in CI: `pnpm --filter @custos/kms
  * test:kms` with CUSTOS_TEST_KMS_KEY_ID set to an existing
  * ECC_NIST_EDWARDS25519 / SIGN_VERIFY key, and AWS credentials allowed
  * kms:GetPublicKey and kms:Sign on it. Creates no keys; costs a few requests.
@@ -31,12 +31,18 @@ if (process.env.MODE === "kms" && !keyId) {
 }
 
 describe.skipIf(!keyId)("createKmsKeyProvider against real AWS KMS", () => {
-  const provider = createKmsKeyProvider(new KMSClient({}));
+  const provider = createKmsKeyProvider(createKmsClient());
   const id = keyId as string;
   const message = new TextEncoder().encode("custos real-KMS check");
 
   it("returns the key's raw 32-byte Ed25519 public key", async () => {
     expect(await provider.getPublicKey(id)).toHaveLength(32);
+  });
+
+  // Ed25519 (RFC 8032) is deterministic. The revocation service relies on it:
+  // remembered tombstones are byte-identical to re-signed ones (ADR 0013, 0016).
+  it("signs deterministically: the same message gives the same signature", async () => {
+    expect(await provider.sign(id, message)).toEqual(await provider.sign(id, message));
   });
 
   it("signs so that @custos/core verifies — and a different key does not", async () => {

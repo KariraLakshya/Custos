@@ -463,6 +463,135 @@ describe("revocation service", () => {
       expect((credential.credentialSubject as { ttl: number }).ttl).toBe(30_000);
     });
   });
+
+  // ADR 0016: with the key in KMS every signature is a billed, rate-limited
+  // call, and this route is open to anyone. Counting signatures needs a list
+  // nothing else changes, so those tests are in status/credential.test.ts: the
+  // other test files revoke agents in the same database while these run.
+  describe("status list signature reuse", () => {
+    function failingKey(options: { failing?: () => boolean } = {}) {
+      const inner = testSigningKey();
+      return {
+        signingKey: {
+          keyId: inner.keyId,
+          keyProvider: {
+            ...inner.keyProvider,
+            getPublicKey: (id: string) => inner.keyProvider.getPublicKey(id),
+            sign: async (id: string, data: Uint8Array) => {
+              if (options.failing?.()) throw new Error("ThrottlingException");
+              return inner.keyProvider.sign(id, data);
+            },
+          },
+        },
+      };
+    }
+
+    function movableClock(iso: string) {
+      let now = new Date(iso);
+      return {
+        clock: { now: () => now },
+        advance: (ms: number) => {
+          now = new Date(now.getTime() + ms);
+        },
+      };
+    }
+
+    async function buildReusingServer(
+      signingKey: ReturnType<typeof failingKey>["signingKey"],
+      clock: { now(): Date },
+    ) {
+      return buildServer({
+        db,
+        signingKey,
+        auditReporter: { report: () => {} },
+        controlPlaneAuth: controlPlane.guard,
+        didDomain: "127.0.0.1:4503",
+        statusReuseMs: 5_000,
+        clock,
+        broadcaster: { broadcast: async () => ({ delivered: 0, failed: [] }) },
+      });
+    }
+
+    const getList = async (app: Awaited<ReturnType<typeof buildReusingServer>>) => {
+      const response = await app.inject({ method: "GET", url: "/status/revocation" });
+      return { status: response.statusCode, body: response.json() as SignedCredential };
+    };
+
+    it("signs again at once when a revocation changes the list, inside the window", async () => {
+      const key = failingKey();
+      const time = movableClock("2026-09-07T10:00:00.000Z");
+      const app = await buildReusingServer(key.signingKey, time.clock);
+      const agentId = randomUUID();
+      const index = await allocate(app, agentId);
+      const before = await getList(app);
+
+      time.advance(1_000);
+      const revoked = await app.inject({
+        method: "POST",
+        url: "/revocations",
+        headers: bearer(operatorKey),
+        payload: { agentId },
+      });
+      expect(revoked.statusCode).toBe(200);
+      const after = await getList(app);
+
+      expect(after.body.validFrom).not.toBe(before.body.validFrom);
+      const decoded = decodeStatusList(
+        (after.body.credentialSubject as { encodedList: string }).encodedList,
+      );
+      if (!decoded.ok) throw new Error("undecodable list");
+      const bit = isRevoked(decoded.value, index);
+      expect(bit.ok && bit.value).toBe(true);
+    });
+
+    it("answers 502 when signing fails, and does not reuse the failure", async () => {
+      let failing = true;
+      const key = failingKey({ failing: () => failing });
+      const app = await buildReusingServer(
+        key.signingKey,
+        movableClock("2026-09-07T10:00:00.000Z").clock,
+      );
+
+      const failed = await app.inject({ method: "GET", url: "/status/revocation" });
+      expect(failed.statusCode).toBe(502);
+      expect(failed.json()).toMatchObject({ error: { code: "SIGNING_FAILED" } });
+
+      failing = false;
+      expect((await getList(app)).status).toBe(200);
+    });
+
+    it("keeps an agent revoked when signing its tombstone fails", async () => {
+      let failing = false;
+      const key = failingKey({ failing: () => failing });
+      const app = await buildReusingServer(
+        key.signingKey,
+        movableClock("2026-09-07T10:00:00.000Z").clock,
+      );
+      const agentId = randomUUID();
+      const index = await allocate(app, agentId);
+
+      failing = true;
+      const revoked = await app.inject({
+        method: "POST",
+        url: "/revocations",
+        headers: bearer(operatorKey),
+        payload: { agentId },
+      });
+      expect(revoked.statusCode).toBe(502);
+      expect(revoked.json()).toMatchObject({ error: { code: "SIGNING_FAILED" } });
+
+      // The bit is written before the signature is asked for, so the failed
+      // push does not leave the agent active in the published list.
+      failing = false;
+      const list = await getList(app);
+      const decoded = decodeStatusList(
+        (list.body.credentialSubject as { encodedList: string }).encodedList,
+      );
+      if (!decoded.ok) throw new Error("undecodable list");
+      const bit = isRevoked(decoded.value, index);
+      expect(bit.ok && bit.value).toBe(true);
+    });
+  });
 });
 
 describe("revocation control-plane authentication (ADR 0008)", () => {

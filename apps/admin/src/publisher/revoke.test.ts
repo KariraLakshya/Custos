@@ -6,7 +6,10 @@ import {
   isRevoked,
   verifyForeignStatusList,
 } from "@custos/core";
+import type { KmsClient } from "@custos/kms";
+import { fakeKms } from "@custos/kms/testing";
 import { afterEach, describe, expect, it } from "vitest";
+import { publisherKeyFromEnv } from "./config.js";
 import { publishOnce, publisherIdentity, publisherPaths } from "./publish.js";
 import { revokeFromPublisher, type PinnedIdentity } from "./revoke.js";
 import { INIT, issueAgentCredential, LIST_ID, makeKit, readList, type Kit } from "./testkit.js";
@@ -278,5 +281,111 @@ describe("revoke by index", () => {
       ok: false,
       error: { code: "JOURNAL_CORRUPT" },
     });
+  });
+});
+
+// ADR 0016: revoking is the emergency path, so a KMS outage must not stop the
+// revocation being recorded. `revoke` runs in a fresh process, so nothing has
+// read the key yet.
+describe("revoking while the KMS key cannot be reached", () => {
+  const KEY_ARN = "arn:aws:kms:ap-south-1:111122223333:key/revocation";
+
+  async function startedOnKms() {
+    const kms = fakeKms();
+    kms.keys.set(KEY_ARN, generateKeyPair());
+    const outage = { on: false };
+    const client = {
+      send: (command: Parameters<KmsClient["send"]>[0]) =>
+        outage.on ? Promise.reject(new Error("ThrottlingException")) : kms.client.send(command),
+    } as KmsClient;
+    // Each call is a new process: a provider that has read nothing yet.
+    const freshKey = () => {
+      const key = publisherKeyFromEnv(
+        { CUSTOS_PUBLISHER_KEY_PROVIDER: "kms", CUSTOS_PUBLISHER_KMS_KEY_ID: KEY_ARN },
+        { kmsClient: client },
+      );
+      if (!key.ok) throw new Error(key.error.reason);
+      return key.value;
+    };
+    const k = await makeKit();
+    kits.push(k);
+    const init = await publishOnce(k.config, { ...k.deps, ...freshKey() }, INIT);
+    if (!init.ok) throw new Error(init.error.code);
+    return { k, outage, freshKey };
+  }
+
+  it("records a revocation by index in the journal, and the next publish carries it", async () => {
+    const { k, outage, freshKey } = await startedOnKms();
+    outage.on = true;
+
+    const result = await revokeFromPublisher(
+      k.config,
+      { ...k.deps, ...freshKey() },
+      {
+        target: { index: "9", confirmIndex: "9" },
+        operator: "lakshya",
+        reason: "key leaked",
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "NOT_PUBLISHED", reason: { code: "KEY_UNAVAILABLE" } },
+    });
+    expect((await journalLines(k)).map((line) => JSON.parse(line) as { index: number })).toEqual([
+      expect.objectContaining({ index: 9 }),
+    ]);
+
+    outage.on = false;
+    const deps = { ...k.deps, ...freshKey() };
+    const published = await publishOnce(k.config, deps);
+    expect(published.ok).toBe(true);
+    const identity = await publisherIdentity(k.config, deps);
+    const view = await verifyForeignStatusList({
+      credential: await readList(k.out),
+      anchor: {
+        statusIssuerDid: identity.did,
+        statusIssuerPublicKey: identity.publicKey,
+        statusListId: identity.listId,
+        maxStatusAgeSeconds: k.config.validitySeconds,
+      },
+      now: k.clock.now(),
+      maxClockSkewSeconds: 5,
+    });
+    if (!view.ok) throw new Error(view.error.code);
+    const bit = isRevoked(view.value.list, 9);
+    expect(bit.ok && bit.value).toBe(true);
+  });
+
+  it("records a revocation by credential in the journal, naming the agent", async () => {
+    const { k, outage, freshKey } = await startedOnKms();
+    const { path, credential } = await credentialFile(k);
+    outage.on = true;
+
+    const result = await revokeFromPublisher(
+      k.config,
+      { ...k.deps, ...freshKey() },
+      {
+        target: { credentialPath: path },
+        operator: "lakshya",
+        reason: "key leaked",
+        pinnedIdentity: pinned,
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "NOT_PUBLISHED", reason: { code: "KEY_UNAVAILABLE" } },
+    });
+    expect(
+      (await journalLines(k)).map(
+        (line) => JSON.parse(line) as { index: number; agentDid: string },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        index: 321,
+        agentDid: (credential.credentialSubject as { id: string }).id,
+      }),
+    ]);
   });
 });

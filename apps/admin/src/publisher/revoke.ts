@@ -2,13 +2,13 @@ import { readFile } from "node:fs/promises";
 import {
   multibaseToPublicKey,
   pinnedDidDocument,
+  statusListCredentialUrl,
   verifyCredential,
   type SignedCredential,
 } from "@custos/core";
 import { appendJournal, parseStatusIndex } from "./journal.js";
 import {
   hasBaseline,
-  publisherIdentity,
   publisherPaths,
   publishOnce,
   type PublishError,
@@ -139,10 +139,11 @@ export async function revokeFromPublisher(
   let index: number;
   let agentDid: string | undefined;
   if ("credentialPath" in input.target) {
-    const identity = await publisherIdentity(config, deps);
+    // The list address comes from the domain alone, not the key: with the key in
+    // KMS, reading it here would let an outage stop the revocation being recorded.
     const resolved = await targetFromCredential(
       input.target.credentialPath,
-      identity.listId,
+      statusListCredentialUrl(config.domain),
       input.pinnedIdentity,
     );
     if (!resolved.ok) return resolved;

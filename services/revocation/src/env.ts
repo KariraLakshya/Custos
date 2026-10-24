@@ -10,13 +10,21 @@ const fieldsSchema = baseEnvSchema.extend({
   // this DID to get the key they verify against. Includes the port, since
   // the identity service publishes under the same host on a different one.
   REVOCATION_DID_DOMAIN: z.string().min(1).default("localhost:4003"),
-  // 32-byte seed (64 hex chars) for the key that signs every tombstone and the
-  // status list credential. Required, with no default: the service refuses to
-  // boot rather than fall back to a known or ephemeral key (ADR 0012). Keep
-  // the same seed across restarts, or subscribers must re-verify everything.
+  // Where the key that signs every tombstone and the status list credential
+  // lives (ADR 0016). "local": derived from REVOCATION_SIGNING_SEED, dev only.
+  // "kms": an AWS KMS Ed25519 key, REVOCATION_SIGNING_KMS_KEY_ID; region and
+  // credentials from the standard AWS configuration. The publisher signs as
+  // this service, so in production it uses the same KMS key.
+  REVOCATION_KEY_PROVIDER: z.enum(["local", "kms"]).default("local"),
+  // 32-byte seed (64 hex chars). Required when local, with no default: the
+  // service refuses to boot rather than fall back to a known or ephemeral key
+  // (ADR 0012). Keep the same seed across restarts, or subscribers must
+  // re-verify everything.
   REVOCATION_SIGNING_SEED: z
     .string()
-    .regex(/^[0-9a-f]{64}$/i, "must be 64 hex characters (32 bytes)"),
+    .regex(/^[0-9a-f]{64}$/i, "must be 64 hex characters (32 bytes)")
+    .optional(),
+  REVOCATION_SIGNING_KMS_KEY_ID: z.string().min(1).optional(),
   // Base URLs a signed tombstone is pushed to on revocation — the "registered
   // tool adapters" of the build plan, reached through the vault that holds
   // their connectors. Comma-separated; empty disables broadcast entirely.
@@ -33,6 +41,11 @@ const fieldsSchema = baseEnvSchema.extend({
   // verifier may cache the list before refetching. CLAUDE.md section 3
   // requires this bound be explicit configuration, never an accident.
   REVOCATION_STATUS_TTL_MS: z.coerce.number().int().positive().default(30_000),
+  // How long a signed status list is served again while its contents are
+  // unchanged (ADR 0016), so anonymous requests cannot each cost a signature.
+  // A revocation is signed at once regardless. Keep it well below the vault's
+  // REVOCATION_MAX_STALENESS_MS, since the list's validFrom lags by up to this.
+  REVOCATION_STATUS_REUSE_MS: z.coerce.number().int().positive().default(5_000),
   // The published status list this service merges into its own state (ADR 0014).
   // Unset: the feature is off and nothing changes. Set: the window and the poll
   // interval are required (no defaults), because while it is on this service
@@ -64,6 +77,20 @@ const fieldsSchema = baseEnvSchema.extend({
 });
 
 export const envSchema = fieldsSchema.superRefine((env, ctx) => {
+  if (env.REVOCATION_KEY_PROVIDER === "local" && env.REVOCATION_SIGNING_SEED === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["REVOCATION_SIGNING_SEED"],
+      message: "required when REVOCATION_KEY_PROVIDER is local",
+    });
+  }
+  if (env.REVOCATION_KEY_PROVIDER === "kms" && env.REVOCATION_SIGNING_KMS_KEY_ID === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["REVOCATION_SIGNING_KMS_KEY_ID"],
+      message: "required when REVOCATION_KEY_PROVIDER is kms",
+    });
+  }
   if (
     env.REVOCATION_PUBLISHED_MAX_AGE_SECONDS !== undefined &&
     env.REVOCATION_PUBLISHED_POLL_SECONDS !== undefined &&

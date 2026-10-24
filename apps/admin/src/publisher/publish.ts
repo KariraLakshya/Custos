@@ -62,6 +62,8 @@ export type PublishError =
   /** A list for this very identity exists but is signed by a different key than the one configured. */
   | { readonly code: "KEY_MISMATCH"; readonly where: string }
   | { readonly code: "SIGNING_FAILED"; readonly reason: string }
+  /** The signing key's public half could not be read (KMS unreachable, say); nothing was written. */
+  | { readonly code: "KEY_UNAVAILABLE"; readonly reason: string }
   | { readonly code: "WRITE_FAILED"; readonly reason: string };
 
 export interface PublishOutcome {
@@ -234,6 +236,11 @@ export async function hasBaseline(
   config: PublisherConfig,
   deps: PublisherDeps,
 ): Promise<{ ok: true; value: boolean } | { ok: false; error: PublishError }> {
+  // An existing journal is a baseline on its own. Checking it first means a
+  // revocation is recorded without reading the key, which with KMS can fail.
+  const journal = await readJournal(publisherPaths(config).journal);
+  if (!journal.ok) return journal;
+  if (journal.value.exists) return { ok: true, value: true };
   const sources = await gatherSources(config, deps);
   if (!sources.ok) return sources;
   return { ok: true, value: sources.value.journal.exists || hasServedList(sources.value) };
@@ -328,6 +335,21 @@ export async function publishOnce(
     readonly acknowledgeNoPublishedList?: boolean;
   } = {},
 ): Promise<PublishResult> {
+  // With the key in KMS this is a network call, and the only one a publish
+  // makes before signing that can fail for reasons outside this machine.
+  // Checked first, so an outage is a retryable result rather than a crash of
+  // `run`; the provider keeps the key once read.
+  try {
+    await deps.keyProvider.getPublicKey(deps.keyId);
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: "KEY_UNAVAILABLE",
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
   const paths = publisherPaths(config);
   const locked = await withLock(
     paths.lock,

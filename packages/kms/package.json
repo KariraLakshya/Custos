@@ -1,0 +1,36 @@
+{
+  "name": "@custos/kms",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:kms": "vitest run src/kms-key-provider.aws.test.ts --coverage.enabled=false --mode kms",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-kms": "^3.1146.0",
+    "@custos/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@custos/tsconfig": "workspace:*",
+    "@custos/vitest-config": "workspace:*",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.4"
+  }
+}

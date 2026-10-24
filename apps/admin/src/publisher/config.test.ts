@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPair, publicKeyToMultibase } from "@custos/core";
+import { fakeKms } from "@custos/kms/testing";
 import { parsePublisherConfig, publisherKeyFromEnv } from "./config.js";
 import { publisherIdentity } from "./publish.js";
 import { DOMAIN, SEED, keyFor, mutableClock } from "./testkit.js";
@@ -115,6 +116,60 @@ describe("publisherKeyFromEnv", () => {
       expect(result.ok).toBe(false);
       if (!result.ok && seed) expect(result.error.reason).not.toContain(seed);
     }
+  });
+});
+
+describe("publisherKeyFromEnv with KMS (ADR 0016)", () => {
+  const KEY_ARN = "arn:aws:kms:ap-south-1:111122223333:key/revocation";
+  const kmsEnv = { CUSTOS_PUBLISHER_KEY_PROVIDER: "kms", CUSTOS_PUBLISHER_KMS_KEY_ID: KEY_ARN };
+
+  it("uses the configured KMS key, needs no seed, and keeps the public key once read", async () => {
+    const kms = fakeKms();
+    const key = generateKeyPair();
+    kms.keys.set(KEY_ARN, key);
+    const result = publisherKeyFromEnv(kmsEnv, { kmsClient: kms.client });
+    if (!result.ok) throw new Error(result.error.reason);
+
+    expect(result.value.keyId).toBe(KEY_ARN);
+    expect(await result.value.keyProvider.getPublicKey(KEY_ARN)).toEqual(key.publicKey);
+    expect(await result.value.keyProvider.getPublicKey(KEY_ARN)).toEqual(key.publicKey);
+    expect(kms.sent.map((command) => command.constructor.name)).toEqual(["GetPublicKeyCommand"]);
+  });
+
+  it("does not keep a failed read: the next read asks KMS again", async () => {
+    const kms = fakeKms();
+    const result = publisherKeyFromEnv(kmsEnv, { kmsClient: kms.client });
+    if (!result.ok) throw new Error(result.error.reason);
+
+    await expect(result.value.keyProvider.getPublicKey(KEY_ARN)).rejects.toThrow(/NotFound/);
+    kms.keys.set(KEY_ARN, generateKeyPair());
+    expect(await result.value.keyProvider.getPublicKey(KEY_ARN)).toHaveLength(32);
+  });
+
+  it("refuses kms without a key id, and an unknown provider", () => {
+    for (const env of [
+      { CUSTOS_PUBLISHER_KEY_PROVIDER: "kms" },
+      { CUSTOS_PUBLISHER_KEY_PROVIDER: "kms", CUSTOS_PUBLISHER_KMS_KEY_ID: " " },
+    ]) {
+      expect(publisherKeyFromEnv({ ...env, CUSTOS_PUBLISHER_SIGNING_SEED: SEED })).toMatchObject({
+        ok: false,
+        error: { reason: expect.stringContaining("CUSTOS_PUBLISHER_KMS_KEY_ID") },
+      });
+    }
+    expect(
+      publisherKeyFromEnv({
+        CUSTOS_PUBLISHER_KEY_PROVIDER: "file",
+        CUSTOS_PUBLISHER_SIGNING_SEED: SEED,
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: { reason: expect.stringContaining("CUSTOS_PUBLISHER_KEY_PROVIDER") },
+    });
+  });
+
+  it("builds a default AWS client when none is given, without contacting AWS", () => {
+    const result = publisherKeyFromEnv(kmsEnv);
+    expect(result.ok && result.value.keyId).toBe(KEY_ARN);
   });
 });
 

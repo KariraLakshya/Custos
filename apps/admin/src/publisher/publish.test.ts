@@ -1,7 +1,15 @@
 import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { isRevoked, verifyForeignStatusList, type StatusAnchor } from "@custos/core";
+import {
+  generateKeyPair,
+  isRevoked,
+  verifyForeignStatusList,
+  type StatusAnchor,
+} from "@custos/core";
+import type { KmsClient } from "@custos/kms";
+import { fakeKms } from "@custos/kms/testing";
 import { afterEach, describe, expect, it } from "vitest";
+import { publisherKeyFromEnv } from "./config.js";
 import { realFileOps, type FileOps } from "./files.js";
 import { appendJournal } from "./journal.js";
 import {
@@ -682,5 +690,134 @@ describe("the publisher's key", () => {
     for (const path of [publisherPaths(k.config).journal, publisherPaths(k.config).state, k.out]) {
       expect(await readFile(path, "utf8")).not.toContain(SEED);
     }
+  });
+});
+
+// ADR 0016: in production the publisher signs with the revocation service's
+// KMS key, so every key read and signature is a network call that can fail.
+describe("a key held in KMS", () => {
+  const KEY_ARN = "arn:aws:kms:ap-south-1:111122223333:key/revocation";
+
+  function kmsKey(client: KmsClient, keyId = KEY_ARN) {
+    const key = publisherKeyFromEnv(
+      { CUSTOS_PUBLISHER_KEY_PROVIDER: "kms", CUSTOS_PUBLISHER_KMS_KEY_ID: keyId },
+      { kmsClient: client },
+    );
+    if (!key.ok) throw new Error(key.error.reason);
+    return key.value;
+  }
+
+  /** The fake KMS, with a switch that makes calls fail as an outage would. */
+  function flakyKms() {
+    const kms = fakeKms();
+    kms.keys.set(KEY_ARN, generateKeyPair());
+    const outage = { on: false, failSignOnly: false };
+    const client = {
+      send: (command: Parameters<KmsClient["send"]>[0]) => {
+        const isSign = command.constructor.name === "SignCommand";
+        if (outage.on && (isSign || !outage.failSignOnly)) {
+          return Promise.reject(new Error("ThrottlingException"));
+        }
+        return kms.client.send(command);
+      },
+    } as KmsClient;
+    return { kms, client, outage };
+  }
+
+  async function snapshot(k: Kit): Promise<string[]> {
+    const paths = publisherPaths(k.config);
+    const read = (path: string) => readFile(path, "utf8").catch(() => "<absent>");
+    return [await read(paths.journal), await read(paths.state), await read(k.out)];
+  }
+
+  it("publishes a list signed in KMS that a foreign verifier accepts, without creating keys", async () => {
+    const { kms, client } = flakyKms();
+    const k = await kit();
+    const deps = { ...k.deps, ...kmsKey(client) };
+
+    ok(await publishOnce(k.config, deps, INIT));
+    await revokeFromPublisher(k.config, deps, {
+      target: { index: "4", confirmIndex: "4" },
+      operator: "lakshya",
+      reason: "test",
+    });
+
+    const result = await verifyForeignStatusList({
+      credential: await readList(k.out),
+      anchor: await anchorFor({ ...k, deps }),
+      now: k.clock.now(),
+      maxClockSkewSeconds: 5,
+    });
+    if (!result.ok) throw new Error(result.error.code);
+    expect(bit(result.value.list, 4)).toBe(true);
+    const names = kms.sent.map((command) => command.constructor.name);
+    expect(names).not.toContain("CreateKeyCommand");
+    // The public key is read once and kept; only signing goes back to KMS.
+    expect(names.filter((name) => name === "GetPublicKeyCommand")).toHaveLength(1);
+  });
+
+  it("returns KEY_UNAVAILABLE and writes nothing when KMS cannot be reached, then recovers", async () => {
+    const { client, outage } = flakyKms();
+    const k = await kit();
+    // Initialised with the same KMS key while it was reachable, by an earlier process.
+    ok(await publishOnce(k.config, { ...k.deps, ...kmsKey(client) }, INIT));
+    const before = await snapshot(k);
+
+    outage.on = true;
+    const controller = new AbortController();
+    const results: PublishResult[] = [];
+    const snapshots: string[][] = [];
+    await runPublisher(
+      k.config,
+      {
+        ...k.deps,
+        ...kmsKey(client),
+        sleep: async (ms) => {
+          k.clock.advance(ms);
+          if (results.length === 1) {
+            snapshots.push(await snapshot(k));
+            outage.on = false;
+          }
+          if (results.length === 2) controller.abort();
+        },
+      },
+      { signal: controller.signal, onCycle: (r) => results.push(r) },
+    );
+
+    expect(results.map((r) => (r.ok ? "ok" : r.error.code))).toEqual(["KEY_UNAVAILABLE", "ok"]);
+    expect(results[0]).toMatchObject({ error: { reason: expect.stringMatching(/Throttling/) } });
+    expect(snapshots).toEqual([before]);
+  });
+
+  it("returns SIGNING_FAILED when KMS refuses to sign, leaving journal, state and list as they were", async () => {
+    const { client, outage } = flakyKms();
+    const k = await kit();
+    const deps = { ...k.deps, ...kmsKey(client) };
+    ok(await publishOnce(k.config, deps, INIT));
+    const before = await snapshot(k);
+
+    outage.on = true;
+    outage.failSignOnly = true;
+    k.clock.advance(60_000);
+
+    expect(await publishOnce(k.config, deps)).toMatchObject({
+      ok: false,
+      error: { code: "SIGNING_FAILED" },
+    });
+    expect(await snapshot(k)).toEqual(before);
+  });
+
+  it("refuses a different KMS key than the one the existing list is signed with", async () => {
+    const { kms, client } = flakyKms();
+    kms.keys.set("other-key", generateKeyPair());
+    const k = await kit();
+    ok(await publishOnce(k.config, { ...k.deps, ...kmsKey(client) }, INIT));
+    const before = await snapshot(k);
+    k.clock.advance(60_000);
+
+    expect(
+      await publishOnce(k.config, { ...k.deps, ...kmsKey(client, "other-key") }),
+    ).toMatchObject({ ok: false, error: { code: "KEY_MISMATCH" } });
+    expect(await snapshot(k)).toEqual(before);
   });
 });

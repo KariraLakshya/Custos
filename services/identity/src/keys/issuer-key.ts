@@ -1,7 +1,6 @@
-import { KMSClient } from "@aws-sdk/client-kms";
 import { createLocalKeyProvider, type KeyProvider } from "@custos/core";
+import { createKmsClient, createKmsKeyProvider, type KmsClient } from "@custos/kms";
 import type { Env } from "../env.js";
-import { createKmsKeyProvider } from "./kms-key-provider.js";
 
 const LOCAL_ISSUER_KEY_ID = "issuer";
 
@@ -15,11 +14,11 @@ const LOCAL_ISSUER_KEY_ID = "issuer";
  */
 export function createIssuerKey(
   env: Env,
-  deps: { readonly kmsClient?: Pick<KMSClient, "send"> } = {},
+  deps: { readonly kmsClient?: KmsClient } = {},
 ): { readonly keyProvider: KeyProvider; readonly keyId: string } {
   if (env.IDENTITY_KEY_PROVIDER === "kms") {
     return {
-      keyProvider: createKmsKeyProvider(deps.kmsClient ?? new KMSClient({})),
+      keyProvider: createKmsKeyProvider(deps.kmsClient ?? createKmsClient()),
       keyId: env.IDENTITY_ISSUER_KMS_KEY_ID as string,
     };
   }

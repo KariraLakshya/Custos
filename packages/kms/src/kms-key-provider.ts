@@ -1,10 +1,6 @@
-import {
-  CreateKeyCommand,
-  GetPublicKeyCommand,
-  SignCommand,
-  type KMSClient,
-} from "@aws-sdk/client-kms";
+import { CreateKeyCommand, GetPublicKeyCommand, SignCommand } from "@aws-sdk/client-kms";
 import type { KeyProvider } from "@custos/core";
+import type { KmsClient } from "./client.js";
 
 // DER prefix of an Ed25519 SubjectPublicKeyInfo (RFC 8410): SEQUENCE,
 // AlgorithmIdentifier { id-Ed25519 1.3.101.112 }, BIT STRING of 32 bytes.
@@ -37,10 +33,10 @@ function rawEd25519PublicKey(spki: Uint8Array | undefined): Uint8Array {
  * long-lived, such as the identity service's issuer key. `createKeyPair`
  * creates a new, billed KMS key on every call — never call it per boot.
  *
- * Takes the client rather than building one, so credentials and region come
- * from the deployment's standard AWS configuration.
+ * Takes the client rather than building one: `createKmsClient()` in
+ * production, a stand-in in tests.
  */
-export function createKmsKeyProvider(client: Pick<KMSClient, "send">): KeyProvider {
+export function createKmsKeyProvider(client: KmsClient): KeyProvider {
   async function getPublicKey(keyId: string): Promise<Uint8Array> {
     const response = await client.send(new GetPublicKeyCommand({ KeyId: keyId }));
     return rawEd25519PublicKey(response.PublicKey);

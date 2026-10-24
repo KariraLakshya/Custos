@@ -1,5 +1,5 @@
-import { GetPublicKeyCommand, type KMSClient } from "@aws-sdk/client-kms";
 import { generateKeyPair, verify } from "@custos/core";
+import { fakeKms } from "@custos/kms/testing";
 import { describe, expect, it } from "vitest";
 import { loadIdentityEnv } from "../env.js";
 import { createIssuerKey } from "./issuer-key.js";
@@ -31,35 +31,20 @@ describe("createIssuerKey", () => {
       IDENTITY_KEY_PROVIDER: "kms",
       IDENTITY_ISSUER_KMS_KEY_ID: "arn:aws:kms:ap-southeast-1:111122223333:key/abc",
     });
+    const kms = fakeKms();
     const { publicKey } = generateKeyPair();
-    const seen: string[] = [];
-    const client = {
-      async send(command: GetPublicKeyCommand) {
-        seen.push(command.input.KeyId ?? "");
-        const spki = Uint8Array.from([
-          0x30,
-          0x2a,
-          0x30,
-          0x05,
-          0x06,
-          0x03,
-          0x2b,
-          0x65,
-          0x70,
-          0x03,
-          0x21,
-          0x00,
-          ...publicKey,
-        ]);
-        return { PublicKey: spki };
-      },
-    } as unknown as KMSClient;
+    kms.keys.set("arn:aws:kms:ap-southeast-1:111122223333:key/abc", {
+      publicKey,
+      secretKey: new Uint8Array(32),
+    });
 
-    const issuerKey = createIssuerKey(env, { kmsClient: client });
+    const issuerKey = createIssuerKey(env, { kmsClient: kms.client });
 
     expect(issuerKey.keyId).toBe("arn:aws:kms:ap-southeast-1:111122223333:key/abc");
     expect(await issuerKey.keyProvider.getPublicKey(issuerKey.keyId)).toEqual(publicKey);
-    expect(seen).toEqual(["arn:aws:kms:ap-southeast-1:111122223333:key/abc"]);
+    expect(
+      kms.sent.map((command) => ("KeyId" in command.input ? command.input.KeyId : "")),
+    ).toEqual(["arn:aws:kms:ap-southeast-1:111122223333:key/abc"]);
   });
 
   it("builds a default AWS client for KMS when none is given, without contacting AWS", () => {

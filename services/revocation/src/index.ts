@@ -58,6 +58,7 @@ const app = await buildServer({
   didDomain: env.REVOCATION_DID_DOMAIN,
   subscriberUrls: env.REVOCATION_SUBSCRIBER_URLS,
   statusTtlMs: env.REVOCATION_STATUS_TTL_MS,
+  statusReuseMs: env.REVOCATION_STATUS_REUSE_MS,
   // The env schema guarantees the window and interval are present with the URL.
   ...(env.REVOCATION_PUBLISHED_LIST_URL === undefined
     ? {}
