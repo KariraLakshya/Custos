@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-25 — Every request note now says exactly what it is for
 
-**Commits:** not yet committed at the time of writing; branch `feat/foreign-proof-binds-action`. This change also carries the documentation update from 22 October recording that Phase 6 is on the main branch.
+**Commits:** `d7ea303` (the cross-company note), `689d6f2` (the vault note and the developer library), `ed99933` (docs). Pushed to branch `feat/foreign-proof-binds-action`; pull request #108 is open, not yet merged. This change also carries the documentation update from 22 October recording that Phase 6 is on the main branch.
 
 **What changed:** an agent proves who it is with a short signed note. Two kinds of note ask for something: a call into a partner company, and a request to our own vault for a 60-second pass to a tool. Until now neither note said what it was for, so someone who intercepted one could have reused it once, within a few seconds, to ask for something different (a different action at the partner, or a pass to a different tool at the vault). Both notes now name the exact tool and action, and are refused for anything else. A refused note is not even counted as used, so the real agent's own request still goes through. The developer library signs this automatically, so nothing changes for someone using it.
 
