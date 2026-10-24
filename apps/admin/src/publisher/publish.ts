@@ -236,6 +236,11 @@ export async function hasBaseline(
   config: PublisherConfig,
   deps: PublisherDeps,
 ): Promise<{ ok: true; value: boolean } | { ok: false; error: PublishError }> {
+  // An existing journal is a baseline on its own. Checking it first means a
+  // revocation is recorded without reading the key, which with KMS can fail.
+  const journal = await readJournal(publisherPaths(config).journal);
+  if (!journal.ok) return journal;
+  if (journal.value.exists) return { ok: true, value: true };
   const sources = await gatherSources(config, deps);
   if (!sources.ok) return sources;
   return { ok: true, value: sources.value.journal.exists || hasServedList(sources.value) };
