@@ -23,6 +23,8 @@ export const stat = (draft: Draft): Draft => draft.credentialStatus as Draft;
 export const NOW = new Date("2026-10-17T12:00:00.000Z");
 export const STATUS_LIST_ID = "https://a.example/status/revocation";
 export const RECEIVER = "https://b.example/federation";
+/** The one request the fixtures sign and the verifier expects, so the two cannot drift. */
+export const REQUEST = { tool: "b-ledger", action: "read" } as const;
 const SECURITY = "https://w3id.org/security#";
 const AGENT_KEY_CONTEXT = {
   publicKeyMultibase: { "@id": `${SECURITY}publicKeyMultibase`, "@type": `${SECURITY}multibase` },
@@ -209,10 +211,17 @@ export async function issueList(
 
 export function proofFor(
   agent: Agent,
-  overrides: { audience?: string; now?: Date; jti?: string; secretKey?: Uint8Array } = {},
+  overrides: {
+    audience?: string;
+    now?: Date;
+    jti?: string;
+    secretKey?: Uint8Array;
+    request?: { tool: string; action: string };
+  } = {},
 ): Promise<string> {
   return buildForeignCallProof({
     audience: overrides.audience ?? RECEIVER,
+    request: overrides.request ?? REQUEST,
     secretKey: overrides.secretKey ?? agent.keys.secretKey,
     now: overrides.now ?? NOW,
     ...(overrides.jti === undefined ? {} : { jti: overrides.jti }),

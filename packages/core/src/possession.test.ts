@@ -12,6 +12,7 @@ describe("@custos/core/possession entry point", () => {
       "buildTokenRequestProof",
       "didWebFromDomain",
       "generateKeyPair",
+      "isBoundRequest",
       "issuePossessionProof",
       "publicKeyToMultibase",
       "sign",

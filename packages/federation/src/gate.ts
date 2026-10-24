@@ -110,16 +110,20 @@ export interface ForeignCall {
   /** From the caller; untrusted until checked. */
   readonly credential: unknown;
   readonly proof: unknown;
-  /** What the caller is attempting, for the audit record. Defaults to `foreign.call`. */
-  readonly tool?: string;
-  readonly action?: string;
+  /**
+   * The tool and action B is about to run for this call (ADR 0015). The proof
+   * must have been made for exactly these, and the audit record names them.
+   * They must come from B's own routing (the endpoint or operation being
+   * served), never from a field the caller sets: a value the caller chooses
+   * would let it pick whatever its proof was made for, and bind nothing.
+   */
+  readonly tool: string;
+  readonly action: string;
 }
 
 export interface ForeignAgentGate {
   check(call: ForeignCall): Promise<Result<ForeignAgent, GateDenial>>;
 }
-
-const DEFAULT_ACTION = "foreign.call";
 
 /**
  * B's decision on a call from an agent another organisation issued (ADR 0014):
@@ -166,8 +170,7 @@ export function createForeignAgentGate(params: {
 
   return {
     async check(call) {
-      const action = call.action ?? DEFAULT_ACTION;
-      const tool = call.tool === undefined ? {} : { tool: call.tool };
+      const { tool, action } = call;
 
       let verdict: Result<ForeignAgent, ForeignDenial>;
       try {
@@ -177,6 +180,7 @@ export function createForeignAgentGate(params: {
           anchors: params.anchors,
           statusViewFor: params.statusViewFor,
           audience: params.audience,
+          request: { tool, action },
           replay: params.replay,
           now: params.now(),
           maxProofSkewSeconds: params.maxProofSkewSeconds,
@@ -195,7 +199,7 @@ export function createForeignAgentGate(params: {
         const agent = verdict.value;
         report({
           agentDid: agent.agentDid,
-          ...tool,
+          tool,
           action,
           dataCategories: [],
           policy: { rule: `foreign:${agent.domain}`, decision: "allow" },
@@ -211,7 +215,7 @@ export function createForeignAgentGate(params: {
         const detail = denial.code === "STATUS_ENTRY_INVALID" ? ` ${denial.reason}` : "";
         report({
           agentDid: who.agentDid,
-          ...tool,
+          tool,
           action,
           dataCategories: [],
           policy: { rule: `foreign:${who.domain}`, decision: "deny" },

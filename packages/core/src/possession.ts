@@ -9,9 +9,11 @@ export {
   buildRegistrationRequest,
   buildTokenRequestProof,
   FOREIGN_CALL_PROOF_TYPE,
+  isBoundRequest,
   issuePossessionProof,
   REGISTRATION_PROOF_TYPE,
   TOKEN_REQUEST_PROOF_TYPE,
+  type BoundRequest,
   type PossessionProofClaims,
   type RegistrationRequest,
 } from "./proof/possession.js";

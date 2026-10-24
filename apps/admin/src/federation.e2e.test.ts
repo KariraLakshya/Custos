@@ -56,6 +56,8 @@ const WINDOW_SECONDS = 30;
 const POLL_SLACK_MS = 2_000;
 const RECEIVER = "https://b.example/federation";
 const A_LABEL = "org-a.test";
+/** What B runs for each call; the agents sign this same request (ADR 0015). */
+const B_REQUEST = { tool: "b-ledger", action: "read" } as const;
 
 /**
  * One clock for B, the publisher and the agents' proofs. Moving it forward
@@ -268,19 +270,19 @@ describe("Phase 6: B verifies A's agent with A's services and database off", () 
       }),
     });
 
-    /** One call from an agent to B: a fresh proof each time, as a real agent would. */
-    async function callB(agent: Agent) {
+    /**
+     * One call from an agent to B: a fresh proof each time, as a real agent
+     * would, made for the request B runs (ADR 0015) unless `signedFor` says
+     * otherwise, to stand in for a proof captured and spent elsewhere.
+     */
+    async function callB(agent: Agent, signedFor: { tool: string; action: string } = B_REQUEST) {
       const proof = await buildForeignCallProof({
         audience: RECEIVER,
         secretKey: Buffer.from(agent.secretKey, "hex"),
         now: clock.now(),
+        request: signedFor,
       });
-      const result = await gate.check({
-        credential: agent.credential,
-        proof,
-        tool: "b-ledger",
-        action: "read",
-      });
+      const result = await gate.check({ credential: agent.credential, proof, ...B_REQUEST });
       return result.ok ? "allowed" : `${result.error.status} ${result.error.code}`;
     }
 
@@ -312,6 +314,10 @@ describe("Phase 6: B verifies A's agent with A's services and database off", () 
     const probe = new pg.Client({ connectionString: aDatabase.url });
     await expect(probe.connect()).rejects.toThrow();
     await probe.end().catch(() => undefined);
+
+    // A proof made for another action is refused, and is not written to
+    // B's evidence log (it is an authentication failure, ADR 0008).
+    expect(await callB(kept, { tool: B_REQUEST.tool, action: "write" })).toBe("401 UNAUTHORIZED");
 
     // 3. B still verifies A's agents from the credential and the list alone.
     expect(await callB(revoked)).toBe("allowed");
@@ -392,6 +398,8 @@ describe("Phase 6: B verifies A's agent with A's services and database off", () 
     for (const record of records) {
       expect(record.policy.rule).toBe(`foreign:${A_LABEL}`);
       expect(record.tool).toBe("b-ledger");
+      // The proof made for "write" was refused before any audit record.
+      expect(record.action).toBe("read");
     }
     const revokedRecords = records.filter((r) => r.agentDid === revoked.did);
     expect(revokedRecords[0]?.policy.decision).toBe("allow");

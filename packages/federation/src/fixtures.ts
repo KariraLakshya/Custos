@@ -132,12 +132,16 @@ export async function issueList(
   return issued.value;
 }
 
+/** The request the fixtures sign by default, and the gate is asked to run. */
+export const REQUEST = { tool: "b-ledger", action: "read" } as const;
+
 export function proofFor(
   agent: Agent,
-  overrides: { now?: Date; jti?: string } = {},
+  overrides: { now?: Date; jti?: string; request?: { tool: string; action: string } } = {},
 ): Promise<string> {
   return buildForeignCallProof({
     audience: RECEIVER,
+    request: overrides.request ?? REQUEST,
     secretKey: agent.keys.secretKey,
     now: overrides.now ?? NOW,
     ...(overrides.jti === undefined ? {} : { jti: overrides.jti }),

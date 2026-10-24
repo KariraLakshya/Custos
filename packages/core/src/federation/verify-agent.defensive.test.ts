@@ -15,8 +15,16 @@ vi.mock("../vc/credential.js", async (importOriginal) => ({
 }));
 
 const { verifyForeignAgent } = await import("./verify-agent.js");
-const { issueAgent, makeOrganisation, memoryReplayGuard, NOW, proofFor, RECEIVER, STATUS_LIST_ID } =
-  await import("./fixtures.js");
+const {
+  issueAgent,
+  makeOrganisation,
+  memoryReplayGuard,
+  NOW,
+  proofFor,
+  RECEIVER,
+  REQUEST,
+  STATUS_LIST_ID,
+} = await import("./fixtures.js");
 
 describe("verifyForeignAgent: behind the signature", () => {
   it("refuses a status entry of the wrong type", async () => {
@@ -36,6 +44,7 @@ describe("verifyForeignAgent: behind the signature", () => {
       anchors: [org.anchor],
       statusViewFor: () => undefined,
       audience: RECEIVER,
+      request: REQUEST,
       replay: memoryReplayGuard(),
       now: NOW,
       maxProofSkewSeconds: 30,
@@ -59,6 +68,7 @@ describe("verifyForeignAgent: behind the signature", () => {
         anchors: [org.anchor],
         statusViewFor: () => undefined,
         audience: RECEIVER,
+        request: REQUEST,
         replay: memoryReplayGuard(),
         now: NOW,
         maxProofSkewSeconds: 30,
