@@ -13,13 +13,15 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:kms": "vitest run src/publisher/kms.aws.test.ts --coverage.enabled=false --mode kms"
   },
   "dependencies": {
     "@custos/audit-client": "workspace:*",
     "@custos/control-plane-auth": "workspace:*",
     "@custos/core": "workspace:*",
     "@custos/federation": "workspace:*",
+    "@custos/kms": "workspace:*",
     "commander": "^12.1.0",
     "drizzle-orm": "^0.45.3",
     "pg": "^8.23.1"

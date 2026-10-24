@@ -23,7 +23,7 @@ import {
   type PublishedListReconciler,
 } from "./published/reconcile.js";
 import { createTombstoneMemo, listTombstones, revokeAgent } from "./revoke.js";
-import { buildStatusListCredential } from "./status/credential.js";
+import { buildStatusListCredential, createStatusListMemo } from "./status/credential.js";
 import { createHttpBroadcaster, type TombstoneBroadcaster } from "./broadcast.js";
 import type { RevocationDb } from "./db/client.js";
 
@@ -96,6 +96,8 @@ export async function buildServer(options: {
   readonly broadcaster?: TombstoneBroadcaster;
   readonly subscriberUrls?: readonly string[];
   readonly statusTtlMs?: number;
+  /** How long a signed status list is reused while unchanged (ADR 0016). Default 5 s. */
+  readonly statusReuseMs?: number;
   readonly clock?: { now(): Date };
   readonly auditUrl?: string;
   /** This service's key for the audit service; required unless `auditReporter` is injected. */
@@ -148,6 +150,7 @@ export async function buildServer(options: {
   const statusListCredentialUrl = statusListCredentialUrlFor(domain);
 
   const tombstoneMemo = createTombstoneMemo();
+  const statusListMemo = createStatusListMemo(options.statusReuseMs ?? 5_000);
   const tombstoneSigner = { sign: (data: Uint8Array) => keyProvider.sign(keyId, data) };
   const credentialSigner = {
     id: verificationMethodId,
@@ -321,6 +324,7 @@ export async function buildServer(options: {
       statusListCredentialUrl,
       now: clock.now(),
       ...(options.statusTtlMs === undefined ? {} : { ttlMs: options.statusTtlMs }),
+      memo: statusListMemo,
     });
     if (!result.ok) {
       reply.code(502);

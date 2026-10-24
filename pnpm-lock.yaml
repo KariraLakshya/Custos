@@ -77,6 +77,9 @@ importers:
       '@custos/federation':
         specifier: workspace:*
         version: link:../../packages/federation
+      '@custos/kms':
+        specifier: workspace:*
+        version: link:../../packages/kms
       commander:
         specifier: ^12.1.0
         version: 12.1.0
@@ -606,6 +609,9 @@ importers:
       '@custos/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@custos/kms':
+        specifier: workspace:*
+        version: link:../../packages/kms
       '@custos/observability':
         specifier: workspace:*
         version: link:../../packages/observability

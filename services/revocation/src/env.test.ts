@@ -74,6 +74,50 @@ describe("revocation env signing seed (ADR 0012)", () => {
   });
 });
 
+describe("revocation env: KMS signing key (ADR 0016)", () => {
+  const withKey = { REVOCATION_SERVICE_KEY: SERVICE_KEY };
+
+  it("defaults to the local provider", () => {
+    expect(loadRevocationEnv({ ...withKey, ...SEED }).REVOCATION_KEY_PROVIDER).toBe("local");
+  });
+
+  it("accepts kms with a key id and no seed", () => {
+    const env = loadRevocationEnv({
+      ...withKey,
+      REVOCATION_KEY_PROVIDER: "kms",
+      REVOCATION_SIGNING_KMS_KEY_ID: "alias/custos-revocation",
+    });
+    expect(env.REVOCATION_SIGNING_KMS_KEY_ID).toBe("alias/custos-revocation");
+    expect(env.REVOCATION_SIGNING_SEED).toBeUndefined();
+  });
+
+  it("refuses kms without a key id", () => {
+    expect(() =>
+      loadRevocationEnv({ ...withKey, ...SEED, REVOCATION_KEY_PROVIDER: "kms" }),
+    ).toThrow(/REVOCATION_SIGNING_KMS_KEY_ID/);
+  });
+
+  it("refuses an unknown provider", () => {
+    expect(() =>
+      loadRevocationEnv({ ...withKey, ...SEED, REVOCATION_KEY_PROVIDER: "file" }),
+    ).toThrow(/REVOCATION_KEY_PROVIDER/);
+  });
+});
+
+describe("revocation env: status list reuse (ADR 0016)", () => {
+  const base = { ...SEED, REVOCATION_SERVICE_KEY: SERVICE_KEY };
+
+  it("defaults to 5 seconds", () => {
+    expect(loadRevocationEnv(base).REVOCATION_STATUS_REUSE_MS).toBe(5_000);
+  });
+
+  it.each(["0", "-1", "1.5", "soon"])("refuses %s", (value) => {
+    expect(() => loadRevocationEnv({ ...base, REVOCATION_STATUS_REUSE_MS: value })).toThrow(
+      /REVOCATION_STATUS_REUSE_MS/,
+    );
+  });
+});
+
 describe("revocation env: published status list (ADR 0014)", () => {
   const base = { ...SEED, REVOCATION_SERVICE_KEY: SERVICE_KEY };
   const list = { REVOCATION_PUBLISHED_LIST_URL: "https://lists.example/a/status/revocation" };

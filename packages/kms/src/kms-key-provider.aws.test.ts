@@ -39,6 +39,12 @@ describe.skipIf(!keyId)("createKmsKeyProvider against real AWS KMS", () => {
     expect(await provider.getPublicKey(id)).toHaveLength(32);
   });
 
+  // Ed25519 (RFC 8032) is deterministic. The revocation service relies on it:
+  // remembered tombstones are byte-identical to re-signed ones (ADR 0013, 0016).
+  it("signs deterministically: the same message gives the same signature", async () => {
+    expect(await provider.sign(id, message)).toEqual(await provider.sign(id, message));
+  });
+
   it("signs so that @custos/core verifies — and a different key does not", async () => {
     const publicKey = await provider.getPublicKey(id);
     const signature = await provider.sign(id, message);

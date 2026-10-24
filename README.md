@@ -420,13 +420,32 @@ Identity reads the key at boot and refuses to start if it can't, so a wrong key 
 To check a key end to end (real KMS signatures verified by Custos's own code; creates nothing):
 
 ```bash
-CUSTOS_TEST_KMS_KEY_ID=<key id or ARN> pnpm --filter @custos/identity test:kms
+CUSTOS_TEST_KMS_KEY_ID=<key id or ARN> pnpm --filter @custos/kms test:kms
 ```
+
+### Using AWS KMS for the revocation key
+
+The revocation service signs every revocation notice and its status list. In production that key lives in KMS too ([ADR 0016](./docs/adr/0016-revocation-signing-key-in-kms.md)). It is a separate key from the issuer key. Create it the same way, give the revocation service's AWS identity `kms:GetPublicKey` and `kms:Sign` on it, and start the service with:
+
+```bash
+export REVOCATION_KEY_PROVIDER=kms
+export REVOCATION_SIGNING_KMS_KEY_ID=<key id or ARN>
+pnpm --filter @custos/revocation start
+```
+
+The cross-company publisher (`custos-admin publish-status`) signs as the revocation service, so it uses **the same key**. Give the operator's AWS identity `kms:GetPublicKey` and `kms:Sign` on it, then:
+
+```bash
+export CUSTOS_PUBLISHER_KEY_PROVIDER=kms
+export CUSTOS_PUBLISHER_KMS_KEY_ID=<the same key id or ARN>
+```
+
+The revocation service reuses a signed status list for `REVOCATION_STATUS_REUSE_MS` (default 5 s) while it hasn't changed, so anonymous requests can't each cost a KMS signature. A new revocation is signed straight away.
 
 ## Repository layout
 
 - `apps/`: `cli` (the `custos` command) and `dashboard`
-- `packages/`: `core` (crypto, DIDs, credentials; pure, no I/O), `sdk`, `contracts`, `connectors` (per-tool adapters), `federation` (accepting another organisation's agents), `config`, `observability`, `testing`
+- `packages/`: `core` (crypto, DIDs, credentials; pure, no I/O), `sdk`, `contracts`, `connectors` (per-tool adapters), `federation` (accepting another organisation's agents), `kms` (the AWS KMS signer), `config`, `observability`, `testing`
 - `services/`: `identity`, `vault`, `revocation`, `audit`
 - `infra/`: Docker Compose and database migrations
 - `docs/`: build plan, architecture decision records (`docs/adr/`), progress log

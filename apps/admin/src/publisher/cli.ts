@@ -50,9 +50,11 @@ function describe(error: PublishError | RevokeError | ConfigError): string {
     case "INIT_NEEDS_HOST":
       return "refusing to initialise without checking for an existing list. Pass --host-url (a 404 means there is none), or --confirm-nothing-is-published if this publisher has never published.";
     case "KEY_MISMATCH":
-      return `a list for this identity (${error.where}) is signed by a different key than CUSTOS_PUBLISHER_SIGNING_SEED. Nothing was changed. Compare with \`publish-status show\`; if the key was changed on purpose, remove the old files first.`;
+      return `a list for this identity (${error.where}) is signed by a different key than the one configured (CUSTOS_PUBLISHER_SIGNING_SEED or CUSTOS_PUBLISHER_KMS_KEY_ID). Nothing was changed. Compare with \`publish-status show\`; if the key was changed on purpose, remove the old files first.`;
     case "SIGNING_FAILED":
       return `signing failed: ${error.reason}`;
+    case "KEY_UNAVAILABLE":
+      return `NOT PUBLISHED: the signing key could not be read (${error.reason}). Nothing was written; the next publish tries again.`;
     case "WRITE_FAILED":
       return `NOT PUBLISHED: ${error.reason}`;
     case "JOURNAL_CORRUPT":

@@ -1,4 +1,5 @@
 import { createLocalKeyProvider, type KeyProvider } from "@custos/core";
+import { createKmsClient, createKmsKeyProvider, type KmsClient } from "@custos/kms";
 import type { PublisherConfig } from "./publish.js";
 
 export const PUBLISHER_KEY_ID = "publisher";
@@ -71,16 +72,50 @@ export function parsePublisherConfig(
 }
 
 /**
- * The publisher's signing key, from the environment only. A flag would land in
- * shell history; the seed is never printed, logged, or written to the state or
- * journal. A development stand-in: the key moves to KMS before this is used for
- * anything real (ADR 0014).
+ * The publisher's signing key, from the environment only (ADR 0016). A flag
+ * would land in shell history. Production: `CUSTOS_PUBLISHER_KEY_PROVIDER=kms`
+ * with `CUSTOS_PUBLISHER_KMS_KEY_ID` set to the revocation service's own KMS
+ * key, since the publisher signs as that service (ADR 0014, open question 5);
+ * the private key never leaves KMS. Development: a seed in
+ * `CUSTOS_PUBLISHER_SIGNING_SEED`, never printed, logged, or written to the
+ * state or journal.
  */
 export function publisherKeyFromEnv(
   env: Record<string, string | undefined>,
+  deps: { readonly kmsClient?: KmsClient } = {},
 ):
   | { ok: true; value: { keyProvider: KeyProvider; keyId: string } }
   | { ok: false; error: ConfigError } {
+  const provider = env.CUSTOS_PUBLISHER_KEY_PROVIDER ?? "local";
+  if (provider === "kms") {
+    const keyId = env.CUSTOS_PUBLISHER_KMS_KEY_ID;
+    if (keyId === undefined || keyId.trim() === "") {
+      return {
+        ok: false,
+        error: {
+          code: "INVALID_CONFIG",
+          reason:
+            "CUSTOS_PUBLISHER_KMS_KEY_ID must be set (the revocation service's KMS key) when CUSTOS_PUBLISHER_KEY_PROVIDER is kms",
+        },
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        keyProvider: rememberPublicKey(createKmsKeyProvider(deps.kmsClient ?? createKmsClient())),
+        keyId,
+      },
+    };
+  }
+  if (provider !== "local") {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_CONFIG",
+        reason: "CUSTOS_PUBLISHER_KEY_PROVIDER must be local or kms",
+      },
+    };
+  }
   const seed = env.CUSTOS_PUBLISHER_SIGNING_SEED;
   if (seed === undefined || !/^[0-9a-f]{64}$/i.test(seed)) {
     return {
@@ -99,6 +134,25 @@ export function publisherKeyFromEnv(
         importedKeys: { [PUBLISHER_KEY_ID]: Buffer.from(seed, "hex") },
       }),
       keyId: PUBLISHER_KEY_ID,
+    },
+  };
+}
+
+/**
+ * A key's public half never changes, and a publish reads it several times, so
+ * the first successful KMS read is kept for the life of the process. A failed
+ * read is not kept, so the next cycle asks KMS again.
+ */
+function rememberPublicKey(provider: KeyProvider): KeyProvider {
+  const known = new Map<string, Uint8Array>();
+  return {
+    ...provider,
+    async getPublicKey(keyId) {
+      const cached = known.get(keyId);
+      if (cached !== undefined) return cached;
+      const publicKey = await provider.getPublicKey(keyId);
+      known.set(keyId, publicKey);
+      return publicKey;
     },
   };
 }
