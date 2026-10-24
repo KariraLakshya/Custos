@@ -6,9 +6,35 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-25 — Every request note now says exactly what it is for
+
+**Commits:** not yet committed at the time of writing; branch `feat/foreign-proof-binds-action`. This change also carries the documentation update from 22 October recording that Phase 6 is on the main branch.
+
+**What changed:** an agent proves who it is with a short signed note. Two kinds of note ask for something: a call into a partner company, and a request to our own vault for a 60-second pass to a tool. Until now neither note said what it was for, so someone who intercepted one could have reused it once, within a few seconds, to ask for something different (a different action at the partner, or a pass to a different tool at the vault). Both notes now name the exact tool and action, and are refused for anything else. A refused note is not even counted as used, so the real agent's own request still goes through. The developer library signs this automatically, so nothing changes for someone using it.
+
+**Your decisions (25 October):** fix the vault the same way (done here), and accept that the note does not cover the request's details (which customer record, for example), the same choice the industry standard makes.
+
+**How we know it works:** new tests try another tool, another action, a capital letter, a trailing space, and an old-style note that names nothing, at both the partner and the vault; all are refused. The full two-company test also presents a note made for "write" as a "read" and confirms it is refused and kept out of the audit log. We deliberately broke the new check five ways and every break was caught.
+
+**Still worth mentioning when showing the cross-company feature:** the request details are not covered (your accepted choice), the tool that fires agents from outside still uses a development key that must move to the cloud key service before real use, and the demo runs both companies on one computer.
+
+_Why it matters:_ an intercepted note can no longer be turned into a different action or a pass to a different tool, anywhere in Custos.
+
+## 2026-10-22 — Phase 6 is finished and on the main branch
+
+**Commits:** pull requests #104, #105 and #106, all merged to the main branch on 22 October; this entry is a documentation update only.
+
+**Where we are:** the cross-company milestone is done. Everything for it is now in the main version of the project: the checking at company B's door, the automated two-company test that switches company A off, and the one-command live demo with its dashboard panel. All automatic checks passed on every one of these.
+
+**Can it be shown?** Yes. `pnpm demo:federation` plays the story on screen in about a minute: A's agents let in by B, A switched off, one agent fired from A's security laptop, and B refusing it within about a second while the other agent carries on.
+
+**What is still open:** someone who has never seen the project still has to set it up from the README alone (Phase 5's check, waiting on a tester). Before company A's firing tool is used for real, its signing key has to move into the cloud key service. One small known gap in the cross-company checks is written down: an intercepted proof could be reused once, for a different action, within a few seconds.
+
+_Why it matters:_ the "it's big" milestone is no longer a branch or a promise; it is the project's main version.
+
 ## 2026-10-22 — The cross-company story, live on the dashboard
 
-**Commits:** `478ff8b` (the dashboard panel), `0092e86` (the one-command demo), `dbaa88a` (docs). Pushed to branch `feat/federation-dashboard-panel`; pull request #106 is open, not yet merged.
+**Commits:** `478ff8b` (the dashboard panel), `0092e86` (the one-command demo), `dbaa88a` (docs). Pull request #106, merged to the main branch on 22 October.
 
 **What shipped:** the extra you approved. One command, `pnpm demo:federation`, starts company A's systems and company B's audit log and dashboard on this computer. Two of A's agents start calling B every few seconds, and the dashboard's new "Across organisations" panel lists each of B's decisions about them. The presenter presses Enter to switch company A off: the agents keep working. Enter again fires agent 1 from A's security operator's tool: B refuses it at once, the panel shows it in red with a pop-up, and agent 2 carries on. In the rehearsal runs B refused the fired agent about 0.7 to 0.8 seconds after the firing was published (B checks A's list once a second, on its own).
 
@@ -20,7 +46,7 @@ _Why it matters:_ this turns the "it's big" milestone into something you can sho
 
 ## 2026-10-22 — The headline demo works end to end, in a test: company A switched off, its agents still checked, and firing one still works
 
-**Commits:** `a907db8` (a second test database for company A), `bb7c94a` (the two-company run), `745600b` (docs). Pushed to branch `feat/phase-6-two-stack-e2e`; pull request #105 is open, not yet merged.
+**Commits:** `a907db8` (a second test database for company A), `bb7c94a` (the two-company run), `745600b` (docs). Pull request #105, merged to the main branch on 22 October.
 
 **What shipped:** the final step of the cross-company plan. One automated run plays out the whole story with two separate companies, each with its own database. Company A registers two agents, and company B lets them in. Then everything of A's is shut down: its services stop and its database refuses all connections. B still lets A's agents in, because it only needs A's signed identity cards and A's published "fired agents" list, which lives on an ordinary file host, not on A. A's security person then fires one agent from their own laptop. B refuses that agent about a fifth of a second later (measured 187 to 231 milliseconds over three runs; the test allows up to about two seconds). Next the file host disappears too. Once B's copy of the list is too old to trust, B refuses everyone from A, but still names the fired agent as fired. When a fresh list is published again, the other agent gets back in, and the fired one stays out.
 
@@ -36,7 +62,7 @@ _Why it matters:_ this is the "it's big" milestone in the build plan: an agent t
 
 ## 2026-10-22 — The receiving company's door: checking another company's agent, with no phone call home
 
-**Commits:** `44e4b34` (refusals now name the agent), `4e1c41e` (the door itself), `0700995` (docs). Pushed to branch `feat/phase-6-federation`; pull request #104 is open, not yet merged.
+**Commits:** `44e4b34` (refusals now name the agent), `4e1c41e` (the door itself), `0700995` (docs). Pull request #104, merged to the main branch on 22 October.
 
 **What shipped:** the piece that sits at company B's door and decides whether an agent from company A may come in. It checks the agent's signed identity card against the keys B wrote down in advance, checks the agent really holds its secret key, and checks A's published "fired agents" list. It makes no call to A's systems while deciding. A separate background helper keeps a verified copy of A's list up to date by fetching it from a fixed address B chose, never from an address an agent supplies.
 

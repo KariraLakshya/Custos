@@ -341,7 +341,7 @@ Organisation B can accept agents that organisation A issued without ever calling
   The first publish needs `publish-status init` with the same `--domain`, `--dir`, `--out` and `--validity-seconds`; `pnpm -s custos-admin publish-status --help` lists every option. The signing key is a development seed for now and must move to KMS before real use.
 
 - **B's trust anchor.** B writes down A's two public keys and the list's address once, out of band (`parseTrustAnchors` in `@custos/federation`).
-- **B's gate.** `createStatusCache` keeps a verified copy of A's list, fetched only from the configured address, and `createForeignAgentGate` checks each call: A's signature on the credential, the caller's proof that it holds the agent's key, and A's list. The answer is allowed, `401 UNAUTHORIZED` (the same for every bad credential or proof), `403 AGENT_REVOKED`, or `503 UNAVAILABLE` when B cannot confirm a recent list. A 503 still refuses. Allows and refusals of genuine agents are written to B's own audit log.
+- **B's gate.** `createStatusCache` keeps a verified copy of A's list, fetched only from the configured address, and `createForeignAgentGate` checks each call: A's signature on the credential, the caller's proof that it holds the agent's key and that the proof was made for this very tool and action (pass them from your own routing, never from the caller; ADR 0015), and A's list. The answer is allowed, `401 UNAUTHORIZED` (the same for every bad credential or proof), `403 AGENT_REVOKED`, or `503 UNAVAILABLE` when B cannot confirm a recent list. A 503 still refuses. Allows and refusals of genuine agents are written to B's own audit log.
 
 To watch it live, with the dashboard:
 
