@@ -6,6 +6,37 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-25 — The "revoke" key can now live in Amazon's locked key store
+
+**Commits:** `a8fb0f5` (moving the key-store code into its own shared piece), `80ab292` (the revocation service and the publisher using it), plus a documentation commit. On branch `feat/revocation-signing-kms`; **not yet pushed or merged**. (Pull request #108 from the entry below has since been merged into the main version.)
+
+**What changed:** Custos has one especially powerful key: the one that signs the list of "fired" agents. It is used by our revocation service and by the publisher, the tool a security person runs to fire an agent even when the rest of the system is switched off. Until now that key could only be a secret text value copied onto each machine, and anyone who could read that machine could have signed a fake list that quietly "un-fires" an agent. Both can now use a key held inside Amazon's key service (AWS KMS) instead. There the key is created inside Amazon's hardware and can never be copied out. Custos only asks Amazon to sign, every use is logged, and access can be withdrawn with one click. The identity service already worked this way; now the revocation side does too. The old secret-value mode stays for demos and development, so `pnpm demo` is unchanged.
+
+**One protection we added on the way (your decision):** the list of fired agents is public, and anyone can download it. If every download triggered a fresh signature from Amazon, someone could hammer that page until Amazon's signing allowance ran out, and real firings couldn't be signed. Now the service hands out the same signed copy for up to 5 seconds. A new firing still gets a fresh signature immediately, so nobody is ever let in late.
+
+**How we know it works:** checked against real Amazon infrastructure today, with a temporary key that is now scheduled for deletion:
+
+- The service started up with the Amazon key and published it as its identity.
+- Its "fired" notices and fired list checked out against that key.
+- The publisher, pointed at the same key, produced a list that a partner company's checker accepted.
+- It refused to start with a wrong or missing key.
+
+New automatic tests cover what happens when Amazon is slow or down:
+
+- A firing stays recorded.
+- The publisher writes nothing and simply tries again.
+- A burst of downloads costs one signature, not one per download.
+
+We deliberately broke the new checks four ways, and every break was caught.
+
+**What's left for you:**
+
+- Push this branch and merge it.
+- Remove the broad "manage any key" permission from the `custos-dev` Amazon user, unless more live tests are planned (it was needed to create today's test key).
+- Update the Notion risk page.
+
+_Why it matters:_ this was the stated blocker before the cross-company "fire an agent" feature could be used by a real customer. That key no longer has to sit on anyone's laptop.
+
 ## 2026-10-25 — Every request note now says exactly what it is for
 
 **Commits:** `d7ea303` (the cross-company note), `689d6f2` (the vault note and the developer library), `ed99933` (docs). Pushed to branch `feat/foreign-proof-binds-action`; pull request #108 is open, not yet merged. This change also carries the documentation update from 22 October recording that Phase 6 is on the main branch.

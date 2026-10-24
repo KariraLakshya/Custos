@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: Phase 6 — Cross-org federation, closed 2026-10-22 (all five steps on `main`). Started 2026-10-16 by the founder's decision, _before_ Phase 5's DONE check.** No further phase is planned yet: the next piece of work is chosen with the founder. Deliberate deviation from "do not start a phase until the previous one's DONE criteria pass": no non-author tester could be found. Phase 5's DONE check (the non-author README run, brief in `docs/readme-test.md`) stays open and is still owed. ADR 0014 is Accepted and all five steps are built (the foreign-agent verifier, A's merge of the published list, the publisher, B's gate and status cache in `packages/federation`, and the two-stack end-to-end run). ADR 0014's e2e version of the DONE criterion passes in `apps/admin/src/federation.e2e.test.ts`, on one machine and one Postgres server: A's services are stopped and A's database refuses connections, B still verifies, and a revocation published through the publisher is refused by B within one poll. The criterion below says "machine A's server is switched off entirely" and the milestone says "two machines", and the founder accepted this one-machine run as closing Phase 6 on 2026-10-22. Next: the founder-approved cross-company dashboard panel (beyond this plan). Previously: Phase 5 — DONE check (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
+> **CURRENT: After Phase 6 — revocation and publisher keys in KMS (ADR 0016), built 2026-10-25 on branch `feat/revocation-signing-kms`, DONE criteria proven, awaiting merge. Before that: Phase 6 — Cross-org federation, closed 2026-10-22 (all five steps on `main`). Started 2026-10-16 by the founder's decision, _before_ Phase 5's DONE check.** No further phase is planned yet: the next piece of work is chosen with the founder. Deliberate deviation from "do not start a phase until the previous one's DONE criteria pass": no non-author tester could be found. Phase 5's DONE check (the non-author README run, brief in `docs/readme-test.md`) stays open and is still owed. ADR 0014 is Accepted and all five steps are built (the foreign-agent verifier, A's merge of the published list, the publisher, B's gate and status cache in `packages/federation`, and the two-stack end-to-end run). ADR 0014's e2e version of the DONE criterion passes in `apps/admin/src/federation.e2e.test.ts`, on one machine and one Postgres server: A's services are stopped and A's database refuses connections, B still verifies, and a revocation published through the publisher is refused by B within one poll. The criterion below says "machine A's server is switched off entirely" and the milestone says "two machines", and the founder accepted this one-machine run as closing Phase 6 on 2026-10-22. Next: the founder-approved cross-company dashboard panel (beyond this plan). Previously: Phase 5 — DONE check (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
@@ -143,6 +143,19 @@ Two machines, two independent trust domains. This is the MVP core built twice wi
 **DONE =** machine A's server is switched off entirely; B still verifies A's agent from the credential alone; revoke A; B correctly rejects.
 
 The offline verification is the entire point. If B needs to call A's server, it is a distributed single-org system, not federation.
+
+---
+
+## After Phase 6 — Revocation and publisher keys in KMS (ADR 0016)
+
+Chosen by the founder on 2026-10-25 as the next work: the blocker ADR 0014 named before the publisher is used for real.
+
+- The KMS key provider moves out of `services/identity` into a shared package
+- `services/revocation` signs with an AWS KMS key when configured (`local` stays the default)
+- `custos-admin publish-status` signs with the same KMS key
+- The open status-list route cannot be used to exhaust KMS signing
+
+**DONE =** against real AWS KMS, the revocation service boots on a KMS key, publishes it in its DID document, and its tombstones and status list verify against that document; the publisher, configured with the same key, publishes a list a foreign verifier accepts; a KMS failure during a revocation leaves the agent revoked, and in the publisher writes nothing and is retried; repeated anonymous status-list requests cost at most one signature per reuse window. Each proven by a test.
 
 ---
 
