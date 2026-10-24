@@ -10,15 +10,14 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/index.js",
-    "test:kms": "vitest run src/keys/kms-key-provider.aws.test.ts --coverage.enabled=false --mode kms"
+    "start": "node dist/index.js"
   },
   "dependencies": {
-    "@aws-sdk/client-kms": "^3.1146.0",
     "@custos/audit-client": "workspace:*",
     "@custos/config": "workspace:*",
     "@custos/control-plane-auth": "workspace:*",
     "@custos/core": "workspace:*",
+    "@custos/kms": "workspace:*",
     "@custos/observability": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "fastify": "^5.12.7",

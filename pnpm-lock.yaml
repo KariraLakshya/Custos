@@ -367,6 +367,28 @@ importers:
         specifier: ^5.0.4
         version: 5.0.4(@types/node@22.20.5)(@vitest/coverage-v8@5.0.4)(vite@7.3.7(@types/node@22.20.5)(tsx@4.23.15)(yaml@2.9.1))
 
+  packages/kms:
+    dependencies:
+      '@aws-sdk/client-kms':
+        specifier: ^3.1146.0
+        version: 3.1146.0
+      '@custos/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@custos/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@custos/vitest-config':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-config
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.4
+        version: 5.0.4(@types/node@22.20.5)(@vitest/coverage-v8@5.0.4)(vite@7.3.7(@types/node@22.20.5)(tsx@4.23.15)(yaml@2.9.1))
+
   packages/observability:
     dependencies:
       pino:
@@ -514,9 +536,6 @@ importers:
 
   services/identity:
     dependencies:
-      '@aws-sdk/client-kms':
-        specifier: ^3.1146.0
-        version: 3.1146.0
       '@custos/audit-client':
         specifier: workspace:*
         version: link:../../packages/audit-client
@@ -529,6 +548,9 @@ importers:
       '@custos/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@custos/kms':
+        specifier: workspace:*
+        version: link:../../packages/kms
       '@custos/observability':
         specifier: workspace:*
         version: link:../../packages/observability
