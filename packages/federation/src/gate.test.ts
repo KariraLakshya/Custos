@@ -13,6 +13,7 @@ import {
   makeOrganisation,
   NOW,
   proofFor,
+  REQUEST,
   RECEIVER,
   type Agent,
   type Organisation,
@@ -75,12 +76,24 @@ async function viewFrom(org: Organisation, revoked: readonly number[], at: Date)
   return cache.viewFor(org.anchor);
 }
 
-async function call(agent: Agent, extra: { now?: Date; tool?: string; action?: string } = {}) {
+/** A call for one request, with a proof made for that same request unless `signedFor` says otherwise. */
+async function call(
+  agent: Agent,
+  extra: {
+    now?: Date;
+    tool?: string;
+    action?: string;
+    signedFor?: { tool: string; action: string };
+  } = {},
+) {
+  const request = { tool: extra.tool ?? REQUEST.tool, action: extra.action ?? REQUEST.action };
   return {
     credential: agent.credential,
-    proof: await proofFor(agent, extra.now === undefined ? {} : { now: extra.now }),
-    ...(extra.tool === undefined ? {} : { tool: extra.tool }),
-    ...(extra.action === undefined ? {} : { action: extra.action }),
+    proof: await proofFor(agent, {
+      request: extra.signedFor ?? request,
+      ...(extra.now === undefined ? {} : { now: extra.now }),
+    }),
+    ...request,
   };
 }
 
@@ -103,11 +116,30 @@ describe("createForeignAgentGate: allow", () => {
     ]);
   });
 
-  it("audits a call with no tool or action as foreign.call, without a tool field", async () => {
+  it("refuses a proof made for another action: 401, logged, never audited (ADR 0015)", async () => {
+    const { org, gate, events, denied } = await harness();
+    const agent = await issueAgent(org);
+    const result = await gate.check(
+      await call(agent, { action: "write", signedFor: { tool: REQUEST.tool, action: "read" } }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        status: 401,
+        code: "UNAUTHORIZED",
+        denial: { code: "PROOF_REJECTED", reason: "WRONG_REQUEST" },
+      },
+    });
+    expect(denied).toEqual(["PROOF_REJECTED"]);
+    expect(events).toEqual([]);
+  });
+
+  it("refuses a proof made for another tool", async () => {
     const { org, gate, events } = await harness();
-    await gate.check(await call(await issueAgent(org)));
-    expect(events[0]).toMatchObject({ action: "foreign.call" });
-    expect(events[0]).not.toHaveProperty("tool");
+    const agent = await issueAgent(org);
+    const result = await gate.check(await call(agent, { tool: "stripe", signedFor: REQUEST }));
+    expect(result).toMatchObject({ ok: false, error: { status: 401 } });
+    expect(events).toEqual([]);
   });
 });
 
@@ -121,7 +153,7 @@ describe("createForeignAgentGate: denials after the proof verified are audited",
       {
         agentDid: agent.did,
         tool: "stripe",
-        action: "foreign.call",
+        action: "read",
         dataCategories: [],
         policy: { rule: "foreign:a.example", decision: "deny" },
         reason: "issuer=did:web:a.example code=AGENT_REVOKED",
@@ -206,7 +238,7 @@ describe("createForeignAgentGate: earlier failures are logged, never audited", (
         credentialSubject: { id: string };
       };
       tampered.credentialSubject.id = "did:web:a.example:agents:someone-else";
-      return { credential: tampered, proof: await proofFor(agent) };
+      return { credential: tampered, proof: await proofFor(agent), ...REQUEST };
     });
     expect(result).toMatchObject({ ok: false, error: { status: 401, code: "UNAUTHORIZED" } });
     expect(h.events).toEqual([]);
@@ -236,7 +268,7 @@ describe("createForeignAgentGate: earlier failures are logged, never audited", (
     const { result, h } = await refusedWith(async ({ org }) => {
       const agent = await issueAgent(org);
       const thief = await issueAgent(org);
-      return { credential: agent.credential, proof: await proofFor(thief) };
+      return { credential: agent.credential, proof: await proofFor(thief), ...REQUEST };
     });
     expect(result).toMatchObject({ ok: false, error: { status: 401 } });
     expect(h.events).toEqual([]);
@@ -262,8 +294,9 @@ describe("createForeignAgentGate: earlier failures are logged, never audited", (
       audience: "https://elsewhere.example/federation",
       secretKey: agent.keys.secretKey,
       now: NOW,
+      request: REQUEST,
     });
-    const result = await h.gate.check({ credential: agent.credential, proof });
+    const result = await h.gate.check({ credential: agent.credential, proof, ...REQUEST });
     expect(result).toMatchObject({ ok: false, error: { status: 401 } });
     expect(h.events).toEqual([]);
   });
@@ -277,7 +310,7 @@ describe("createForeignAgentGate: earlier failures are logged, never audited", (
     ["an oversized credential", { issuer: "x".repeat(20_000) }, "p"],
   ])("%s: 401, no audit record, no throw", async (_label, credential, proof) => {
     const h = await harness();
-    const result = await h.gate.check({ credential, proof });
+    const result = await h.gate.check({ credential, proof, ...REQUEST });
     expect(result).toMatchObject({ ok: false, error: { status: 401, code: "UNAUTHORIZED" } });
     expect(h.events).toEqual([]);
   });
@@ -306,9 +339,9 @@ describe("createForeignAgentGate: what a caller can learn", () => {
 
     const answers = await Promise.all([
       h.gate.check(await call(stranger)),
-      h.gate.check({ credential: tampered, proof: await proofFor(agent) }),
-      h.gate.check({ credential: agent.credential, proof: await proofFor(other) }),
-      h.gate.check({ credential: "nope", proof: "nope" }),
+      h.gate.check({ credential: tampered, proof: await proofFor(agent), ...REQUEST }),
+      h.gate.check({ credential: agent.credential, proof: await proofFor(other), ...REQUEST }),
+      h.gate.check({ credential: "nope", proof: "nope", ...REQUEST }),
     ]);
     const bodies = answers.map((answer) =>
       answer.ok ? "allowed" : `${answer.error.status} ${answer.error.code}`,
@@ -343,7 +376,7 @@ describe("createForeignAgentGate: audit and logging never decide the answer", ()
         throw new Error("logger down");
       },
     });
-    const result = await gate.check({ credential: "x", proof: "y" });
+    const result = await gate.check({ credential: "x", proof: "y", ...REQUEST });
     expect(result).toMatchObject({ ok: false, error: { status: 401 } });
   });
 

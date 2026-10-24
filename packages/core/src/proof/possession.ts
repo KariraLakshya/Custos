@@ -24,6 +24,41 @@ export const TOKEN_REQUEST_PROOF_TYPE = "custos-token-request-proof";
  */
 export const FOREIGN_CALL_PROOF_TYPE = "custos-foreign-call-proof";
 
+/**
+ * What a request-bound proof is for (ADR 0015): the tool and the action the
+ * receiver is about to run or issue a token for. Signed into the proof, so a
+ * proof captured in flight cannot be spent on a different tool or action.
+ */
+export interface BoundRequest {
+  readonly tool: string;
+  readonly action: string;
+}
+
+/**
+ * Proof types that must name their request (ADR 0015): a call into another
+ * organisation, and a token request to the vault. The general verifier
+ * refuses these, so their binding can never be skipped.
+ */
+const REQUEST_BOUND_TYPES: ReadonlySet<string> = new Set([
+  FOREIGN_CALL_PROOF_TYPE,
+  TOKEN_REQUEST_PROOF_TYPE,
+]);
+
+// The audit schema's bound for `tool` and `action`, so a bound request can
+// always be recorded as given.
+const MAX_REQUEST_FIELD_LENGTH = 128;
+
+function isRequestField(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_REQUEST_FIELD_LENGTH;
+}
+
+/** A tool and an action that are non-empty strings of at most 128 characters. */
+export function isBoundRequest(value: unknown): value is BoundRequest {
+  if (typeof value !== "object" || value === null) return false;
+  const request = value as Record<string, unknown>;
+  return isRequestField(request.tool) && isRequestField(request.action);
+}
+
 export interface PossessionProofClaims {
   /** Which kind of proof this is; see `REGISTRATION_PROOF_TYPE`. */
   readonly typ: string;
@@ -45,7 +80,9 @@ export type VerifyPossessionProofError =
   | { readonly code: "SIGNATURE_INVALID" }
   | { readonly code: "WRONG_TYPE" }
   | { readonly code: "WRONG_AUDIENCE" }
-  | { readonly code: "STALE" };
+  | { readonly code: "STALE" }
+  /** A request-bound proof made for a different tool or action (ADR 0015). */
+  | { readonly code: "WRONG_REQUEST" };
 
 // Real proofs are a few hundred bytes; refuse anything far larger before parsing.
 const MAX_PROOF_LENGTH = 4096;
@@ -79,21 +116,16 @@ export async function issuePossessionProof(params: {
   }
 }
 
-/**
- * Verifies locally against the public key the proof claims to be made with.
- * The signature is checked before any claim is trusted; then type, audience,
- * and freshness (`|now − iat| ≤ maxSkewSeconds`, explicit configuration per
- * CLAUDE.md §3). Replay (a reused `jti`) is the caller's check — it needs
- * state this pure module does not hold.
- */
-export function verifyPossessionProof(params: {
+type VerifiedEnvelope = PossessionProofClaims & Readonly<Record<string, unknown>>;
+
+function verifyEnvelope(params: {
   readonly proof: string;
   readonly publicKey: Uint8Array;
   readonly expectedType: string;
   readonly expectedAudience: string;
   readonly now: Date;
   readonly maxSkewSeconds: number;
-}): Result<PossessionProofClaims, VerifyPossessionProofError> {
+}): Result<VerifiedEnvelope, VerifyPossessionProofError> {
   const { proof, publicKey, expectedType, expectedAudience, now, maxSkewSeconds } = params;
   if (proof.length > MAX_PROOF_LENGTH) {
     return err({ code: "MALFORMED_PROOF", reason: "proof exceeds maximum length" });
@@ -104,13 +136,13 @@ export function verifyPossessionProof(params: {
   }
   const [encodedClaims, encodedSignature] = parts as [string, string];
 
-  let claims: PossessionProofClaims;
+  let claims: VerifiedEnvelope;
   try {
     const decoded: unknown = JSON.parse(Buffer.from(encodedClaims, "base64url").toString("utf8"));
     if (!isPossessionProofClaims(decoded)) {
       return err({ code: "MALFORMED_PROOF", reason: "claims missing required fields" });
     }
-    claims = decoded;
+    claims = decoded as VerifiedEnvelope;
   } catch (error) {
     return err({ code: "MALFORMED_PROOF", reason: errorMessage(error) });
   }
@@ -125,6 +157,99 @@ export function verifyPossessionProof(params: {
   if (Math.abs(nowSeconds - claims.iat) > maxSkewSeconds) return err({ code: "STALE" });
 
   return ok(claims);
+}
+
+/**
+ * Verifies locally against the public key the proof claims to be made with.
+ * The signature is checked before any claim is trusted; then type, audience,
+ * and freshness (`|now − iat| ≤ maxSkewSeconds`, explicit configuration per
+ * CLAUDE.md §3). Replay (a reused `jti`) is the caller's check — it needs
+ * state this pure module does not hold.
+ *
+ * Refuses request-bound proofs (foreign calls, token requests): only
+ * `verifyForeignCallProof` and `verifyTokenRequestProof` check their binding,
+ * so it cannot be skipped by reaching for this function instead.
+ */
+export function verifyPossessionProof(params: {
+  readonly proof: string;
+  readonly publicKey: Uint8Array;
+  readonly expectedType: string;
+  readonly expectedAudience: string;
+  readonly now: Date;
+  readonly maxSkewSeconds: number;
+}): Result<PossessionProofClaims, VerifyPossessionProofError> {
+  if (REQUEST_BOUND_TYPES.has(params.expectedType)) {
+    return err({
+      code: "MALFORMED_PROOF",
+      reason: "request-bound proofs are verified with their own verifier",
+    });
+  }
+  const verified = verifyEnvelope(params);
+  if (!verified.ok) return verified;
+  const { typ, aud, iat, jti } = verified.value;
+  return ok({ typ, aud, iat, jti });
+}
+
+function verifyBoundProof(params: {
+  readonly proof: string;
+  readonly publicKey: Uint8Array;
+  readonly expectedType: string;
+  readonly expectedAudience: string;
+  readonly expectedRequest: BoundRequest;
+  readonly now: Date;
+  readonly maxSkewSeconds: number;
+}): Result<PossessionProofClaims, VerifyPossessionProofError> {
+  if (!isBoundRequest(params.expectedRequest)) {
+    return err({ code: "MALFORMED_PROOF", reason: "no valid expected request to check against" });
+  }
+  const verified = verifyEnvelope(params);
+  if (!verified.ok) return verified;
+  const { tool, action } = verified.value;
+  if (typeof tool !== "string" || typeof action !== "string") {
+    return err({ code: "MALFORMED_PROOF", reason: "proof does not name its request" });
+  }
+  if (tool !== params.expectedRequest.tool || action !== params.expectedRequest.action) {
+    return err({ code: "WRONG_REQUEST" });
+  }
+  const { typ, aud, iat, jti } = verified.value;
+  return ok({ typ, aud, iat, jti });
+}
+
+/**
+ * Verifies a foreign-call proof (ADR 0014, ADR 0015): everything
+ * `verifyPossessionProof` checks, and then that it was made for exactly this
+ * tool and action. A proof that names no request (the format before ADR 0015)
+ * is refused. The request is checked before any replay bookkeeping, so a
+ * proof presented for the wrong action is refused without using it up.
+ */
+export function verifyForeignCallProof(params: {
+  readonly proof: string;
+  readonly publicKey: Uint8Array;
+  readonly expectedAudience: string;
+  /** What the receiver is about to run, from its own routing; never from the caller. */
+  readonly expectedRequest: BoundRequest;
+  readonly now: Date;
+  readonly maxSkewSeconds: number;
+}): Result<PossessionProofClaims, VerifyPossessionProofError> {
+  return verifyBoundProof({ ...params, expectedType: FOREIGN_CALL_PROOF_TYPE });
+}
+
+/**
+ * Verifies the proof on a `POST /tokens` (ADR 0007 decision 3, ADR 0015):
+ * everything `verifyPossessionProof` checks, and then that it was made for
+ * exactly the tool and action the token is being issued for, so a captured
+ * request cannot be spent on another tool the agent is granted.
+ */
+export function verifyTokenRequestProof(params: {
+  readonly proof: string;
+  readonly publicKey: Uint8Array;
+  readonly expectedAudience: string;
+  /** The tool and action of the token about to be issued. */
+  readonly expectedRequest: BoundRequest;
+  readonly now: Date;
+  readonly maxSkewSeconds: number;
+}): Result<PossessionProofClaims, VerifyPossessionProofError> {
+  return verifyBoundProof({ ...params, expectedType: TOKEN_REQUEST_PROOF_TYPE });
 }
 
 /**
@@ -174,24 +299,27 @@ export async function buildRegistrationRequest(params: {
   };
 }
 
-/**
- * Proof an agent attaches to a call into another organisation (ADR 0014):
- * made with its own key, addressed to the receiver's identifier, fresh and
- * single-use.
- */
-export async function buildForeignCallProof(params: {
+async function buildBoundProof(params: {
+  readonly typ: string;
   readonly audience: string;
   readonly secretKey: Uint8Array;
   readonly now: Date;
+  readonly request: BoundRequest;
   readonly jti?: string;
 }): Promise<string> {
+  if (!isBoundRequest(params.request)) {
+    throw new Error("request-bound proof: tool and action must be 1 to 128 characters");
+  }
+  const claims: PossessionProofClaims & BoundRequest = {
+    typ: params.typ,
+    aud: params.audience,
+    iat: Math.floor(params.now.getTime() / 1000),
+    jti: params.jti ?? crypto.randomUUID(),
+    tool: params.request.tool,
+    action: params.request.action,
+  };
   const proof = await issuePossessionProof({
-    claims: {
-      typ: FOREIGN_CALL_PROOF_TYPE,
-      aud: params.audience,
-      iat: Math.floor(params.now.getTime() / 1000),
-      jti: params.jti ?? crypto.randomUUID(),
-    },
+    claims,
     sign: async (data) => sign(data, params.secretKey),
   });
   // Signing with an in-memory key cannot fail short of a programmer error.
@@ -200,27 +328,33 @@ export async function buildForeignCallProof(params: {
 }
 
 /**
- * Proof that accompanies every `POST /tokens` (ADR 0007 decision 3): made with
- * the agent's own key, addressed to the vault's `/tokens` URL, fresh, and
- * single-use (the vault remembers `jti`s). Without it, a copied credential
- * gets no tokens.
+ * Proof an agent attaches to a call into another organisation (ADR 0014):
+ * made with its own key, addressed to the receiver's identifier, fresh,
+ * single-use, and bound to the one tool and action it is for (ADR 0015).
  */
-export async function buildTokenRequestProof(params: {
+export function buildForeignCallProof(params: {
   readonly audience: string;
   readonly secretKey: Uint8Array;
   readonly now: Date;
+  readonly request: BoundRequest;
   readonly jti?: string;
 }): Promise<string> {
-  const proof = await issuePossessionProof({
-    claims: {
-      typ: TOKEN_REQUEST_PROOF_TYPE,
-      aud: params.audience,
-      iat: Math.floor(params.now.getTime() / 1000),
-      jti: params.jti ?? crypto.randomUUID(),
-    },
-    sign: async (data) => sign(data, params.secretKey),
-  });
-  // Signing with an in-memory key cannot fail short of a programmer error.
-  if (!proof.ok) throw new Error(proof.error.reason);
-  return proof.value;
+  return buildBoundProof({ ...params, typ: FOREIGN_CALL_PROOF_TYPE });
+}
+
+/**
+ * Proof that accompanies every `POST /tokens` (ADR 0007 decision 3): made with
+ * the agent's own key, addressed to the vault's `/tokens` URL, fresh,
+ * single-use (the vault remembers `jti`s), and bound to the tool and action
+ * of the token it asks for (ADR 0015). Without it, a copied credential gets
+ * no tokens.
+ */
+export function buildTokenRequestProof(params: {
+  readonly audience: string;
+  readonly secretKey: Uint8Array;
+  readonly now: Date;
+  readonly request: BoundRequest;
+  readonly jti?: string;
+}): Promise<string> {
+  return buildBoundProof({ ...params, typ: TOKEN_REQUEST_PROOF_TYPE });
 }

@@ -1,10 +1,10 @@
 import { multibaseToPublicKey } from "../did/did-web.js";
 import {
-  FOREIGN_CALL_PROOF_TYPE,
+  isBoundRequest,
   proofReplayExpiresAtMs,
-  verifyPossessionProof,
+  verifyForeignCallProof,
 } from "../proof/possession.js";
-import type { VerifyPossessionProofError } from "../proof/possession.js";
+import type { BoundRequest, VerifyPossessionProofError } from "../proof/possession.js";
 import { err, ok, type Result } from "../result.js";
 import { BITSTRING_STATUS_LIST_ENTRY_TYPE, isRevoked } from "../status/bitstring-status-list.js";
 import { verifyCredential, type SignedCredential } from "../vc/credential.js";
@@ -99,6 +99,11 @@ export async function verifyForeignAgent(params: {
   readonly statusViewFor: (anchor: TrustAnchor) => VerifiedForeignStatusList | undefined;
   /** This receiver's own identifier: the proof must be addressed to it. */
   readonly audience: string;
+  /**
+   * The tool and action the receiver is about to run (ADR 0015), from its own
+   * routing, never from a field the caller sets: the proof must be bound to it.
+   */
+  readonly request: BoundRequest;
   readonly replay: ForeignReplayGuard;
   readonly now: Date;
   /** Explicit configuration, no default: how far a proof's `iat` may be from now. */
@@ -110,6 +115,9 @@ export async function verifyForeignAgent(params: {
 
   if (!isRecord(credential)) return malformed("credential is not an object");
   if (typeof proof !== "string") return malformed("proof is not a string");
+  if (!isBoundRequest(params.request)) {
+    return malformed("request is not a tool and an action of 1 to 128 characters");
+  }
   let size: number;
   try {
     size = JSON.stringify(credential).length;
@@ -174,12 +182,14 @@ export async function verifyForeignAgent(params: {
     if (now.getTime() >= validUntil.getTime()) return err({ code: "CREDENTIAL_EXPIRED" });
   }
 
-  // 5. Possession: this caller holds the embedded key, addressed to us, fresh.
-  const claims = verifyPossessionProof({
+  // 5. Possession: this caller holds the embedded key, addressed to us, fresh,
+  // and made for this very tool and action (ADR 0015). Checked before the
+  // replay guard, so a proof presented for another action is not used up.
+  const claims = verifyForeignCallProof({
     proof,
     publicKey: agentKey.value,
-    expectedType: FOREIGN_CALL_PROOF_TYPE,
     expectedAudience: audience,
+    expectedRequest: params.request,
     now,
     maxSkewSeconds: params.maxProofSkewSeconds,
   });

@@ -13,6 +13,7 @@ import {
   NOW,
   proofFor,
   RECEIVER,
+  REQUEST,
   STATUS_LIST_ID,
   type Agent,
   type Organisation,
@@ -49,6 +50,7 @@ interface Call {
   view?: VerifiedForeignStatusList | undefined;
   replay?: ForeignReplayGuard;
   audience?: string;
+  request?: unknown;
   now?: Date;
 }
 
@@ -60,6 +62,7 @@ async function run(org: Organisation, agent: Agent, call: Call = {}) {
     anchors: call.anchors ?? [org.anchor],
     statusViewFor: () => view,
     audience: call.audience ?? RECEIVER,
+    request: ("request" in call ? call.request : REQUEST) as { tool: string; action: string },
     replay: call.replay ?? memoryReplayGuard(),
     now: call.now ?? NOW,
     maxProofSkewSeconds: PROOF_SKEW,
@@ -318,6 +321,7 @@ describe("verifyForeignAgent: proof of possession", () => {
       audience: RECEIVER,
       secretKey: agent.keys.secretKey,
       now: NOW,
+      request: REQUEST,
     });
     expect(await run(org, agent, { proof })).toMatchObject(
       denied("PROOF_REJECTED", { reason: "WRONG_TYPE" }),
@@ -439,6 +443,43 @@ describe("verifyForeignAgent: one trusted organisation cannot speak for another'
     const replay = memoryReplayGuard();
     await run(org, agent, { replay });
     expect(replay.seen[0]?.startsWith("did:web:a.example|did:web:a.example:agents:")).toBe(true);
+  });
+});
+
+describe("verifyForeignAgent: the proof is bound to the request B runs (ADR 0015)", () => {
+  it("refuses a proof made for another action, without using it up", async () => {
+    const org = makeOrganisation();
+    const agent = await issueAgent(org);
+    const replay = memoryReplayGuard();
+    const write = { tool: REQUEST.tool, action: "write" };
+    const proof = await proofFor(agent, { request: write });
+    expect(await run(org, agent, { proof, replay })).toMatchObject(
+      denied("PROOF_REJECTED", { reason: "WRONG_REQUEST" }),
+    );
+    // Refused before the replay guard: nothing recorded, so the call the
+    // agent really made, for the action it signed, still goes through.
+    expect(replay.seen).toEqual([]);
+    expect(await run(org, agent, { proof, replay, request: write })).toMatchObject({ ok: true });
+  });
+
+  it("refuses a proof made for another tool", async () => {
+    const org = makeOrganisation();
+    const agent = await issueAgent(org);
+    const proof = await proofFor(agent, { request: { tool: "stripe", action: REQUEST.action } });
+    expect(await run(org, agent, { proof })).toMatchObject(
+      denied("PROOF_REJECTED", { reason: "WRONG_REQUEST" }),
+    );
+  });
+
+  it.each([
+    ["missing", null],
+    ["a string", "b-ledger:read"],
+    ["an empty tool", { tool: "", action: "read" }],
+    ["an oversized action", { tool: "b-ledger", action: "a".repeat(129) }],
+  ])("refuses to decide when the request to check against is %s", async (_label, request) => {
+    const org = makeOrganisation();
+    const agent = await issueAgent(org);
+    expect(await run(org, agent, { request })).toMatchObject(denied("MALFORMED_INPUT"));
   });
 });
 

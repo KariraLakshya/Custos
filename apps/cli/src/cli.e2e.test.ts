@@ -42,6 +42,7 @@ async function provenTokenRequest(
     audience: tokensUrl.href,
     secretKey: Uint8Array.from(Buffer.from(agent.secretKey, "hex")),
     now,
+    request: { tool: body.tool, action: body.action },
   });
   return fetch(tokensUrl, {
     method: "POST",

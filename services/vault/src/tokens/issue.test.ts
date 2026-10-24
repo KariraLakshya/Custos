@@ -145,9 +145,10 @@ async function toolWithSecret(): Promise<string> {
   return tool;
 }
 
-/** A valid proof that the caller holds `secretKey`, addressed to this vault's /tokens. */
+/** A valid proof that the caller holds `secretKey`, addressed to this vault's /tokens, for `request`. */
 async function proofCheck(
   secretKey: Uint8Array,
+  request: { tool: string; action: string },
   options: { now?: Date; audience?: string; replayCache?: ReplayCache } = {},
 ) {
   return {
@@ -155,6 +156,7 @@ async function proofCheck(
       audience: options.audience ?? TOKENS_URL,
       secretKey,
       now: options.now ?? new Date(),
+      request,
     }),
     audience: TOKENS_URL,
     maxSkewSeconds: MAX_SKEW,
@@ -199,7 +201,9 @@ async function withGrantedAgent<T>(
           now: overrides.now ?? new Date(),
           revocation: overrides.revocation ?? neverRevoked,
           trustedIssuer,
-          proofOfPossession: overrides.proofOfPossession ?? (await proofCheck(agent.secretKey)),
+          proofOfPossession:
+            overrides.proofOfPossession ??
+            (await proofCheck(agent.secretKey, { tool, action: "list-customers" })),
         }),
     });
   });
@@ -221,7 +225,11 @@ describe("issueToolToken", () => {
         now,
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(agent.secretKey, { now }),
+        proofOfPossession: await proofCheck(
+          agent.secretKey,
+          { tool, action: "list-customers" },
+          { now },
+        ),
       });
 
       expect(result.ok).toBe(true);
@@ -246,7 +254,10 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(agent.secretKey),
+        proofOfPossession: await proofCheck(agent.secretKey, {
+          tool: unknownTool,
+          action: "list-customers",
+        }),
       });
 
       expect(result).toEqual({ ok: false, error: { code: "UNKNOWN_TOOL", tool: unknownTool } });
@@ -266,7 +277,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(agent.secretKey),
+        proofOfPossession: await proofCheck(agent.secretKey, { tool, action: "list-customers" }),
       });
 
       expect(result).toEqual({
@@ -290,7 +301,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(agent.secretKey),
+        proofOfPossession: await proofCheck(agent.secretKey, { tool, action: "list-customers" }),
       });
 
       expect(result.ok === false && result.error.code).toBe("POLICY_DENIED");
@@ -314,7 +325,7 @@ describe("issueToolToken", () => {
           now: new Date(),
           revocation,
           trustedIssuer,
-          proofOfPossession: await proofCheck(who.secretKey),
+          proofOfPossession: await proofCheck(who.secretKey, { tool, action: "list-customers" }),
         });
 
       expect(await request(agent)).toEqual({
@@ -342,7 +353,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(agent.secretKey),
+        proofOfPossession: await proofCheck(agent.secretKey, { tool, action: "list-customers" }),
       });
 
       expect(result).toEqual({
@@ -368,7 +379,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(foreign.secretKey),
+        proofOfPossession: await proofCheck(foreign.secretKey, { tool, action: "list-customers" }),
       });
 
       expect(result).toEqual({
@@ -408,7 +419,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(secretKey),
+        proofOfPossession: await proofCheck(secretKey, { tool, action: "list-customers" }),
       });
 
       expect(result).toEqual({
@@ -436,7 +447,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(forged.secretKey),
+        proofOfPossession: await proofCheck(forged.secretKey, { tool, action: "list-customers" }),
       });
 
       expect(result.ok === false && result.error.code).toBe("INVALID_AGENT_CREDENTIAL");
@@ -479,7 +490,10 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(generateKeyPair().secretKey),
+        proofOfPossession: await proofCheck(generateKeyPair().secretKey, {
+          tool,
+          action: "list-customers",
+        }),
       });
 
       expect(result).toEqual({ ok: false, error: { code: "INVALID_AGENT_CREDENTIAL", reason } });
@@ -503,7 +517,10 @@ describe("issueToolToken", () => {
       now: new Date(),
       revocation: neverRevoked,
       trustedIssuer: unreachable,
-      proofOfPossession: await proofCheck(generateKeyPair().secretKey),
+      proofOfPossession: await proofCheck(generateKeyPair().secretKey, {
+        tool,
+        action: "list-customers",
+      }),
     });
 
     expect(result.ok === false && result.error.code).toBe("INVALID_AGENT_CREDENTIAL");
@@ -529,7 +546,7 @@ describe("issueToolToken", () => {
         now: new Date(),
         revocation: neverRevoked,
         trustedIssuer,
-        proofOfPossession: await proofCheck(agent.secretKey),
+        proofOfPossession: await proofCheck(agent.secretKey, { tool, action: "list-customers" }),
       });
 
       expect(result).toEqual({
@@ -542,10 +559,12 @@ describe("issueToolToken", () => {
 
 describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
   it("refuses a copied credential presented without the agent's private key", async () => {
-    await withGrantedAgent(4222, async ({ request }) => {
+    await withGrantedAgent(4222, async ({ request, tool }) => {
       const thief = generateKeyPair();
 
-      const result = await request({ proofOfPossession: await proofCheck(thief.secretKey) });
+      const result = await request({
+        proofOfPossession: await proofCheck(thief.secretKey, { tool, action: "list-customers" }),
+      });
 
       expect(result).toEqual({
         ok: false,
@@ -554,10 +573,53 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
     });
   });
 
-  it("refuses a replayed proof", async () => {
-    await withGrantedAgent(4223, async ({ agent, request }) => {
+  it("refuses a proof made for another granted tool, without using it up (ADR 0015)", async () => {
+    await withGrantedAgent(4235, async ({ agent, request, tool }) => {
+      // The agent is granted a second tool; a request it made for that tool
+      // is captured and presented for this one.
+      const otherTool = await toolWithSecret();
+      await grantToolAccess(vaultDb, agent.agentDid, otherTool);
       const replayCache = createInMemoryReplayCache();
-      const once = await proofCheck(agent.secretKey, { replayCache });
+      const madeForOther = await proofCheck(
+        agent.secretKey,
+        { tool: otherTool, action: "list-customers" },
+        { replayCache },
+      );
+
+      expect(await request({ proofOfPossession: madeForOther })).toEqual({
+        ok: false,
+        error: { code: "INVALID_PROOF_OF_POSSESSION", reason: "WRONG_REQUEST" },
+      });
+
+      // Refused before the replay cache, so the agent's own request for this
+      // tool, with a proof made for it, is unaffected.
+      const own = await proofCheck(
+        agent.secretKey,
+        { tool, action: "list-customers" },
+        { replayCache },
+      );
+      expect((await request({ proofOfPossession: own })).ok).toBe(true);
+    });
+  });
+
+  it("refuses a proof made for another action on the same tool", async () => {
+    await withGrantedAgent(4236, async ({ agent, request, tool }) => {
+      const madeForOther = await proofCheck(agent.secretKey, { tool, action: "delete-customers" });
+      expect(await request({ proofOfPossession: madeForOther })).toEqual({
+        ok: false,
+        error: { code: "INVALID_PROOF_OF_POSSESSION", reason: "WRONG_REQUEST" },
+      });
+    });
+  });
+
+  it("refuses a replayed proof", async () => {
+    await withGrantedAgent(4223, async ({ agent, request, tool }) => {
+      const replayCache = createInMemoryReplayCache();
+      const once = await proofCheck(
+        agent.secretKey,
+        { tool, action: "list-customers" },
+        { replayCache },
+      );
 
       expect((await request({ proofOfPossession: once })).ok).toBe(true);
       expect(await request({ proofOfPossession: once })).toEqual({
@@ -570,10 +632,14 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
   it("still refuses a replay in the last second a proof would be accepted", async () => {
     // verifyPossessionProof floors `now` to whole seconds, so a proof stays valid
     // until just before (iat + skew + 1) s. The replay memory must last that long.
-    await withGrantedAgent(4234, async ({ agent, request }) => {
+    await withGrantedAgent(4234, async ({ agent, request, tool }) => {
       const replayCache = createInMemoryReplayCache();
       const issuedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
-      const once = await proofCheck(agent.secretKey, { replayCache, now: issuedAt });
+      const once = await proofCheck(
+        agent.secretKey,
+        { tool, action: "list-customers" },
+        { replayCache, now: issuedAt },
+      );
       expect((await request({ proofOfPossession: once, now: issuedAt })).ok).toBe(true);
 
       const lastAcceptedInstant = new Date(issuedAt.getTime() + MAX_SKEW * 1000 + 500);
@@ -585,26 +651,44 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
   });
 
   it("accepts a fresh proof for every request", async () => {
-    await withGrantedAgent(4224, async ({ agent, request }) => {
+    await withGrantedAgent(4224, async ({ agent, request, tool }) => {
       const replayCache = createInMemoryReplayCache();
 
       expect(
-        (await request({ proofOfPossession: await proofCheck(agent.secretKey, { replayCache }) }))
-          .ok,
+        (
+          await request({
+            proofOfPossession: await proofCheck(
+              agent.secretKey,
+              { tool, action: "list-customers" },
+              { replayCache },
+            ),
+          })
+        ).ok,
       ).toBe(true);
       expect(
-        (await request({ proofOfPossession: await proofCheck(agent.secretKey, { replayCache }) }))
-          .ok,
+        (
+          await request({
+            proofOfPossession: await proofCheck(
+              agent.secretKey,
+              { tool, action: "list-customers" },
+              { replayCache },
+            ),
+          })
+        ).ok,
       ).toBe(true);
     });
   });
 
   it("refuses a proof addressed to a different vault", async () => {
-    await withGrantedAgent(4225, async ({ agent, request }) => {
+    await withGrantedAgent(4225, async ({ agent, request, tool }) => {
       const result = await request({
-        proofOfPossession: await proofCheck(agent.secretKey, {
-          audience: "https://other-vault.example/tokens",
-        }),
+        proofOfPossession: await proofCheck(
+          agent.secretKey,
+          { tool, action: "list-customers" },
+          {
+            audience: "https://other-vault.example/tokens",
+          },
+        ),
       });
 
       expect(result.ok === false && result.error).toEqual({
@@ -615,11 +699,15 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
   });
 
   it("refuses a stale proof", async () => {
-    await withGrantedAgent(4226, async ({ agent, request }) => {
+    await withGrantedAgent(4226, async ({ agent, request, tool }) => {
       const result = await request({
-        proofOfPossession: await proofCheck(agent.secretKey, {
-          now: new Date(Date.now() - 5 * 60_000),
-        }),
+        proofOfPossession: await proofCheck(
+          agent.secretKey,
+          { tool, action: "list-customers" },
+          {
+            now: new Date(Date.now() - 5 * 60_000),
+          },
+        ),
       });
 
       expect(result.ok === false && result.error).toEqual({
@@ -660,9 +748,12 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
   });
 
   it("checks possession before revocation — an impostor learns nothing about the agent's status", async () => {
-    await withGrantedAgent(4228, async ({ agent, request }) => {
+    await withGrantedAgent(4228, async ({ agent, request, tool }) => {
       const result = await request({
-        proofOfPossession: await proofCheck(generateKeyPair().secretKey),
+        proofOfPossession: await proofCheck(generateKeyPair().secretKey, {
+          tool,
+          action: "list-customers",
+        }),
         revocation: revokedAgent(agent.agentDid),
       });
 
@@ -716,12 +807,15 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
     });
 
     it("records nothing for a caller that cannot prove it holds the agent's key", async () => {
-      await withGrantedAgent(4232, async ({ request }) => {
+      await withGrantedAgent(4232, async ({ request, tool }) => {
         const { view, tracked } = recordingView();
 
         const result = await request({
           revocation: view,
-          proofOfPossession: await proofCheck(generateKeyPair().secretKey),
+          proofOfPossession: await proofCheck(generateKeyPair().secretKey, {
+            tool,
+            action: "list-customers",
+          }),
         });
 
         expect(result.ok === false && result.error.code).toBe("INVALID_PROOF_OF_POSSESSION");
@@ -747,11 +841,15 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
   });
 
   it("fails closed when the replay cache is full", async () => {
-    await withGrantedAgent(4229, async ({ agent, request }) => {
+    await withGrantedAgent(4229, async ({ agent, request, tool }) => {
       const full: ReplayCache = { record: () => "full" };
 
       const result = await request({
-        proofOfPossession: await proofCheck(agent.secretKey, { replayCache: full }),
+        proofOfPossession: await proofCheck(
+          agent.secretKey,
+          { tool, action: "list-customers" },
+          { replayCache: full },
+        ),
       });
 
       expect(result.ok === false && result.error).toEqual({

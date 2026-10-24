@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   generateKeyPair,
   multibaseToPublicKey,
-  TOKEN_REQUEST_PROOF_TYPE,
   publicKeyFromSecretKey,
   REGISTRATION_PROOF_TYPE,
   verifyPossessionProof,
+  verifyTokenRequestProof,
 } from "@custos/core";
 import { createCustos, type Agent } from "./client.js";
 
@@ -219,17 +219,36 @@ describe("connect(...).call", () => {
       body: { token: "tok_abc", action: "list-customers", input: { limit: 5 } },
     });
     // The token request proves possession of the agent's key, addressed to
-    // this vault's /tokens URL (ADR 0007 decision 3).
-    expect(
-      verifyPossessionProof({
+    // this vault's /tokens URL (ADR 0007 decision 3), and bound to this very
+    // tool and action (ADR 0015).
+    const check = (expectedRequest: { tool: string; action: string }) =>
+      verifyTokenRequestProof({
         proof,
         publicKey: agentKey.publicKey,
-        expectedType: TOKEN_REQUEST_PROOF_TYPE,
         expectedAudience: new URL("/tokens", url).href,
+        expectedRequest,
         now: new Date(),
         maxSkewSeconds: 60,
-      }).ok,
-    ).toBe(true);
+      });
+    expect(check({ tool: "stripe", action: "list-customers" }).ok).toBe(true);
+    expect(check({ tool: "mock-slack", action: "list-customers" })).toMatchObject({
+      ok: false,
+      error: { code: "WRONG_REQUEST" },
+    });
+  });
+
+  it("refuses, before sending anything, an action a proof cannot bind (ADR 0015)", async () => {
+    const { url, requests } = await stubServices({
+      "/tokens": { body: { token: "tok_abc" } },
+      "/call": { body: { result: null } },
+    });
+    const tool = custosAt(url).connect(agent, "stripe");
+
+    // The vault would answer 400 for these; the SDK now stops them locally,
+    // because the proof must name the action and is bounded to 1–128 characters.
+    await expect(tool.call("")).rejects.toThrow("tool and action");
+    await expect(tool.call("a".repeat(129))).rejects.toThrow("tool and action");
+    expect(requests).toEqual([]);
   });
 
   it("proves possession afresh for every call — each proof is single-use", async () => {

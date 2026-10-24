@@ -33,8 +33,9 @@ const storeCredentialSchema = z.object({
 });
 
 const issueTokenSchema = z.object({
-  tool: z.string().min(1),
-  action: z.string().min(1),
+  // Bounded as a token-request proof binds them (ADR 0015): 1 to 128 characters.
+  tool: z.string().min(1).max(128),
+  action: z.string().min(1).max(128),
   credential: z.object({ issuer: z.string().min(1) }).passthrough(),
   // Proof of possession of the agent's key (ADR 0007). Bounded before parsing.
   proof: z.string().min(1).max(4096),

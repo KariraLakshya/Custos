@@ -21,7 +21,8 @@ import { revokeFromPublisher } from "../publisher/revoke.js";
 /** What the receiving organisation (B) is called on screen, and A's label in B's trust anchor. */
 export const ORGANISATION_A = "org-a.example";
 const RECEIVER = "https://org-b.example/federation";
-const TOOL = "b-ledger";
+/** What B runs for each call; the agents sign this same request (ADR 0015). */
+const B_REQUEST = { tool: "b-ledger", action: "read" } as const;
 // The production values ADR 0014 recommends: a one-hour window, re-signed every 20 minutes.
 const WINDOW_SECONDS = 3600;
 const STAMP_SECONDS = 1200;
@@ -266,13 +267,9 @@ export async function runFederationStory(deps: StoryDeps): Promise<StoryResult> 
         audience: RECEIVER,
         secretKey: agent.secretKey,
         now: new Date(),
+        request: B_REQUEST,
       });
-      const result = await gate.check({
-        credential: agent.credential,
-        proof,
-        tool: TOOL,
-        action: "read",
-      });
+      const result = await gate.check({ credential: agent.credential, proof, ...B_REQUEST });
       const outcome: Outcome = result.ok
         ? "allowed"
         : `${result.error.status} ${result.error.code}`;

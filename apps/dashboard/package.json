@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@custos/config": "workspace:*",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@custos/tsconfig": "workspace:*",
