@@ -227,10 +227,13 @@ export function createCustos(config: CustosConfig): Custos {
         async call(action, input) {
           const tokensUrl = new URL("/tokens", vaultUrl);
           // A fresh, single-use proof per request, addressed to this vault.
+          // Bound to this tool and action (ADR 0015): a captured request
+          // cannot be spent on another tool the agent is granted.
           const proof = await buildTokenRequestProof({
             audience: tokensUrl.href,
             secretKey: parseSecretKey(agent.secretKey),
             now: new Date(),
+            request: { tool, action },
           });
           const tokenResponse = await postJson(tokensUrl, {
             tool,

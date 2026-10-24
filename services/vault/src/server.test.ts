@@ -99,7 +99,13 @@ async function tokenRequest(
   credential: SignedCredential,
   tool: string,
   action: string,
-  options: { secretKey?: Uint8Array; audience?: string; now?: Date } = {},
+  options: {
+    secretKey?: Uint8Array;
+    audience?: string;
+    now?: Date;
+    /** Sign the proof for another request, to stand in for a captured one (ADR 0015). */
+    signedFor?: { tool: string; action: string };
+  } = {},
 ) {
   const secretKey = options.secretKey ?? agentKeys.get(credential);
   if (!secretKey) throw new Error("no key for this credential");
@@ -107,6 +113,7 @@ async function tokenRequest(
     audience: options.audience ?? DEFAULT_TOKENS_URL,
     secretKey,
     now: options.now ?? new Date(),
+    request: options.signedFor ?? { tool, action },
   });
   return { tool, action, credential, proof };
 }
@@ -698,6 +705,46 @@ describe("vault service", () => {
           code: "INVALID_PROOF_OF_POSSESSION",
           reason: "SIGNATURE_INVALID",
         });
+      });
+    });
+
+    it("401s a request whose proof was made for another tool or action (ADR 0015)", async () => {
+      await withRegisteredAgent(4512, async (credential) => {
+        const app = await (await vaultWithSlack())(credential);
+        await grantedSlack(app, credential);
+
+        const response = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: await tokenRequest(credential, "mock-slack", "post-message", {
+            signedFor: { tool: "mock-slack", action: "delete-channel" },
+          }),
+        });
+
+        expect(response.statusCode).toBe(401);
+        expect(response.json().error).toEqual({
+          code: "INVALID_PROOF_OF_POSSESSION",
+          reason: "WRONG_REQUEST",
+        });
+        // No token was issued for it.
+        expect(response.json()).not.toHaveProperty("token");
+      });
+    });
+
+    it("400s a tool or action longer than a proof can bind (128 characters)", async () => {
+      await withRegisteredAgent(4513, async (credential) => {
+        const app = await (await vaultWithSlack())(credential);
+        const response = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: {
+            tool: "mock-slack",
+            action: "a".repeat(129),
+            credential,
+            proof: "x.y",
+          },
+        });
+        expect(response.statusCode).toBe(400);
       });
     });
 

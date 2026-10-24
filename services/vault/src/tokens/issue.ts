@@ -2,9 +2,8 @@ import {
   issueScopedToken,
   multibaseToPublicKey,
   proofReplayExpiresAtMs,
-  TOKEN_REQUEST_PROOF_TYPE,
   verifyCredential,
-  verifyPossessionProof,
+  verifyTokenRequestProof,
   type KeyProvider,
   type SignedCredential,
 } from "@custos/core";
@@ -134,11 +133,14 @@ export async function issueToolToken(params: {
   // The credential is genuine; now the caller must prove it holds the key
   // named in it. A copied credential stops here, before any decision is made
   // or recorded about the agent it names.
-  const proof = verifyPossessionProof({
+  // The proof must also have been made for this very tool and action
+  // (ADR 0015), so a captured request cannot be spent on another granted
+  // tool. Checked before the replay cache, so a mismatch uses nothing up.
+  const proof = verifyTokenRequestProof({
     proof: proofOfPossession.proof,
     publicKey: agentKey,
-    expectedType: TOKEN_REQUEST_PROOF_TYPE,
     expectedAudience: proofOfPossession.audience,
+    expectedRequest: { tool, action },
     now,
     maxSkewSeconds: proofOfPossession.maxSkewSeconds,
   });
