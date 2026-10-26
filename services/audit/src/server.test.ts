@@ -1,9 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { verifyAuditRecord, type DidWebDocument } from "@custos/core";
+import {
+  multibaseToPublicKey,
+  verifyAuditLedger,
+  type AuditRecord,
+  type DidWebDocument,
+  type KeyProvider,
+} from "@custos/core";
 import { fixedClock } from "@custos/testing";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDb } from "./db/client.js";
+import { createMigratedTestDatabase, dropTestDatabase } from "@custos/vitest-config/hermetic-db";
+import { sql } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createDb, type AuditDb } from "./db/client.js";
+import { auditRecords, auditSeals } from "./db/schema.js";
+import { createSigningKey } from "./keys/signing-key.js";
 import { buildServer } from "./server.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos";
@@ -20,464 +30,430 @@ afterAll(async () => {
   await db.$client.end();
 });
 
-/** Public key of the service's own signing identity, from its DID document. */
-function publicKeyFrom(didDocument: DidWebDocument): Uint8Array {
-  const multibase = didDocument.verificationMethod[0].publicKeyMultibase;
-  // Strip the multibase "z" prefix and the 2-byte multicodec ed25519-pub header.
-  return decodeBase58(multibase.slice(1)).slice(2);
+const seedHex = (fill: number): string => Buffer.alloc(32, fill).toString("hex");
+const signingKey = (fill = 5) => createSigningKey({ AUDIT_SIGNING_SEED: seedHex(fill) });
+type App = Awaited<ReturnType<typeof buildServer>>;
+
+function build(
+  options: Partial<Parameters<typeof buildServer>[0]> & { port?: number } = {},
+): Promise<App> {
+  const { port = 4824, ...rest } = options;
+  return buildServer({
+    db,
+    controlPlaneAuth: controlPlane.guard,
+    didDomain: `127.0.0.1:${port}`,
+    signingKey: signingKey(),
+    ...rest,
+  });
 }
 
-function decodeBase58(input: string): Uint8Array {
-  const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  const bytes: number[] = [];
-  for (const char of input) {
-    let carry = ALPHABET.indexOf(char);
-    if (carry < 0) throw new Error(`invalid base58 character: ${char}`);
-    for (let i = 0; i < bytes.length; i += 1) {
-      carry += bytes[i]! * 58;
-      bytes[i] = carry & 0xff;
-      carry >>= 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
-  }
-  for (const char of input) {
-    if (char !== "1") break;
-    bytes.push(0);
-  }
-  return new Uint8Array(bytes.reverse());
+const event = (agentDid: string, action = "post-message") => ({
+  agentDid,
+  tool: "mock-slack",
+  action,
+  dataCategories: ["message-content"],
+  policy: { rule: "agent-tool-allowlist", decision: "allow" },
+});
+
+async function post(app: App, payload: unknown, key = serviceKey) {
+  return app.inject({ method: "POST", url: "/records", headers: bearer(key), payload });
 }
+
+/** Pulls the ledger and verifies it as an auditor would: against the served seal and any held. */
+async function pullVerified(app: App, options: { agentDid?: string; held?: string[] } = {}) {
+  const url =
+    options.agentDid === undefined
+      ? "/records"
+      : `/records?agentId=${encodeURIComponent(options.agentDid)}`;
+  const body = (await app.inject({ method: "GET", url })).json() as {
+    entries: unknown[];
+    seal: string | null;
+  };
+  const did = (
+    await app.inject({ method: "GET", url: "/.well-known/did.json" })
+  ).json() as DidWebDocument;
+  const key = multibaseToPublicKey(did.verificationMethod[0].publicKeyMultibase);
+  if (!key.ok) throw new Error("fixture: unreadable DID key");
+  return {
+    body,
+    result: verifyAuditLedger({
+      entries: body.entries,
+      seals: [...(body.seal === null ? [] : [body.seal]), ...(options.held ?? [])],
+      publicKey: key.value,
+      log: did.id,
+    }),
+  };
+}
+
+async function recordsOf(app: App, agentDid: string): Promise<AuditRecord[]> {
+  const { result } = await pullVerified(app, { agentDid });
+  if (!result.ok) throw new Error(`ledger failed verification: ${result.error.code}`);
+  return result.value.records.map((entry) => entry.record).filter((r) => r.agentDid === agentDid);
+}
+
+const serviceKeyId = () => serviceKey.split("_")[2];
 
 describe("audit service", () => {
   it("responds to /health", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4820",
-    });
-    const response = await app.inject({ method: "GET", url: "/health" });
+    const response = await (await build()).inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok", service: "audit" });
   });
 
-  it("publishes its own DID document", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4821",
-    });
-    const response = await app.inject({ method: "GET", url: "/.well-known/did.json" });
-    expect(response.statusCode).toBe(200);
-    expect(response.json().id).toBe("did:web:127.0.0.1%3A4821");
+  it("publishes its own DID document with the configured key", async () => {
+    const app = await build({ port: 4821 });
+    const did = (
+      await app.inject({ method: "GET", url: "/.well-known/did.json" })
+    ).json() as DidWebDocument;
+    expect(did.id).toBe("did:web:127.0.0.1%3A4821");
+    const key = multibaseToPublicKey(did.verificationMethod[0].publicKeyMultibase);
+    const expected = signingKey();
+    expect(key.ok && key.value).toEqual(await expected.keyProvider.getPublicKey(expected.keyId));
   });
 
-  it("400s a malformed /records report", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4822",
-    });
-    const response = await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: { tool: "x" },
-    });
-    expect(response.statusCode).toBe(400);
+  it("400s a malformed report and an invalid policy.decision", async () => {
+    const app = await build();
+    expect((await post(app, { tool: "x" })).statusCode).toBe(400);
+    expect(
+      (await post(app, { ...event("did:web:x"), policy: { rule: "x", decision: "maybe" } }))
+        .statusCode,
+    ).toBe(400);
   });
+});
 
-  it("400s an invalid policy.decision", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4823",
-    });
-    const response = await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid: "did:web:localhost%3A4001:agents:a1",
-        tool: "mock-slack",
-        action: "post-message",
-        dataCategories: [],
-        policy: { rule: "x", decision: "maybe" },
-      },
-    });
-    expect(response.statusCode).toBe(400);
-  });
-
-  it("stores a reported record and returns it signed and independently verifiable via GET /records", async () => {
-    const clock = fixedClock("2026-09-12T10:00:00.000Z");
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4824",
-      clock,
-    });
+describe("the ledger (ADR 0017)", () => {
+  it("chains reported records, and an auditor verifies them against the seal", async () => {
+    const app = await build({ clock: fixedClock("2026-10-27T10:00:00.000Z") });
     const agentDid = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    expect((await post(app, event(agentDid, "first"))).statusCode).toBe(201);
+    expect((await post(app, event(agentDid, "second"))).statusCode).toBe(201);
+    const sealed = await app.auditLedger.sealOnce();
+    expect(sealed.ok && typeof sealed.value).toBe("number");
 
-    const posted = await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid,
-        tool: "mock-slack",
-        action: "post-message",
-        dataCategories: ["messaging-content"],
-        policy: { rule: "agent-tool-allowlist", decision: "allow" },
+    const { result } = await pullVerified(app);
+    expect(result).toMatchObject({ ok: true, value: { unsealedCount: 0 } });
+    expect(await recordsOf(app, agentDid)).toEqual([
+      expect.objectContaining({ action: "first", authorityChain: [agentDid] }),
+      expect.objectContaining({ action: "second", recordedAt: "2026-10-27T10:00:00.000Z" }),
+    ]);
+  });
+
+  it("records the authenticated caller as the reporter, not anything the body claims", async () => {
+    const app = await build();
+    const agentDid = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    await post(app, {
+      ...event(agentDid),
+      reportedBy: { kind: "operator", id: "ffffffffffffffff", name: "someone-else" },
+    });
+    const [record] = await recordsOf(app, agentDid);
+    expect(record?.reportedBy).toEqual({
+      kind: "service",
+      id: serviceKeyId(),
+      name: "test-service",
+    });
+  });
+
+  it("serves another agent's entries as hashes only, and one agent's view still verifies", async () => {
+    const app = await build();
+    const mine = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    const theirs = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    await post(app, event(mine));
+    await post(app, event(theirs));
+    await app.auditLedger.sealOnce();
+
+    const { body, result } = await pullVerified(app, { agentDid: mine });
+    expect(result.ok).toBe(true);
+    const payloads = body.entries
+      .map((entry) => (entry as { payload?: string }).payload)
+      .filter((payload): payload is string => payload !== undefined);
+    expect(payloads.some((payload) => payload.includes(mine))).toBe(true);
+    expect(payloads.some((payload) => payload.includes(theirs))).toBe(false);
+  });
+
+  it("seals only when the head has moved", async () => {
+    const app = await build();
+    await post(app, event(`did:web:x:agents:${randomUUID()}`));
+    expect((await app.auditLedger.sealOnce()).ok).toBe(true);
+    expect(await app.auditLedger.sealOnce()).toEqual({ ok: true, value: null });
+  });
+
+  it("never signs on append or read: signing happens only when sealing", async () => {
+    const inner = signingKey();
+    let signs = 0;
+    const counting: KeyProvider = {
+      ...inner.keyProvider,
+      getPublicKey: (id) => inner.keyProvider.getPublicKey(id),
+      sign: (id, data) => {
+        signs += 1;
+        return inner.keyProvider.sign(id, data);
       },
+    };
+    const app = await build({ signingKey: { keyProvider: counting, keyId: inner.keyId } });
+    for (let i = 0; i < 5; i += 1) await post(app, event(`did:web:x:agents:${randomUUID()}`));
+    await app.inject({ method: "GET", url: "/records" });
+    expect(signs).toBe(0);
+    await app.auditLedger.sealOnce();
+    expect(signs).toBe(1);
+  });
+
+  it("keeps accepting records when sealing fails, and reports the failure", async () => {
+    const inner = signingKey();
+    const failing: KeyProvider = {
+      ...inner.keyProvider,
+      getPublicKey: (id) => inner.keyProvider.getPublicKey(id),
+      sign: () => Promise.reject(new Error("ThrottlingException")),
+    };
+    const app = await build({ signingKey: { keyProvider: failing, keyId: inner.keyId } });
+    expect((await post(app, event(`did:web:x:agents:${randomUUID()}`))).statusCode).toBe(201);
+    expect(await app.auditLedger.sealOnce()).toEqual({
+      ok: false,
+      error: { code: "SIGNING_FAILED", reason: "ThrottlingException" },
     });
-    expect(posted.statusCode).toBe(201);
+  });
 
-    const pulled = await app.inject({
-      method: "GET",
-      url: `/records?agentId=${encodeURIComponent(agentDid)}`,
+  it("never forks under concurrent appends: the whole chain still verifies", async () => {
+    const app = await build();
+    const agentDid = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    const responses = await Promise.all(
+      Array.from({ length: 50 }, (_, i) => post(app, event(agentDid, `concurrent-${i}`))),
+    );
+    expect(responses.every((response) => response.statusCode === 201)).toBe(true);
+    await app.auditLedger.sealOnce();
+
+    const { result } = await pullVerified(app);
+    expect(result.ok).toBe(true);
+    expect(await recordsOf(app, agentDid)).toHaveLength(50);
+  });
+
+  it("seals on its own every interval, survives a failing tick, and stops when closed", async () => {
+    const inner = signingKey();
+    let failNext = true;
+    const flaky: KeyProvider = {
+      ...inner.keyProvider,
+      getPublicKey: (id) => inner.keyProvider.getPublicKey(id),
+      sign: (id, data) => {
+        if (failNext) {
+          failNext = false;
+          return Promise.reject(new Error("ThrottlingException"));
+        }
+        return inner.keyProvider.sign(id, data);
+      },
+    };
+    const app = await build({
+      signingKey: { keyProvider: flaky, keyId: inner.keyId },
+      sealIntervalMs: 20,
     });
-    const { records } = pulled.json() as { records: readonly string[] };
-    expect(records).toHaveLength(1);
+    await post(app, event(`did:web:x:agents:${randomUUID()}`));
+    const headSeq = async () => {
+      const { result } = await pullVerified(app);
+      if (!result.ok) throw new Error(result.error.code);
+      return { head: result.value.headSeq, sealed: result.value.newestSeal?.seq };
+    };
+    // The first tick fails; a later one seals the head.
+    await vi.waitFor(
+      async () => {
+        const { head, sealed } = await headSeq();
+        expect(sealed).toBe(head);
+      },
+      { timeout: 5_000, interval: 25 },
+    );
+    expect(failNext).toBe(false);
+    await app.close();
+    // Another instance with no timer appends; the closed one must not seal it.
+    const other = await build();
+    await post(other, event(`did:web:x:agents:${randomUUID()}`));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const { result } = await pullVerified(other);
+    if (!result.ok) throw new Error(result.error.code);
+    expect(result.value.unsealedCount).toBe(1);
+  });
 
-    const didResponse = await app.inject({ method: "GET", url: "/.well-known/did.json" });
-    const publicKey = publicKeyFrom(didResponse.json() as DidWebDocument);
+  it("keeps seals verifiable across a restart with the same key", async () => {
+    const before = await build();
+    await post(before, event(`did:web:x:agents:${randomUUID()}`));
+    await before.auditLedger.sealOnce();
+    const seal = (await before.inject({ method: "GET", url: "/records" })).json().seal as string;
 
-    const verified = verifyAuditRecord({ record: records[0]!, publicKey });
-    expect(verified.ok).toBe(true);
-    if (verified.ok) {
-      expect(verified.value).toEqual({
+    const after = await build();
+    const { result } = await pullVerified(after, { held: [seal] });
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("tampering is detected (ADR 0017), each on its own database", () => {
+  const adminUrl = databaseUrl;
+  const created: { name: string; db: AuditDb }[] = [];
+  afterAll(async () => {
+    for (const { name, db: own } of created) {
+      await own.$client.end();
+      await dropTestDatabase(adminUrl, name);
+    }
+  });
+
+  async function freshLedger() {
+    const database = await createMigratedTestDatabase(adminUrl);
+    const own = createDb(database.url);
+    created.push({ name: database.name, db: own });
+    const plane = createTestControlPlane(own);
+    const key = await plane.key("service", ["audit:write"]);
+    const app = await buildServer({
+      db: own,
+      controlPlaneAuth: plane.guard,
+      didDomain: "127.0.0.1:4840",
+      signingKey: signingKey(),
+    });
+    const agentDid = "did:web:127.0.0.1%3A4840:agents:a";
+    for (let i = 1; i <= 3; i += 1) await post(app, event(agentDid, `action-${i}`), key);
+    await app.auditLedger.sealOnce();
+    const seal = (await app.inject({ method: "GET", url: "/records" })).json().seal as string;
+    return { own, app, seal, plane };
+  }
+
+  it("the database itself refuses a fork: a second entry after the same one, or a reused seq", async () => {
+    const { own } = await freshLedger();
+    const [second] = await own
+      .select()
+      .from(auditRecords)
+      .where(sql`${auditRecords.seq} = 2`);
+    if (second === undefined) throw new Error("fixture");
+    // The same row again under a new id: the database must refuse it.
+    const copy = { ...second, id: undefined, createdAt: undefined };
+    await expect(own.insert(auditRecords).values({ ...copy, seq: 99 })).rejects.toThrow();
+    await expect(
+      own.insert(auditRecords).values({ ...copy, prevHash: "ab".repeat(32) }),
+    ).rejects.toThrow();
+  });
+
+  it("an entry edited in the database", async () => {
+    const { own, app } = await freshLedger();
+    await own.execute(
+      sql`update audit_records set payload = replace(payload, 'action-2', 'nothing') where seq = 2`,
+    );
+    const { result } = await pullVerified(app);
+    expect(result).toEqual({ ok: false, error: { code: "PAYLOAD_MISMATCH", seq: 2 } });
+  });
+
+  it("a middle entry deleted from the database", async () => {
+    const { own, app } = await freshLedger();
+    await own.delete(auditRecords).where(sql`${auditRecords.seq} = 2`);
+    const { result } = await pullVerified(app);
+    expect(result).toMatchObject({ ok: false, error: { code: "SEQUENCE_GAP" } });
+  });
+
+  it("the newest entries deleted together with their seal, against a seal the auditor kept", async () => {
+    const { own, app, seal } = await freshLedger();
+    await own.delete(auditRecords).where(sql`${auditRecords.seq} >= 2`);
+    await own.delete(auditSeals);
+    expect((await pullVerified(app)).result.ok).toBe(true); // looks fine on its own
+    expect((await pullVerified(app, { held: [seal] })).result).toEqual({
+      ok: false,
+      error: { code: "TRUNCATED", sealSeq: 3, headSeq: 1 },
+    });
+  });
+
+  it("the whole log rebuilt and re-sealed with the same key, against a seal the auditor kept", async () => {
+    const { own, seal, plane } = await freshLedger();
+    await own.delete(auditRecords);
+    await own.delete(auditSeals);
+    const key = await plane.key("service", ["audit:write"]);
+    const rebuilt = await buildServer({
+      db: own,
+      controlPlaneAuth: plane.guard,
+      didDomain: "127.0.0.1:4840",
+      signingKey: signingKey(),
+    });
+    for (let i = 1; i <= 3; i += 1) {
+      await post(rebuilt, event("did:web:127.0.0.1%3A4840:agents:a", `rewritten-${i}`), key);
+    }
+    await rebuilt.auditLedger.sealOnce();
+    expect((await pullVerified(rebuilt)).result.ok).toBe(true); // a fresh seal vouches for it
+    expect((await pullVerified(rebuilt, { held: [seal] })).result).toEqual({
+      ok: false,
+      error: { code: "DIVERGED", seq: 3 },
+    });
+  });
+
+  it("rows stored before the ledger are chained once at boot, in order, with no reporter", async () => {
+    const database = await createMigratedTestDatabase(adminUrl);
+    const own = createDb(database.url);
+    created.push({ name: database.name, db: own });
+    const agentDid = "did:web:127.0.0.1%3A4841:agents:old";
+    for (const action of ["old-1", "old-2"]) {
+      await own.insert(auditRecords).values({
         agentDid,
-        authorityChain: [agentDid],
         tool: "mock-slack",
-        action: "post-message",
-        dataCategories: ["messaging-content"],
-        policy: { rule: "agent-tool-allowlist", decision: "allow" },
-        recordedAt: "2026-09-12T10:00:00.000Z",
+        action,
+        dataCategories: [],
+        policyRule: "agent-tool-allowlist",
+        decision: "allow",
+        recordedAt: new Date("2026-10-01T00:00:00.000Z"),
       });
     }
-  });
-
-  it("rejects a record verified against an unrelated service's key", async () => {
+    const plane = createTestControlPlane(own);
     const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4825",
+      db: own,
+      controlPlaneAuth: plane.guard,
+      didDomain: "127.0.0.1:4841",
+      signingKey: signingKey(),
     });
-    const other = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4826",
-    });
-    const agentDid = `did:web:127.0.0.1%3A4825:agents:${randomUUID()}`;
+    await post(app, event(agentDid, "new"), await plane.key("service", ["audit:write"]));
+    await app.auditLedger.sealOnce();
 
-    await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid,
-        tool: "mock-slack",
-        action: "post-message",
-        dataCategories: [],
-        policy: { rule: "agent-tool-allowlist", decision: "allow" },
-      },
-    });
-    const pulled = await app.inject({
-      method: "GET",
-      url: `/records?agentId=${encodeURIComponent(agentDid)}`,
-    });
-    const { records } = pulled.json() as { records: readonly string[] };
-
-    const otherDid = await other.inject({ method: "GET", url: "/.well-known/did.json" });
-    const otherPublicKey = publicKeyFrom(otherDid.json() as DidWebDocument);
-
-    const verified = verifyAuditRecord({ record: records[0]!, publicKey: otherPublicKey });
-    expect(verified.ok).toBe(false);
-    if (!verified.ok) expect(verified.error.code).toBe("SIGNATURE_INVALID");
-  });
-
-  // Regression test for a bug found by manually smoke-testing the real
-  // built services: this service's signing key is ephemeral (regenerated on
-  // every process start, same as vault's and revocation's own signing
-  // identities). Storing a pre-signed envelope meant every record signed by
-  // a since-restarted process permanently failed to verify. Records are now
-  // signed fresh on every read (see the doc comment on `auditRecords` in
-  // ./db/schema.js) — this proves a "restart" (a fresh server instance
-  // against the same rows, with a new key) does not orphan history.
-  it("still verifies a pre-existing record after a simulated restart with a new signing key", async () => {
-    const domain = "127.0.0.1:4829";
-    const before = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: domain,
-    });
-    const agentDid = `did:web:${encodeURIComponent(domain)}:agents:${randomUUID()}`;
-
-    await before.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid,
-        tool: "mock-slack",
-        action: "post-message",
-        dataCategories: [],
-        policy: { rule: "agent-tool-allowlist", decision: "allow" },
-      },
-    });
-
-    // A fresh buildServer() call, same domain, generates a brand-new
-    // keypair — exactly what happens on a real process restart.
-    const after = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: domain,
-    });
-    const pulled = await after.inject({
-      method: "GET",
-      url: `/records?agentId=${encodeURIComponent(agentDid)}`,
-    });
-    const { records } = pulled.json() as { records: readonly string[] };
-    expect(records).toHaveLength(1);
-
-    const didResponse = await after.inject({ method: "GET", url: "/.well-known/did.json" });
-    const publicKey = publicKeyFrom(didResponse.json() as DidWebDocument);
-    const verified = verifyAuditRecord({ record: records[0]!, publicKey });
-    expect(verified.ok).toBe(true);
-  });
-
-  it("pulls every record for one agent via GET /records?agentId=", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4827",
-    });
-    // Randomized rather than port-derived: Postgres persists across test
-    // runs (see services/revocation's own tests for the same lesson), so a
-    // fixed DID here would accumulate records from earlier runs and break
-    // the exact-count assertion below.
-    const agentDid = `did:web:127.0.0.1%3A4827:agents:only-this-one-${randomUUID()}`;
-    const otherAgentDid = `did:web:127.0.0.1%3A4827:agents:someone-else-${randomUUID()}`;
-
-    await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid,
-        tool: "mock-slack",
-        action: "post-message",
-        dataCategories: [],
-        policy: { rule: "agent-tool-allowlist", decision: "allow" },
-      },
-    });
-    await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid,
-        tool: "stripe",
-        action: "list-customers",
-        dataCategories: [],
-        policy: { rule: "agent-tool-allowlist", decision: "deny" },
-        reason: "no policy grant for this agent/tool pair",
-      },
-    });
-    await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid: otherAgentDid,
-        tool: "mock-slack",
-        action: "post-message",
-        dataCategories: [],
-        policy: { rule: "agent-tool-allowlist", decision: "allow" },
-      },
-    });
-
-    const response = await app.inject({
-      method: "GET",
-      url: `/records?agentId=${encodeURIComponent(agentDid)}`,
-    });
-    expect(response.statusCode).toBe(200);
-    const { records } = response.json() as { records: readonly string[] };
-    expect(records).toHaveLength(2);
-
-    const didResponse = await app.inject({ method: "GET", url: "/.well-known/did.json" });
-    const publicKey = publicKeyFrom(didResponse.json() as DidWebDocument);
-    for (const record of records) {
-      const verified = verifyAuditRecord({ record, publicKey });
-      expect(verified.ok).toBe(true);
-      if (verified.ok) expect(verified.value.agentDid).toBe(agentDid);
-    }
-  });
-
-  it("returns every record when no agentId filter is given", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4828",
-    });
-    await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid: "did:web:127.0.0.1%3A4828:agents:a1",
-        tool: "mock-slack",
-        action: "post-message",
-        dataCategories: [],
-        policy: { rule: "agent-tool-allowlist", decision: "allow" },
-      },
-    });
-
-    const response = await app.inject({ method: "GET", url: "/records" });
-    expect(response.statusCode).toBe(200);
-    const { records } = response.json() as { records: readonly string[] };
-    expect(records.length).toBeGreaterThanOrEqual(1);
+    const records = await recordsOf(app, agentDid);
+    expect(records.map((record) => record.action)).toEqual(["old-1", "old-2", "new"]);
+    expect(records[0]).not.toHaveProperty("reportedBy");
+    expect(records[2]?.reportedBy?.name).toBe("test-service");
   });
 });
 
 describe("audit POST /records authentication (ADR 0008)", () => {
-  const forged = () => ({
-    agentDid: `did:web:127.0.0.1%3A4830:agents:${randomUUID()}`,
-    tool: "mock-slack",
-    action: "post-message",
-    dataCategories: [],
-    policy: { rule: "agent-tool-allowlist", decision: "allow" },
-  });
-
-  async function storedFor(app: Awaited<ReturnType<typeof buildServer>>, agentDid: string) {
-    const pulled = await app.inject({
-      method: "GET",
-      url: `/records?agentId=${encodeURIComponent(agentDid)}`,
-    });
-    return (pulled.json() as { records: readonly string[] }).records;
-  }
-
-  it("refuses a forged record with no key, and never stores or signs it", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4830",
-    });
-    const record = forged();
-    const response = await app.inject({ method: "POST", url: "/records", payload: record });
-    expect(response.statusCode).toBe(401);
-    expect(response.json()).toEqual({ error: { code: "UNAUTHORIZED" } });
-    expect(await storedFor(app, record.agentDid)).toEqual([]);
-  });
-
-  it("refuses wrongly-scoped, expired and operator keys with the same error", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4831",
-    });
+  it("refuses a forged record with no key, or with a wrong, expired or operator key, and never stores it", async () => {
+    const app = await build();
     const keys = [
+      undefined,
       await controlPlane.key("service", ["status:allocate"]),
       await controlPlane.key("service", ["audit:write"], {
         expiresAt: new Date("2020-01-01T00:00:00Z"),
       }),
-      await controlPlane.key("operator", [
-        "credentials:write",
-        "policies:write",
-        "agents:revoke",
-        "agents:register",
-      ]),
+      await controlPlane.key("operator", ["credentials:write", "agents:revoke"]),
       ["custos", "service", "0000000000000000", "A".repeat(43)].join("_"),
     ];
     for (const key of keys) {
-      const record = forged();
+      const agentDid = `did:web:127.0.0.1%3A4830:agents:${randomUUID()}`;
       const response = await app.inject({
         method: "POST",
         url: "/records",
-        headers: bearer(key),
-        payload: record,
+        ...(key === undefined ? {} : { headers: bearer(key) }),
+        payload: event(agentDid),
       });
       expect(response.statusCode).toBe(401);
       expect(response.json()).toEqual({ error: { code: "UNAUTHORIZED" } });
-      expect(await storedFor(app, record.agentDid)).toEqual([]);
+      expect(await recordsOf(app, agentDid)).toEqual([]);
     }
   });
 
   it("keeps GET /records readable without a key (ADR 0008, decided 2026-10-02)", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4832",
-    });
-    const response = await app.inject({ method: "GET", url: "/records" });
+    const response = await (await build()).inject({ method: "GET", url: "/records" });
     expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("*");
   });
 });
 
 describe("audit control-plane records (ADR 0008 §7)", () => {
-  /**
-   * Pulls records and verifies their signatures. `onlyPrincipal` narrows to one
-   * principal's records by reading the unsigned claims first, so only those are
-   * verified. The dev database is shared and accumulates records from every
-   * test run; verifying all of them made a test's time grow with that history
-   * until it crossed the 30 s limit (it reached ~25 s alone at ~3,000 records).
-   */
-  async function pullVerified(
-    app: Awaited<ReturnType<typeof buildServer>>,
-    agentDid?: string,
-    onlyPrincipal?: string,
-  ) {
-    const pulled = await app.inject({
-      method: "GET",
-      url: agentDid === undefined ? "/records" : `/records?agentId=${encodeURIComponent(agentDid)}`,
-    });
-    const { records } = pulled.json() as { records: readonly string[] };
-    const didResponse = await app.inject({ method: "GET", url: "/.well-known/did.json" });
-    const publicKey = publicKeyFrom(didResponse.json() as DidWebDocument);
-    const wanted =
-      onlyPrincipal === undefined
-        ? records
-        : records.filter((record) => {
-            const claims = JSON.parse(
-              Buffer.from(record.split(".")[0] ?? "", "base64url").toString("utf8"),
-            ) as { principal?: { name?: string } };
-            return claims.principal?.name === onlyPrincipal;
-          });
-    return wanted.map((record) => {
-      const verified = verifyAuditRecord({ record, publicKey });
-      if (!verified.ok) throw new Error(`record failed verification: ${verified.error.code}`);
-      return verified.value;
-    });
-  }
-
-  it("stores an operator's action on an agent with its principal, verifiable, with no authority chain", async () => {
-    const clock = fixedClock("2026-10-02T10:00:00.000Z");
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4833",
-      clock,
-    });
+  it("stores an operator's action on an agent with its principal and no authority chain", async () => {
+    const app = await build({ clock: fixedClock("2026-10-02T10:00:00.000Z") });
     const agentDid = `did:web:127.0.0.1%3A4833:agents:${randomUUID()}`;
     const principal = { kind: "operator", id: randomUUID().slice(0, 16), name: "lakshya" };
-    const posted = await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        agentDid,
-        principal,
-        action: "agents.revoke",
-        dataCategories: [],
-        policy: { rule: "control-plane-scope:agents:revoke", decision: "allow" },
-        reason: "compromised",
-      },
+    const posted = await post(app, {
+      agentDid,
+      principal,
+      action: "agents.revoke",
+      dataCategories: [],
+      policy: { rule: "control-plane-scope:agents:revoke", decision: "allow" },
+      reason: "compromised",
     });
     expect(posted.statusCode).toBe(201);
-
-    // An operator's action on an agent shows in that agent's own history.
-    expect(await pullVerified(app, agentDid)).toEqual([
+    expect(await recordsOf(app, agentDid)).toEqual([
       {
         agentDid,
         principal,
@@ -487,52 +463,36 @@ describe("audit control-plane records (ADR 0008 §7)", () => {
         policy: { rule: "control-plane-scope:agents:revoke", decision: "allow" },
         reason: "compromised",
         recordedAt: "2026-10-02T10:00:00.000Z",
+        reportedBy: { kind: "service", id: serviceKeyId(), name: "test-service" },
       },
     ]);
   });
 
   it("stores a control-plane action that names no agent", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4834",
-    });
+    const app = await build();
     const name = `operator-${randomUUID()}`;
-    const posted = await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        principal: { kind: "operator", id: "0123456789abcdef", name },
-        tool: "stripe",
-        action: "credentials.store",
-        dataCategories: [],
-        policy: { rule: "control-plane-scope:credentials:write", decision: "allow" },
-      },
+    const posted = await post(app, {
+      principal: { kind: "operator", id: "0123456789abcdef", name },
+      tool: "stripe",
+      action: "credentials.store",
+      dataCategories: [],
+      policy: { rule: "control-plane-scope:credentials:write", decision: "allow" },
     });
     expect(posted.statusCode).toBe(201);
-    const mine = await pullVerified(app, undefined, name);
+    const { result } = await pullVerified(app);
+    if (!result.ok) throw new Error(result.error.code);
+    const mine = result.value.records.filter((entry) => entry.record.principal?.name === name);
     expect(mine).toHaveLength(1);
-    expect(mine[0]).not.toHaveProperty("agentDid");
-    expect(mine[0]?.authorityChain).toEqual([]);
+    expect(mine[0]?.record).not.toHaveProperty("agentDid");
+    expect(mine[0]?.record.authorityChain).toEqual([]);
   });
 
   it("400s an event that names neither an agent nor a principal", async () => {
-    const app = await buildServer({
-      db,
-      controlPlaneAuth: controlPlane.guard,
-      didDomain: "127.0.0.1:4835",
-    });
-    const response = await app.inject({
-      method: "POST",
-      url: "/records",
-      headers: bearer(serviceKey),
-      payload: {
-        tool: "stripe",
-        action: "credentials.store",
-        dataCategories: [],
-        policy: { rule: "x", decision: "allow" },
-      },
+    const response = await post(await build(), {
+      tool: "stripe",
+      action: "credentials.store",
+      dataCategories: [],
+      policy: { rule: "x", decision: "allow" },
     });
     expect(response.statusCode).toBe(400);
   });

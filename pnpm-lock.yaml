@@ -502,6 +502,9 @@ importers:
       '@custos/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@custos/kms':
+        specifier: workspace:*
+        version: link:../../packages/kms
       '@custos/observability':
         specifier: workspace:*
         version: link:../../packages/observability

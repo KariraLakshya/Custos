@@ -5,6 +5,7 @@ import {
 } from "@custos/control-plane-auth";
 import { createDb } from "./db/client.js";
 import { loadAuditEnv } from "./env.js";
+import { createSigningKey } from "./keys/signing-key.js";
 import { buildServer } from "./server.js";
 
 const env = loadAuditEnv();
@@ -31,6 +32,8 @@ const app = await buildServer({
   db,
   controlPlaneAuth,
   didDomain: env.AUDIT_DID_DOMAIN,
+  signingKey: createSigningKey(env),
+  sealIntervalMs: env.AUDIT_SEAL_INTERVAL_MS,
   ...(tls.value ? { serverFactory: tls.value.listener.serverFactory } : {}),
 });
 
