@@ -35,6 +35,12 @@ export interface AuditRecord {
   readonly policy: { readonly rule: string; readonly decision: "allow" | "deny" };
   readonly reason?: string;
   readonly recordedAt: string;
+  /**
+   * The authenticated service or operator that sent this record to the audit
+   * service (ADR 0017), as opposed to `principal`, the one that acted. Absent
+   * on records stored before it was recorded.
+   */
+  readonly reportedBy?: AuditPrincipal;
 }
 
 /**
@@ -74,7 +80,8 @@ function isAuditPrincipal(value: unknown): value is AuditPrincipal {
   );
 }
 
-function isAuditRecord(value: unknown): value is AuditRecord {
+/** Whether `value` has the shape of an `AuditRecord`; used to read a ledger entry's payload. */
+export function isAuditRecord(value: unknown): value is AuditRecord {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
   if (record.agentDid !== undefined && !isNonEmptyString(record.agentDid)) return false;
@@ -87,6 +94,7 @@ function isAuditRecord(value: unknown): value is AuditRecord {
   if (!isStringArray(record.dataCategories)) return false;
   if (typeof record.recordedAt !== "string") return false;
   if (record.reason !== undefined && typeof record.reason !== "string") return false;
+  if (record.reportedBy !== undefined && !isAuditPrincipal(record.reportedBy)) return false;
   const policy = record.policy;
   if (typeof policy !== "object" || policy === null) return false;
   const policyFields = policy as Record<string, unknown>;
