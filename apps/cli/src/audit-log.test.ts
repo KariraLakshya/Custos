@@ -186,10 +186,12 @@ describe("pullAuditLog (ADR 0017)", () => {
 
   it("refuses to run on an unreadable seal file rather than forget what it must check", async () => {
     const sealFile = await sealFileIn();
-    await writeFile(sealFile, "{not json");
-    await expect(pullAuditLog({ auditUrl: "http://127.0.0.1:1", sealFile })).rejects.toThrow(
-      /remembered audit seals/,
-    );
+    for (const content of ["{not json", "null", '{"did:web:x":{"seq":1}}']) {
+      await writeFile(sealFile, content);
+      await expect(pullAuditLog({ auditUrl: "http://127.0.0.1:1", sealFile })).rejects.toThrow(
+        /remembered audit seals/,
+      );
+    }
   });
 
   it("reports an unreachable service as not verified", async () => {

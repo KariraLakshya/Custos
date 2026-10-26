@@ -10,7 +10,7 @@ CLAUDE.md section 3 forbids a network or database call on the hot path (`service
 
 **Decision:** `services/vault/src/tokens/issue.ts` checks `agent_policies` once, at token issuance, after the agent's credential has independently verified — authorization is meaningless against an unauthenticated identity, so it is checked after, not before, that step. A token is already scoped to one tool; once issuance for an ungranted tool is refused, there is nothing further for the hot path to re-check, unlike revocation (a token already in an agent's hand can outlive a revocation event mid-flight, which is why that check _is_ repeated on every call). No revoke-grant endpoint exists yet — not required by this phase's DONE criterion, and speculative before it's needed (CLAUDE.md section 2).
 
-### 2. Audit records are signed at read time, not at write time
+### 2. Audit records are signed at read time, not at write time _(superseded by ADR 0017: a hash-chained ledger sealed with a stable key)_
 
 The natural first design — sign a record once at `POST /records` and store the signed envelope, the same compact-envelope shape as a scoped token or revocation tombstone — was built, then broken by a manual smoke test against the real built services: this service's signing key is ephemeral (`createLocalKeyProvider()`, regenerated on every process start, the same pattern `services/vault` and `services/revocation` already use for their own signing identities). A record signed once and stored as-is permanently fails to verify after any restart, which defeats the entire point of a "verifiable log" the build plan asks for.
 

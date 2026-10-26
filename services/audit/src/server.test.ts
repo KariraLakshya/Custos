@@ -268,6 +268,37 @@ describe("the ledger (ADR 0017)", () => {
     expect(result.value.unsealedCount).toBe(1);
   });
 
+  it("serves a log that verifies even when an entry is appended and sealed between its two reads", async () => {
+    // The server gets its own pool, so a hook can run exactly between the two
+    // queries of one GET /records: another instance appends and seals there.
+    const own = createDb(databaseUrl);
+    const reader = await build({ db: own });
+    const writer = await build();
+    const query = own.$client.query.bind(own.$client) as (...args: unknown[]) => unknown;
+    let armed = false;
+    let seen = 0;
+    (own.$client as unknown as { query: (...args: unknown[]) => unknown }).query = async (
+      ...args: unknown[]
+    ) => {
+      if (armed && (seen += 1) === 2) {
+        armed = false;
+        await post(writer, event(`did:web:x:agents:${randomUUID()}`, "between-reads"));
+        expect((await writer.auditLedger.sealOnce()).ok).toBe(true);
+      }
+      return query(...args);
+    };
+    try {
+      await post(writer, event(`did:web:x:agents:${randomUUID()}`));
+      await writer.auditLedger.sealOnce();
+      armed = true;
+      const { result } = await pullVerified(reader);
+      expect(seen).toBeGreaterThanOrEqual(2);
+      expect(result.ok ? "verified" : result.error.code).toBe("verified");
+    } finally {
+      await own.$client.end();
+    }
+  });
+
   it("keeps seals verifiable across a restart with the same key", async () => {
     const before = await build();
     await post(before, event(`did:web:x:agents:${randomUUID()}`));

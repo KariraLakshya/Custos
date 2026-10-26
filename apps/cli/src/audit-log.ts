@@ -15,7 +15,19 @@ type RememberedSeals = Record<string, { readonly seq: number; readonly seal: str
 async function readRemembered(path: string): Promise<RememberedSeals> {
   try {
     const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (typeof parsed === "object" && parsed !== null) return parsed as RememberedSeals;
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      Object.values(parsed).every(
+        (entry: unknown) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof (entry as { seq?: unknown }).seq === "number" &&
+          typeof (entry as { seal?: unknown }).seal === "string",
+      )
+    ) {
+      return parsed as RememberedSeals;
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
   }

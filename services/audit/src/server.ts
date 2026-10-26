@@ -118,8 +118,13 @@ export async function buildServer(options: {
     // (apps/dashboard) read it directly from the browser.
     reply.header("access-control-allow-origin", "*");
     const query = request.query as { readonly agentId?: string };
+    // The seal first, then the entries: a seal only covers entries already
+    // committed and the log only grows, so entries read afterwards always
+    // include the sealed one. The other order lets a seal made between the two
+    // reads cover an entry the response lacks, which reads as TRUNCATED.
+    const seal = await latestSeal(db);
     const entries = await listAuditEntries({ db, agentDid: query.agentId });
-    return { entries, seal: await latestSeal(db) };
+    return { entries, seal };
   });
 
   return app;
