@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-27 — The audit log becomes a sealed ledger (part 1 of 2)
 
-**Commits:** `b0b31c3` (the ledger's rules), `4f9a6c9` (the audit service keeping it), `c1ad318` (the command-line check, the dashboard and the demos), plus documentation. On branch `feat/audit-ledger`; **not yet pushed**. Pull request #110 (the Amazon-held revocation key) was merged on 25 October.
+**Commits:** `b0b31c3` (the ledger's rules), `4f9a6c9` (the audit service keeping it), `c1ad318` (the command-line check, the dashboard and the demos), plus documentation. Pushed on 27 October to branch `feat/audit-ledger`; pull request #111 is open, not yet merged. A later fix (`2b666be`) closed a timing gap a review found, where a busy but honest log could briefly look shortened. Pull request #110 (the Amazon-held revocation key) was merged on 25 October.
 
 **What changed:** the audit log is what you would show a regulator: which agent did what, under whose authority, and whether it was allowed. Until now it was a pile of loose pages. Anyone with access to the database could change or remove a page, and the log would still look genuine, because it was only signed when someone read it, with a key that changed on every restart. Now it is a numbered ledger:
 
