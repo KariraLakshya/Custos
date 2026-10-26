@@ -155,9 +155,12 @@ describe("custos-admin demo", () => {
       const handle = await begin(deps);
       const envOf = (name: string) => spawned.find((s) => s.script.includes(`/${name}/`))!.env;
 
-      expect(Object.keys(envOf("audit")).filter((k) => /SEED|MASTER|SERVICE_KEY/.test(k))).toEqual(
-        [],
-      );
+      // The audit service's only secret is its own seal-signing seed.
+      expect(Object.keys(envOf("audit")).filter((k) => /SEED|MASTER|SERVICE_KEY/.test(k))).toEqual([
+        "AUDIT_SIGNING_SEED",
+      ]);
+      expect(envOf("audit")["AUDIT_SIGNING_SEED"]).toMatch(/^[0-9a-f]{64}$/);
+      expect(envOf("revocation")).not.toHaveProperty("AUDIT_SIGNING_SEED");
       expect(envOf("revocation")).toHaveProperty("REVOCATION_SIGNING_SEED");
       expect(envOf("revocation")).toHaveProperty("REVOCATION_SERVICE_KEY");
       expect(envOf("revocation")).not.toHaveProperty("VAULT_MASTER_KEY");
@@ -258,6 +261,7 @@ describe("custos-admin demo", () => {
         for (const name of [
           "IDENTITY_ISSUER_SEED",
           "REVOCATION_SIGNING_SEED",
+          "AUDIT_SIGNING_SEED",
           "VAULT_MASTER_KEY",
           "IDENTITY_SERVICE_KEY",
           "REVOCATION_SERVICE_KEY",

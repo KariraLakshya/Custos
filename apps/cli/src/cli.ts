@@ -1,7 +1,7 @@
 import { open, readFile, rm, writeFile } from "node:fs/promises";
 import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
-import { pullAuditLog } from "./audit-log.js";
+import { defaultSealFile, pullAuditLog } from "./audit-log.js";
 import { restrictToOwner } from "./key-file.js";
 import { defaultOperatorKeyFile, findOperatorKey, login } from "./login.js";
 import { loadCredentialFile, verifyCredentialIndependently } from "./verify.js";
@@ -202,14 +202,27 @@ export function createCli(): Command {
 
   program
     .command("audit-log")
-    .description("Pull and independently verify the signed audit log for an agent (or every agent)")
+    .description(
+      "Pull and independently verify the sealed audit log (ADR 0017) for an agent (or every agent)",
+    )
     .argument("[agentDid]", "did:web DID to filter to, from an agent's credential's issuer")
     .option("--audit-url <url>", "audit service base URL", "http://localhost:4004")
-    .action(async (agentDid: string | undefined, opts: { auditUrl: string }) => {
-      const entries = await pullAuditLog({ auditUrl: opts.auditUrl, agentDid });
-      process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
-      if (entries.some((entry) => !entry.verified)) {
-        process.stderr.write("one or more records failed independent verification\n");
+    .option(
+      "--seal-file <path>",
+      "where the newest verified seal is remembered between checks",
+      defaultSealFile(),
+    )
+    .action(async (agentDid: string | undefined, opts: { auditUrl: string; sealFile: string }) => {
+      const result = await pullAuditLog({
+        auditUrl: opts.auditUrl,
+        sealFile: opts.sealFile,
+        ...(agentDid === undefined ? {} : { agentDid }),
+      });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (!result.verified) {
+        process.stderr.write(
+          `the audit log failed independent verification: ${result.error.code}\n`,
+        );
         process.exitCode = 1;
       }
     });

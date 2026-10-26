@@ -118,6 +118,7 @@ export async function startFederationDemo(deps: FederationDemoDeps): Promise<Dem
   const seeds = {
     IDENTITY_ISSUER_SEED: deps.randomHex(32),
     REVOCATION_SIGNING_SEED: deps.randomHex(32),
+    AUDIT_SIGNING_SEED: deps.randomHex(32),
   };
 
   const children = new Map<string, { child: DemoChild; exited: Promise<void> }>();

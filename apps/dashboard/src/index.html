@@ -220,6 +220,15 @@
     }
   }
 
+  /** An audit ledger entry's record; null for another agent's entry (no payload) or junk. */
+  function parsePayloadUnverified(entry) {
+    try {
+      return typeof entry.payload === "string" ? JSON.parse(entry.payload) : null;
+    } catch {
+      return null;
+    }
+  }
+
   function shortDid(did) {
     if (typeof did !== "string") return "unknown";
     const parts = did.split(":");
@@ -380,8 +389,10 @@
     const revocationUrl = revocationUrlInput.value.trim();
 
     try {
-      const { records } = await fetchJson(auditUrl, "/records");
-      const decoded = records.map(decodeEnvelopeUnverified).filter(Boolean);
+      // The audit ledger (ADR 0017): each entry's payload is the record as
+      // stored. Not verified here; `custos audit-log` checks the chain and seals.
+      const { entries } = await fetchJson(auditUrl, "/records");
+      const decoded = entries.map(parsePayloadUnverified).filter(Boolean);
       renderFeed(decoded);
       renderForeign(decoded);
       setDot(auditDot, true);

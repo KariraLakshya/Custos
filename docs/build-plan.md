@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: After Phase 6 — revocation and publisher keys in KMS (ADR 0016), built 2026-10-25 on branch `feat/revocation-signing-kms`, DONE criteria proven, PR #110 awaiting merge. Before that: Phase 6 — Cross-org federation, closed 2026-10-22 (all five steps on `main`). Started 2026-10-16 by the founder's decision, _before_ Phase 5's DONE check.** No further phase is planned yet: the next piece of work is chosen with the founder. Deliberate deviation from "do not start a phase until the previous one's DONE criteria pass": no non-author tester could be found. Phase 5's DONE check (the non-author README run, brief in `docs/readme-test.md`) stays open and is still owed. ADR 0014 is Accepted and all five steps are built (the foreign-agent verifier, A's merge of the published list, the publisher, B's gate and status cache in `packages/federation`, and the two-stack end-to-end run). ADR 0014's e2e version of the DONE criterion passes in `apps/admin/src/federation.e2e.test.ts`, on one machine and one Postgres server: A's services are stopped and A's database refuses connections, B still verifies, and a revocation published through the publisher is refused by B within one poll. The criterion below says "machine A's server is switched off entirely" and the milestone says "two machines", and the founder accepted this one-machine run as closing Phase 6 on 2026-10-22. Next: the founder-approved cross-company dashboard panel (beyond this plan). Previously: Phase 5 — DONE check (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
+> **CURRENT: After Phase 6 — the audit log as a sealed ledger (ADR 0017), in progress on branch `feat/audit-ledger` (part 1). Before that: revocation and publisher keys in KMS (ADR 0016), merged 2026-10-25 (PR #110). Before that: Phase 6 — Cross-org federation, closed 2026-10-22 (all five steps on `main`). Started 2026-10-16 by the founder's decision, _before_ Phase 5's DONE check.** No further phase is planned yet: the next piece of work is chosen with the founder. Deliberate deviation from "do not start a phase until the previous one's DONE criteria pass": no non-author tester could be found. Phase 5's DONE check (the non-author README run, brief in `docs/readme-test.md`) stays open and is still owed. ADR 0014 is Accepted and all five steps are built (the foreign-agent verifier, A's merge of the published list, the publisher, B's gate and status cache in `packages/federation`, and the two-stack end-to-end run). ADR 0014's e2e version of the DONE criterion passes in `apps/admin/src/federation.e2e.test.ts`, on one machine and one Postgres server: A's services are stopped and A's database refuses connections, B still verifies, and a revocation published through the publisher is refused by B within one poll. The criterion below says "machine A's server is switched off entirely" and the milestone says "two machines", and the founder accepted this one-machine run as closing Phase 6 on 2026-10-22. Next: the founder-approved cross-company dashboard panel (beyond this plan). Previously: Phase 5 — DONE check (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
@@ -156,6 +156,17 @@ Chosen by the founder on 2026-10-25 as the next work: the blocker ADR 0014 named
 - The open status-list route cannot be used to exhaust KMS signing
 
 **DONE =** against real AWS KMS, the revocation service boots on a KMS key, publishes it in its DID document, and its tombstones and status list verify against that document; the publisher, configured with the same key, publishes a list a foreign verifier accepts; a KMS failure during a revocation leaves the agent revoked, and in the publisher writes nothing and is retried; repeated anonymous status-list requests cost at most one signature per reuse window. Each proven by a test.
+
+---
+
+## After Phase 6 — The audit log as a sealed ledger (ADR 0017)
+
+Chosen by the founder on 2026-10-26: the audit trail is the evidence a DPDP auditor would be shown. Two pull requests, merged in order.
+
+- Part 1: a stable audit key (`local` or KMS); each entry linked to the one before by a hash; the head signed periodically ("seals"); the reporting service recorded in each entry; a verifier in `packages/core` used by `custos audit-log`
+- Part 2: every seal also written to a write-once store outside the database (S3 Object Lock in production, a local folder in development), and checked by the verifier
+
+**DONE =** each proven by a test: an edited, reordered or deleted middle entry is detected; a log rebuilt and re-sealed with the same key is reported as `DIVERGED` against a seal the verifier already holds; deleting the newest sealed entries **and** the database's copy of their seal is detected from the outside store (`TRUNCATED`); concurrent appends never fork the chain; appends make no KMS call; the reporter in each entry is the authenticated caller; against real AWS, seals are written to an Object Lock bucket and cannot be overwritten.
 
 ---
 

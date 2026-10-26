@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@custos/audit-client": "workspace:*",
     "@custos/core": "workspace:*",
     "@custos/sdk": "workspace:*",
     "commander": "^12.1.0"

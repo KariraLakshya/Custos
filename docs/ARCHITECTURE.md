@@ -19,7 +19,7 @@ services/vault  ◄────────────────────�
         ▼                    ▼
 services/revocation      services/audit
   (bitstring status list,   (append-only log,
-   signed tombstone push)    signs fresh at read time)
+   signed tombstone push)    hash chain, sealed)
         │
         ▼
 packages/connectors (Stripe / mock-slack / mock-database adapters)
@@ -42,7 +42,7 @@ This is the **current, implemented** shape: four standalone Fastify services tal
 | `services/identity`   | "Who is this agent" — keypair → DID → signed VC, agent registry.                                                                                                                | Revocation status (calls `services/revocation` for status-list index allocation at registration; registration fails closed if that call fails). |
 | `services/vault`      | Dispossession and the hot path: encrypted tool-credential storage, 60s scoped-token issuance, `/call` enforcement, authorization check at issuance, in-memory revocation cache. | Deciding _what_ an agent is allowed to do long-term — that's `agent_policies`, checked once, not re-derived here.                               |
 | `services/revocation` | Bitstring Status List (the durable, publicly verifiable record), signed tombstone push (the fast path), status-list index allocation.                                           | Enforcement — it broadcasts and publishes; `services/vault` and the connectors are the ones that actually deny a call.                          |
-| `services/audit`      | Append-only action log; signs every record fresh at read time so a signing-key rotation never orphans history.                                                                  | Real-time enforcement — audit is asynchronous and non-blocking by design.                                                                       |
+| `services/audit`      | Append-only action log kept as a hash-chained ledger; the head is sealed every 10 s with a stable key (ADR 0017).                                                               | Real-time enforcement — audit is asynchronous and non-blocking by design.                                                                       |
 | `apps/cli`            | `register`, `verify`, `use`, `deprovision`, `grant`, `audit-log` — each independently re-verifies rather than trusting a service's say-so.                                      | —                                                                                                                                               |
 | `apps/dashboard`      | A live read of `/records` and `/revocations`, polled every 1.5s. Explicitly labeled a monitoring view.                                                                          | Verification. It performs no client-side signature check — the footer says so and points at `custos audit-log`.                                 |
 
@@ -94,7 +94,7 @@ Banned patterns, enforced rather than encouraged:
 
 **Control-plane auth:** every write above needs an operator key (from `custos-admin` or `custos login` via SSO), and service-to-service calls need a service key or an mTLS certificate through Envoy (ADRs 0008–0010). Each write is audited with the principal who made it.
 
-**Audit:** `apps/cli audit-log` → `services/audit GET /records` (signs every row fresh at read time) → CLI independently re-verifies, exits 1 on any failure.
+**Audit:** `apps/cli audit-log` → `services/audit GET /records` (the ledger and its newest seal, unsigned on read) → CLI verifies the chain against that seal and the one it remembered, exits 1 on any failure (ADR 0017).
 
 **Monitor:** `apps/dashboard` polls `services/audit GET /records` and `services/revocation GET /revocations` directly from the browser every 1.5s — a live feed, explicitly not a verifier.
 

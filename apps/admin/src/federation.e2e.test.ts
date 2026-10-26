@@ -15,13 +15,11 @@ import { connect, createServer as createTcpServer, type AddressInfo } from "node
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { buildServer as buildAuditServer, createDb as createAuditDb } from "@custos/audit";
-import { createHttpAuditReporter } from "@custos/audit-client";
+import { createHttpAuditReporter, pullAuditLedger } from "@custos/audit-client";
 import {
   buildForeignCallProof,
   createLocalKeyProvider,
-  multibaseToPublicKey,
   statusListCredentialUrl,
-  verifyAuditRecord,
   type AuditRecord,
 } from "@custos/core";
 import {
@@ -219,6 +217,12 @@ describe("Phase 6: B verifies A's agent with A's services and database off", () 
       db: bAuditDb,
       controlPlaneAuth: bControlPlane.guard,
       didDomain: `127.0.0.1:${bAuditPort}`,
+      signingKey: {
+        keyProvider: createLocalKeyProvider({
+          importedKeys: { audit: new Uint8Array(32).fill(65) },
+        }),
+        keyId: "audit",
+      },
     });
     await bAudit.listen({ port: bAuditPort, host: "127.0.0.1" });
     const bAuditUrl = `http://127.0.0.1:${bAuditPort}`;
@@ -369,20 +373,15 @@ describe("Phase 6: B verifies A's agent with A's services and database off", () 
     expect(bFetches.length).toBeGreaterThan(2);
     expect(new Set(bFetches)).toEqual(new Set([statusFetchUrl]));
 
-    // B's audit service holds signed records of what B decided about A's agents.
-    const bAuditKey = multibaseToPublicKey((await didKey(bAuditUrl)).publicKeyMultibase);
-    if (!bAuditKey.ok) throw new Error("B's audit key is unusable");
+    // B's audit ledger holds verifiable records of what B decided about A's agents.
     let records: AuditRecord[] = [];
     await vi.waitFor(
       async () => {
-        const body = (await (await fetch(`${bAuditUrl}/records`)).json()) as {
-          records: string[];
-        };
-        records = body.records.map((record) => {
-          const verified = verifyAuditRecord({ record, publicKey: bAuditKey.value });
-          if (!verified.ok) throw new Error(`audit record failed verification`);
-          return verified.value;
-        });
+        await bAudit.auditLedger.sealOnce();
+        const pulled = await pullAuditLedger({ auditUrl: bAuditUrl });
+        if (!pulled.ok) throw new Error(`audit ledger failed verification: ${pulled.error.code}`);
+        expect(pulled.value.unsealedCount).toBe(0);
+        records = pulled.value.records.map((entry) => entry.record);
         expect(
           records.some(
             (r) => r.agentDid === kept.did && r.reason?.includes("code=STATUS_STALE") === true,

@@ -83,6 +83,8 @@ function ownSettings(service: string, keys: Secrets, seeds: Secrets): Record<str
         VAULT_SERVICE_KEY: keys["VAULT_SERVICE_KEY"]!,
         VAULT_MASTER_KEY: seeds["VAULT_MASTER_KEY"]!,
       };
+    case "audit":
+      return { AUDIT_SIGNING_SEED: seeds["AUDIT_SIGNING_SEED"]! };
     default:
       return {};
   }
@@ -121,7 +123,12 @@ export function buildServiceEnv(
 /** A seed already in the environment is reused, so earlier credentials stay valid. */
 function resolveSeeds(deps: DemoDeps): Secrets {
   const seeds: Record<string, string> = {};
-  for (const name of ["IDENTITY_ISSUER_SEED", "REVOCATION_SIGNING_SEED", "VAULT_MASTER_KEY"]) {
+  for (const name of [
+    "IDENTITY_ISSUER_SEED",
+    "REVOCATION_SIGNING_SEED",
+    "AUDIT_SIGNING_SEED",
+    "VAULT_MASTER_KEY",
+  ]) {
     const existing = deps.baseEnv[name];
     seeds[name] =
       existing !== undefined && HEX_32_BYTES.test(existing) ? existing : deps.randomHex(32);
@@ -285,7 +292,8 @@ function printBanner(deps: DemoDeps, operatorKey: string): void {
     `  PowerShell   function custos { node "${deps.repoRoot}/apps/cli/dist/bin.js" @args }`,
     "",
     "Each demo run uses new keys, so credentials from an earlier run no longer verify,",
-    "unless IDENTITY_ISSUER_SEED, REVOCATION_SIGNING_SEED and VAULT_MASTER_KEY were set first.",
+    "unless IDENTITY_ISSUER_SEED, REVOCATION_SIGNING_SEED and VAULT_MASTER_KEY were set first",
+    "(and AUDIT_SIGNING_SEED, for the audit log's seals to keep verifying).",
     "The operator key above expires in 12 hours and is revoked when you press Ctrl-C.",
     "",
   ];

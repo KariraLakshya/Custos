@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@custos/audit": "workspace:*",
+    "@custos/audit-client": "workspace:*",
     "@custos/connectors": "workspace:*",
     "@custos/control-plane-auth": "workspace:*",
     "@custos/core": "workspace:*",

@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@custos/contracts": "workspace:*"
+    "@custos/contracts": "workspace:*",
+    "@custos/core": "workspace:*"
   },
   "devDependencies": {
     "@custos/tsconfig": "workspace:*",

@@ -6,7 +6,8 @@ import { createServer as createTcpServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildServer as buildAuditServer, createDb as createAuditDb } from "@custos/audit";
-import { createLocalKeyProvider, multibaseToPublicKey, verifyAuditRecord } from "@custos/core";
+import { pullAuditLedger } from "@custos/audit-client";
+import { createLocalKeyProvider } from "@custos/core";
 import { buildServer as buildIdentityServer, createDb as createIdentityDb } from "@custos/identity";
 import {
   buildServer as buildRevocationServer,
@@ -107,6 +108,10 @@ async function startStack(): Promise<Stack> {
     db: auditDb,
     controlPlaneAuth: controlPlane.guard,
     didDomain: `127.0.0.1:${auditPort}`,
+    signingKey: {
+      keyProvider: createLocalKeyProvider({ importedKeys: { audit: new Uint8Array(32).fill(64) } }),
+      keyId: "audit",
+    },
   });
   await audit.listen({ port: auditPort, host: "127.0.0.1" });
   cleanups.push(() => audit.close());
@@ -208,19 +213,12 @@ describe("runFederationStory", () => {
       decisions.slice(firedAt).filter((d) => d.agent === "agent 1" && d.outcome === "allowed"),
     ).toEqual([]);
 
-    // The dashboard's source: B's audit service, with signed foreign: records.
-    const document = (await (
-      await fetch(`http://127.0.0.1:${auditPort}/.well-known/did.json`)
-    ).json()) as { verificationMethod: { publicKeyMultibase: string }[] };
-    const key = multibaseToPublicKey(document.verificationMethod[0]?.publicKeyMultibase ?? "");
-    if (!key.ok) throw new Error("audit key");
+    // The dashboard's source: B's audit ledger, with verified foreign: records.
     await vi.waitFor(async () => {
-      const { records } = (await (await fetch(`http://127.0.0.1:${auditPort}/records`)).json()) as {
-        records: string[];
-      };
-      const reasons = records
-        .map((record) => verifyAuditRecord({ record, publicKey: key.value }))
-        .flatMap((verified) => (verified.ok ? [verified.value] : []))
+      const pulled = await pullAuditLedger({ auditUrl: `http://127.0.0.1:${auditPort}` });
+      if (!pulled.ok) throw new Error(`audit ledger: ${pulled.error.code}`);
+      const reasons = pulled.value.records
+        .map((entry) => entry.record)
         .filter((claims) => claims.policy.rule === `foreign:${ORGANISATION_A}`)
         .map((claims) => `${claims.policy.decision} ${claims.reason ?? ""}`);
       expect(reasons.some((r) => r.startsWith("allow "))).toBe(true);

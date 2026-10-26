@@ -74,13 +74,27 @@ Custos is four small services plus a dashboard. Open **five terminals** at the r
 
 | #   | Command                                 | Port | What it does                                                    |
 | --- | --------------------------------------- | ---- | --------------------------------------------------------------- |
-| 1   | `pnpm --filter @custos/audit start`     | 4004 | Stores and signs the audit trail                                |
+| 1   | audit, see below                        | 4004 | Keeps the audit trail as a sealed, tamper-evident ledger        |
 | 2   | revocation, see below                   | 4003 | Tracks which agents are revoked; pushes revocations out         |
 | 3   | identity, see below                     | 4001 | Registers agents and issues their identity credentials          |
 | 4   | vault, see below                        | 4002 | Holds the real tool passwords and makes calls on agents' behalf |
 | 5   | `pnpm --filter @custos/dashboard start` | 4005 | Live view of every decision                                     |
 
 Revocation, identity and the vault each need their service key from step 1: they use it to write to the audit log, so every admin action is recorded with who did it. **Paste that service key line into the terminal first**, then start the service. A service started with a missing, revoked or wrongly scoped service key refuses to start.
+
+The audit service seals its ledger with its own key, generated from a seed (ADR 0017). Keep the seed: seals made before a restart must still verify after it.
+
+```bash
+# bash / zsh: audit's terminal
+export AUDIT_SIGNING_SEED=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+pnpm --filter @custos/audit start
+```
+
+```powershell
+# PowerShell: audit's terminal
+$env:AUDIT_SIGNING_SEED = node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+pnpm --filter @custos/audit start
+```
 
 Revocation signs every revocation notice with its own key, generated from a seed. Keep the seed: restart revocation with the **same** seed and the vault keeps trusting it without re-checking every past revocation.
 
@@ -224,7 +238,7 @@ custos use mock-database query --credential agent.json --input '{"table":"custom
 # denied: AGENT_REVOKED
 ```
 
-**Pull the audit trail.** Every attempt above, allowed or refused, was recorded and signed. The CLI checks each record's signature against the audit service's published key and exits non-zero if any fails:
+**Pull the audit trail.** Every attempt above, allowed or refused, was recorded. The audit log is a ledger: each entry is linked to the one before it, and every 10 seconds the newest entry is sealed with the audit service's key (ADR 0017). The CLI checks the whole chain against that seal, and against the newest seal it remembered from its last check (in `~/.custos/audit-seal.json`), and exits non-zero if anything was edited, removed or rewritten:
 
 ```bash
 custos audit-log
@@ -232,7 +246,7 @@ custos audit-log
 
 Your own admin actions are in it too: registering the agent, granting the tool, storing the passwords and revoking the agent each appear with a `principal` naming the key that did it (`dev-operator`), alongside the agent's own actions.
 
-Pass an agent's DID (the `"did"` from registration) to see just that agent: `custos audit-log <did>`.
+Pass an agent's DID (the `"did"` from registration) to see just that agent: `custos audit-log <did>`. Entries from the last few seconds show as `unsealedCount` until the next seal. Each entry also names the service that reported it (`reportedBy`).
 
 ### 5. Do the same from code with the SDK
 
@@ -422,6 +436,10 @@ To check a key end to end (real KMS signatures verified by Custos's own code; cr
 ```bash
 CUSTOS_TEST_KMS_KEY_ID=<key id or ARN> pnpm --filter @custos/kms test:kms
 ```
+
+### Using AWS KMS for the audit key
+
+The audit service seals its ledger with its own key (ADR 0017), a separate key again. Create it the same way, give the audit service's AWS identity `kms:GetPublicKey` and `kms:Sign` on it, and start the service with `AUDIT_KEY_PROVIDER=kms` and `AUDIT_SIGNING_KMS_KEY_ID=<key id or ARN>`. It signs at most one seal every `AUDIT_SEAL_INTERVAL_MS` (default 10 s), however busy the log is; recording an entry never calls KMS.
 
 ### Using AWS KMS for the revocation key
 

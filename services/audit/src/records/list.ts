@@ -1,60 +1,37 @@
-import { asc, eq } from "drizzle-orm";
-import { issueAuditRecord, type AuditRecordSigner } from "@custos/core";
-import { err, ok, type Result } from "@custos/contracts";
+import { asc, isNotNull } from "drizzle-orm";
+import type { ServedAuditEntry } from "@custos/core";
 import { auditRecords } from "../db/schema.js";
 import type { AuditDb } from "../db/client.js";
 
-export type ListAuditRecordsError = { readonly code: "SIGNING_FAILED"; readonly reason: string };
-
 /**
- * Every stored record, freshly signed under whichever key is live right
- * now — the same "re-sign on every read, never store pre-signed" pattern as
- * `services/revocation`'s `listTombstones()`, and for the identical reason:
- * this service's signing key is ephemeral, so a stored signature would go
- * stale across a restart while the underlying fact it attests to would not.
- * Optional `agentDid` narrows to one agent's log (build plan Phase 4: "pull
- * a verifiable log of every action every agent took").
+ * The ledger as served (ADR 0017 §5): every chained entry in order, exactly as
+ * stored. Nothing is signed here; a reader checks the chain against a seal.
+ * With `agentDid`, other agents' entries are served as their hashes only, so
+ * one agent's entries can be checked without the others' contents. That is a
+ * verification property, not privacy: without `agentDid` everything is served
+ * (ADR 0008 decision 3).
  */
-export async function listAuditRecords(params: {
+export async function listAuditEntries(params: {
   readonly db: AuditDb;
-  readonly signer: AuditRecordSigner;
   readonly agentDid?: string;
-}): Promise<Result<readonly string[], ListAuditRecordsError>> {
-  const { db, signer, agentDid } = params;
-
+}): Promise<readonly ServedAuditEntry[]> {
+  const { db, agentDid } = params;
   const rows = await db
-    .select()
+    .select({
+      seq: auditRecords.seq,
+      agentDid: auditRecords.agentDid,
+      payload: auditRecords.payload,
+      payloadHash: auditRecords.payloadHash,
+    })
     .from(auditRecords)
-    .where(agentDid === undefined ? undefined : eq(auditRecords.agentDid, agentDid))
-    .orderBy(asc(auditRecords.id));
+    .where(isNotNull(auditRecords.seq))
+    .orderBy(asc(auditRecords.seq));
 
-  const records: string[] = [];
-  for (const row of rows) {
-    const principal =
-      row.principalKind !== null && row.principalId !== null && row.principalName !== null
-        ? { kind: row.principalKind, id: row.principalId, name: row.principalName }
-        : undefined;
-    const issued = await issueAuditRecord({
-      record: {
-        ...(row.agentDid === null ? {} : { agentDid: row.agentDid }),
-        ...(principal === undefined ? {} : { principal }),
-        // An agent action's chain is the agent; a control-plane action was
-        // taken by its principal, not by any agent (see `AuditRecord`).
-        authorityChain: principal === undefined && row.agentDid !== null ? [row.agentDid] : [],
-        ...(row.tool === null ? {} : { tool: row.tool }),
-        action: row.action,
-        dataCategories: row.dataCategories,
-        policy: { rule: row.policyRule, decision: row.decision as "allow" | "deny" },
-        recordedAt: row.recordedAt.toISOString(),
-        ...(row.reason === null ? {} : { reason: row.reason }),
-      },
-      signer,
-    });
-    if (!issued.ok) {
-      return err({ code: "SIGNING_FAILED", reason: issued.error.reason });
-    }
-    records.push(issued.value);
-  }
-
-  return ok(records);
+  return rows.map((row) => {
+    // Non-null by the query: every column of the chain is set together.
+    const entry = { seq: row.seq!, payloadHash: row.payloadHash! };
+    return agentDid === undefined || row.agentDid === agentDid
+      ? { ...entry, payload: row.payload! }
+      : entry;
+  });
 }
