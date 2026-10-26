@@ -123,6 +123,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@custos/audit-client':
+        specifier: workspace:*
+        version: link:../../packages/audit-client
       '@custos/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -191,6 +194,9 @@ importers:
       '@custos/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@custos/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@custos/tsconfig':
         specifier: workspace:*
@@ -426,6 +432,9 @@ importers:
       '@custos/audit':
         specifier: workspace:*
         version: link:../../services/audit
+      '@custos/audit-client':
+        specifier: workspace:*
+        version: link:../audit-client
       '@custos/connectors':
         specifier: workspace:*
         version: link:../connectors

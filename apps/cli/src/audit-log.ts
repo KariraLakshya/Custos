@@ -1,71 +1,98 @@
-import { verifyAuditRecord, type AuditRecord, type DidWebDocument } from "@custos/core";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { pullAuditLedger, type PullAuditLedgerError } from "@custos/audit-client";
+import type { AuditRecord } from "@custos/core";
 
-export interface AuditLogEntry {
-  readonly verified: boolean;
-  readonly record?: AuditRecord;
-  readonly reason?: string;
+/** Where `audit-log` remembers the newest seal it verified, per audit log (ADR 0017 §5). */
+export function defaultSealFile(): string {
+  return join(homedir(), ".custos", "audit-seal.json");
 }
 
-/** Same hand-rolled base58 decode used by services/vault's revocation cache and services/revocation's own tests — no new dependency for one primitive. */
-function decodeBase58(input: string): Uint8Array {
-  const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  const bytes: number[] = [];
-  for (const char of input) {
-    let carry = ALPHABET.indexOf(char);
-    if (carry < 0) throw new Error(`invalid base58 character: ${char}`);
-    for (let i = 0; i < bytes.length; i += 1) {
-      carry += bytes[i]! * 58;
-      bytes[i] = carry & 0xff;
-      carry >>= 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
+/** By audit log DID: the newest seal verified for that log. */
+type RememberedSeals = Record<string, { readonly seq: number; readonly seal: string }>;
+
+async function readRemembered(path: string): Promise<RememberedSeals> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+    if (typeof parsed === "object" && parsed !== null) return parsed as RememberedSeals;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
   }
-  for (const char of input) {
-    if (char !== "1") break;
-    bytes.push(0);
-  }
-  return new Uint8Array(bytes.reverse());
+  // Refusing beats starting over: an empty file would forget what it must check.
+  throw new Error(`cannot read the remembered audit seals in ${path}; fix or remove it`);
 }
 
-/** Public key of the audit service's own signing identity, from its DID document. */
-function publicKeyFrom(didDocument: DidWebDocument): Uint8Array {
-  const multibase = didDocument.verificationMethod[0].publicKeyMultibase;
-  // Strip the multibase "z" prefix and the 2-byte multicodec ed25519-pub header.
-  return decodeBase58(multibase.slice(1)).slice(2);
-}
+export type AuditLogResult =
+  | {
+      readonly verified: true;
+      readonly log: string;
+      readonly headSeq: number;
+      readonly sealedThrough: number;
+      /** Entries recorded after the newest seal: not sealed yet. */
+      readonly unsealedCount: number;
+      readonly records: readonly { readonly seq: number; readonly record: AuditRecord }[];
+    }
+  | { readonly verified: false; readonly error: PullAuditLedgerError };
 
 /**
- * Pulls every audit record for `agentDid` (or every record, if omitted) and
- * independently verifies each one against the audit service's own resolved
- * DID document — the same "don't trust, verify" pattern as `custos verify`.
- * A record that fails to verify is reported, not silently dropped.
+ * Pulls the audit ledger for `agentDid` (or everyone) and verifies it
+ * independently: the chain, the served seal, and the seal this machine
+ * remembered for this log from its last check, so a log shortened or
+ * rewritten since then is reported (`TRUNCATED`, `DIVERGED`). On success the
+ * newest seal is remembered for next time. A failure is reported, never
+ * dropped.
  */
 export async function pullAuditLog(params: {
   readonly auditUrl: string;
   readonly agentDid?: string;
-}): Promise<readonly AuditLogEntry[]> {
-  const { auditUrl, agentDid } = params;
+  readonly sealFile?: string;
+}): Promise<AuditLogResult> {
+  const sealFile = params.sealFile ?? defaultSealFile();
+  const remembered = await readRemembered(sealFile);
 
-  const didResponse = await fetch(new URL("/.well-known/did.json", auditUrl));
-  if (!didResponse.ok) {
-    throw new Error(`could not resolve audit service's DID document: HTTP ${didResponse.status}`);
-  }
-  const publicKey = publicKeyFrom((await didResponse.json()) as DidWebDocument);
-
-  const recordsUrl = new URL("/records", auditUrl);
-  if (agentDid !== undefined) recordsUrl.searchParams.set("agentId", agentDid);
-  const recordsResponse = await fetch(recordsUrl);
-  if (!recordsResponse.ok) {
-    throw new Error(`could not pull audit records: HTTP ${recordsResponse.status}`);
-  }
-  const { records } = (await recordsResponse.json()) as { records: readonly string[] };
-
-  return records.map((record) => {
-    const verified = verifyAuditRecord({ record, publicKey });
-    if (verified.ok) return { verified: true, record: verified.value };
-    return { verified: false, reason: verified.error.code };
+  const pulled = await pullAuditLedger({
+    auditUrl: params.auditUrl,
+    ...(params.agentDid === undefined ? {} : { agentDid: params.agentDid }),
+    heldSeals: (log) => (remembered[log] === undefined ? [] : [remembered[log].seal]),
   });
+  if (!pulled.ok) return { verified: false, error: pulled.error };
+  const ledger = pulled.value;
+  const newest = ledger.newestSeal;
+
+  // The served seal verified; keep it when it is the newest, never stepping back.
+  if (
+    newest !== undefined &&
+    ledger.servedSeal !== null &&
+    newest.seq === sealSeq(ledger.servedSeal) &&
+    (remembered[ledger.log]?.seq ?? 0) < newest.seq
+  ) {
+    const next = { ...remembered, [ledger.log]: { seq: newest.seq, seal: ledger.servedSeal } };
+    await mkdir(dirname(sealFile), { recursive: true });
+    const temporary = `${sealFile}.${process.pid}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`);
+    await rename(temporary, sealFile);
+  }
+
+  return {
+    verified: true,
+    log: ledger.log,
+    headSeq: ledger.headSeq,
+    sealedThrough: newest?.seq ?? 0,
+    unsealedCount: ledger.unsealedCount,
+    records:
+      params.agentDid === undefined
+        ? ledger.records
+        : ledger.records.filter((entry) => entry.record.agentDid === params.agentDid),
+  };
+}
+
+/** `seq` from a seal that has already verified. */
+function sealSeq(seal: string): number | undefined {
+  const claims = JSON.parse(
+    Buffer.from(seal.split(".")[0] ?? "", "base64url").toString("utf8"),
+  ) as {
+    seq?: unknown;
+  };
+  return typeof claims.seq === "number" ? claims.seq : undefined;
 }

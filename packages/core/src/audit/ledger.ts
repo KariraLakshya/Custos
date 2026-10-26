@@ -37,7 +37,7 @@ export interface AuditSeal {
   readonly sealedAt: string;
 }
 
-/** KMS-shaped signing callback, the same shape as `AuditRecordSigner`. */
+/** KMS-shaped signing callback (CLAUDE.md section 4): never exposes key material. */
 export interface AuditSealSigner {
   readonly sign: (data: Uint8Array) => Promise<Uint8Array>;
 }

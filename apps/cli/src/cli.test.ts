@@ -6,7 +6,11 @@ import {
   buildDidWebDocument,
   didWebFromDomain,
   generateKeyPair,
-  issueAuditRecord,
+  AUDIT_GENESIS_HASH,
+  computeAuditEntryHash,
+  computeAuditPayloadHash,
+  issueAuditSeal,
+  serializeAuditRecord,
   issueCredential,
   sign,
   type UnsignedCredential,
@@ -313,26 +317,32 @@ describe("custos CLI", () => {
       vi.restoreAllMocks();
     });
 
-    it("pulls and prints the independently verified audit log", async () => {
-      const port = 4814;
-      const domain = `127.0.0.1:${port}`;
+    /** A one-entry sealed ledger, served as the audit service would. */
+    async function serveLedger(port: number, options: { tamper?: boolean } = {}) {
       const { publicKey, secretKey } = generateKeyPair();
-      const didDocument = buildDidWebDocument({ domain, publicKey });
+      const didDocument = buildDidWebDocument({ domain: `127.0.0.1:${port}`, publicKey });
       const agentDid = "did:web:localhost%3A4001:agents:a1";
-
-      const issued = await issueAuditRecord({
-        record: {
-          agentDid,
-          authorityChain: [agentDid],
-          tool: "mock-slack",
-          action: "post-message",
-          dataCategories: ["messaging-content"],
-          policy: { rule: "agent-tool-allowlist", decision: "allow" },
-          recordedAt: "2026-09-12T10:00:00.000Z",
+      const payload = serializeAuditRecord({
+        agentDid,
+        authorityChain: [agentDid],
+        tool: "mock-slack",
+        action: "post-message",
+        dataCategories: ["messaging-content"],
+        policy: { rule: "agent-tool-allowlist", decision: "allow" },
+        recordedAt: "2026-09-12T10:00:00.000Z",
+      });
+      const payloadHash = computeAuditPayloadHash(payload);
+      const issued = await issueAuditSeal({
+        seal: {
+          log: didDocument.id,
+          seq: 1,
+          headHash: computeAuditEntryHash({ seq: 1, prevHash: AUDIT_GENESIS_HASH, payloadHash }),
+          sealedAt: "2026-09-12T10:00:10.000Z",
         },
         signer: { sign: (data) => Promise.resolve(sign(data, secretKey)) },
       });
-      if (!issued.ok) throw new Error("test setup: issuance failed");
+      if (!issued.ok) throw new Error("test setup: sealing failed");
+      const served = options.tamper ? payload.replace("allow", "deny") : payload;
 
       server = createServer((req, res) => {
         res.setHeader("content-type", "application/json");
@@ -340,20 +350,44 @@ describe("custos CLI", () => {
           res.end(JSON.stringify(didDocument));
           return;
         }
-        res.end(JSON.stringify({ records: [issued.value] }));
+        res.end(
+          JSON.stringify({
+            entries: [{ seq: 1, payload: served, payloadHash }],
+            seal: issued.value,
+          }),
+        );
       });
       await new Promise<void>((resolve) => server?.listen(port, "127.0.0.1", resolve));
-      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    }
 
+    async function runAuditLog(port: number) {
+      const sealFile = join(await mkdtemp(join(tmpdir(), "custos-audit-")), "seal.json");
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const previousExitCode = process.exitCode;
       process.exitCode = undefined;
-      await createCli().parseAsync(["audit-log", "--audit-url", `http://127.0.0.1:${port}`], {
-        from: "user",
-      });
-
-      expect(process.exitCode).toBeUndefined();
-      expect(stdout.mock.calls.join("")).toContain('"verified": true');
+      await createCli().parseAsync(
+        ["audit-log", "--audit-url", `http://127.0.0.1:${port}`, "--seal-file", sealFile],
+        { from: "user" },
+      );
+      const exitCode = process.exitCode;
       process.exitCode = previousExitCode;
+      return { exitCode, out: stdout.mock.calls.join(""), err: stderr.mock.calls.join("") };
+    }
+
+    it("pulls and prints the independently verified, sealed audit log", async () => {
+      await serveLedger(4814);
+      const { exitCode, out } = await runAuditLog(4814);
+      expect(exitCode).toBeUndefined();
+      expect(out).toContain('"verified": true');
+      expect(out).toContain('"sealedThrough": 1');
+    });
+
+    it("exits 1 and names the failure when the log was tampered with", async () => {
+      await serveLedger(4815, { tamper: true });
+      const { exitCode, err } = await runAuditLog(4815);
+      expect(exitCode).toBe(1);
+      expect(err).toContain("PAYLOAD_MISMATCH");
     });
   });
 

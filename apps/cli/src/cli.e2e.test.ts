@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer, type Server } from "node:http";
 import {
   createLocalKeyProvider,
@@ -243,6 +246,10 @@ async function withPhase4Stack<T>(
     db: auditDb,
     controlPlaneAuth: controlPlane.guard,
     didDomain: `127.0.0.1:${ports.audit}`,
+    signingKey: {
+      keyProvider: createLocalKeyProvider({ importedKeys: { audit: new Uint8Array(32).fill(62) } }),
+      keyId: "audit",
+    },
   });
   await auditApp.listen({ port: ports.audit, host: "127.0.0.1" });
 
@@ -572,20 +579,26 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
           // on it, each naming who took them (ADR 0008 §7): its status slot
           // (identity's service key), its registration and its grant (the
           // operator).
-          let entries = await pullAuditLog({ auditUrl, agentDid: registered.did });
+          // A seal file of its own, so the test never touches ~/.custos.
+          const sealFile = join(await mkdtemp(join(tmpdir(), "custos-audit-")), "seal.json");
+          const pull = async () => {
+            const result = await pullAuditLog({ auditUrl, agentDid: registered.did, sealFile });
+            if (!result.verified) throw new Error(`audit log failed: ${result.error.code}`);
+            return result.records;
+          };
+          let entries = await pull();
           for (let attempt = 0; entries.length < 5 && attempt < 20; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 50));
-            entries = await pullAuditLog({ auditUrl, agentDid: registered.did });
+            entries = await pull();
           }
           expect(entries).toHaveLength(5);
-          expect(entries.every((entry) => entry.verified)).toBe(true);
 
           const agentActions = entries
-            .filter((entry) => entry.record!.principal === undefined)
+            .filter((entry) => entry.record.principal === undefined)
             .map((entry) => ({
-              tool: entry.record!.tool,
-              decision: entry.record!.policy.decision,
-              authorityChain: entry.record!.authorityChain,
+              tool: entry.record.tool,
+              decision: entry.record.policy.decision,
+              authorityChain: entry.record.authorityChain,
             }));
           expect(agentActions).toContainEqual({
             tool: "mock-slack",
@@ -599,12 +612,12 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
           });
 
           const controlPlaneActions = entries
-            .filter((entry) => entry.record!.principal !== undefined)
+            .filter((entry) => entry.record.principal !== undefined)
             .map((entry) => ({
-              action: entry.record!.action,
-              by: entry.record!.principal!.kind,
-              keyId: entry.record!.principal!.id,
-              authorityChain: entry.record!.authorityChain,
+              action: entry.record.action,
+              by: entry.record.principal!.kind,
+              keyId: entry.record.principal!.id,
+              authorityChain: entry.record.authorityChain,
             }));
           expect(controlPlaneActions).toEqual(
             expect.arrayContaining([

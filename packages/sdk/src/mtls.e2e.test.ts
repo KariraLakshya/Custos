@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildServer as buildAuditServer, createDb as createAuditDb } from "@custos/audit";
+import { pullAuditLedger } from "@custos/audit-client";
 import { createMockDatabaseConnector } from "@custos/connectors";
 import {
   createEnvoyOnlyTlsListener,
@@ -12,14 +13,7 @@ import {
   type EnvoyOnlyTlsListener,
   type MtlsIdentity,
 } from "@custos/control-plane-auth";
-import {
-  createLocalKeyProvider,
-  createLocalSecretCipher,
-  multibaseToPublicKey,
-  verifyAuditRecord,
-  type AuditRecord,
-  type DidWebDocument,
-} from "@custos/core";
+import { createLocalKeyProvider, createLocalSecretCipher, type AuditRecord } from "@custos/core";
 import { buildServer as buildIdentityServer, createDb as createIdentityDb } from "@custos/identity";
 import {
   buildServer as buildRevocationServer,
@@ -116,6 +110,12 @@ beforeAll(async () => {
       db: auditDb,
       controlPlaneAuth: controlPlane.guard,
       didDomain: `127.0.0.1:${PORT.audit}`,
+      signingKey: {
+        keyProvider: createLocalKeyProvider({
+          importedKeys: { audit: new Uint8Array(32).fill(63) },
+        }),
+        keyId: "audit",
+      },
       serverFactory: auditTls.serverFactory,
     }),
     PORT.audit,
@@ -236,20 +236,11 @@ afterAll(async () => {
 });
 
 async function verifiedRecords(agentDid: string): Promise<AuditRecord[]> {
-  const did = (await (
-    await fetch(`${url(PORT.audit)}/.well-known/did.json`)
-  ).json()) as DidWebDocument;
-  const publicKey = multibaseToPublicKey(did.verificationMethod[0].publicKeyMultibase);
-  if (!publicKey.ok) throw new Error("bad audit DID document");
-  const response = await fetch(
-    `${url(PORT.audit)}/records?agentId=${encodeURIComponent(agentDid)}`,
-  );
-  const { records } = (await response.json()) as { records: string[] };
-  return records.map((record) => {
-    const verified = verifyAuditRecord({ record, publicKey: publicKey.value });
-    if (!verified.ok) throw new Error(`record failed verification: ${verified.error.code}`);
-    return verified.value;
-  });
+  const pulled = await pullAuditLedger({ auditUrl: url(PORT.audit), agentDid });
+  if (!pulled.ok) throw new Error(`audit ledger failed verification: ${pulled.error.code}`);
+  return pulled.value.records
+    .map((entry) => entry.record)
+    .filter((record) => record.agentDid === agentDid);
 }
 
 describe("mTLS end to end: services authenticate to each other only with certificates (ADR 0009)", () => {
@@ -289,6 +280,16 @@ describe("mTLS end to end: services authenticate to each other only with certifi
       "policies.grant": expect.stringMatching(/^[0-9a-f]{16}$/),
       query: "agent",
       "agents.revoke": expect.stringMatching(/^[0-9a-f]{16}$/),
+    });
+    // ADR 0017 §4: the reporter is the service whose certificate Envoy verified.
+    expect(
+      Object.fromEntries(records.map((record) => [record.action, record.reportedBy?.id])),
+    ).toEqual({
+      "status.allocate": serviceUri("revocation"),
+      "agents.register": serviceUri("identity"),
+      "policies.grant": serviceUri("vault"),
+      query: serviceUri("vault"),
+      "agents.revoke": serviceUri("revocation"),
     });
   });
 
