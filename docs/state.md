@@ -29,7 +29,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [ ] **Phase 5 DONE check:** non-author README run. Pre-run dry run from a fresh clone done 2026-10-08 (found the fix above); brief for the tester in `docs/readme-test.md`.
 - [x] ADR 0008 items 3 and 4 decided 2026-10-02: the audit log stays open for now; one shared `api_keys` table. ADR 0008 is Accepted.
 - [x] ADR 0013 (resync from the signed status list) **Accepted 2026-10-13**; its tombstone memoization shipped (see Implemented). The status-list resync is the next build. Decision B (an index past the end of the list means "not revoked") confirmed by the user 2026-10-13. A plain-language register of all known risks is on the Notion page "Risk" under the Project Hub (created 2026-10-13).
-- [ ] **Knowledge graph:** last full refresh **2026-10-25**, after ADR 0016. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
+- [ ] **Knowledge graph:** last full refresh **2026-10-27**, after ADR 0017 part 1. If code has changed since, run the full refresh in `CLAUDE.md` "Keeping it current" first.
 - [x] PRs #93, #94 (both 2026-10-18), #103, #104, #105 and #106 (all 2026-10-22) merged to `main`: all of Phase 6 (steps 1–5), the Vite 7.3.7 pin, and the cross-company dashboard panel with `pnpm demo:federation` are on `main`.
 - [x] PR #108 (ADR 0015, proofs bound to tool and action, plus the dependency advisories) merged to `main` (`97ae998`). ADR 0015 marked Accepted 2026-10-25 (founder).
 - [x] PR #110 (ADR 0016, revocation and publisher keys in KMS) merged to `main` 2026-10-25 (`66f13c0`). ADR 0016 is Accepted by that merge.
