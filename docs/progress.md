@@ -6,6 +6,24 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-27 — The audit log becomes a sealed ledger (part 1 of 2)
+
+**Commits:** `b0b31c3` (the ledger's rules), `4f9a6c9` (the audit service keeping it), `c1ad318` (the command-line check, the dashboard and the demos), plus documentation. On branch `feat/audit-ledger`; **not yet pushed**. Pull request #110 (the Amazon-held revocation key) was merged on 25 October.
+
+**What changed:** the audit log is what you would show a regulator: which agent did what, under whose authority, and whether it was allowed. Until now it was a pile of loose pages. Anyone with access to the database could change or remove a page, and the log would still look genuine, because it was only signed when someone read it, with a key that changed on every restart. Now it is a numbered ledger:
+
+- **Each line carries a fingerprint of the line before it.** Changing, removing or reordering a line breaks every fingerprint after it.
+- **Every 10 seconds the newest line is sealed** with the audit service's own key, which survives restarts and can live in Amazon's key store like the other keys. Writing a line never waits for Amazon, so agents are never slowed down.
+- **Each line names the service that reported it**, taken from that service's verified login, not from what it claims.
+- **`custos audit-log` checks the whole ledger** against the seal, and against the newest seal it saw last time (it keeps a copy on the checking computer). If lines it has already seen have been edited, removed or rewritten since, it says so and fails.
+- **One agent's history can be checked on its own:** other agents' lines are shown only as fingerprints.
+
+**How we know it works:** tests change a line, remove one from the middle, swap two, delete the newest lines together with their seal, and rebuild the whole log and seal it with the same key. Every one is caught. Fifty lines written at the same moment never split the ledger, and the database itself refuses a split. Live on the demo today: the check verified all 92 lines, each naming its reporter. Then I edited one line directly in the database, the check failed with "payload mismatch", and after I restored the line it passed again.
+
+**What is not covered yet (part 2, your requirement):** someone with direct database access could still delete the very newest lines **and** their seals, and only an auditor who kept a later seal would notice. Part 2 closes this by also copying every seal to Amazon's write-once storage (S3 Object Lock), which nobody can delete for a year. Its live test needs your go-ahead, because a locked test bucket can't be removed early.
+
+_Why it matters:_ under India's DPDP Act, a trustworthy audit trail is the evidence that matters. Custos can now show that nobody has quietly edited the history, which is a stronger claim than "we have logs".
+
 ## 2026-10-25 — The "revoke" key can now live in Amazon's locked key store
 
 **Commits:** `a8fb0f5` (moving the key-store code into its own shared piece), `80ab292` (the revocation service and the publisher using it), `1c1802c` (documentation), `c002590` (a fix found in review: firing an agent during an Amazon outage is now always written down). Pushed on 25 October to branch `feat/revocation-signing-kms`; pull request #110 is open, not yet merged. (Pull request #108 from the entry below has since been merged into the main version.)

@@ -62,6 +62,14 @@ Pushing is separate from signing: a seal stored but not yet pushed is retried, o
 
 IAM: the audit service gets `s3:PutObject` on the seal prefix only (no `DeleteObject`, `PutObjectRetention` or `BypassGovernanceRetention`); auditors get `s3:ListBucket` and `s3:GetObject`. `@aws-sdk/client-s3` is a new dependency, needed for exactly these calls; it sits behind the `SealStore` interface beside `@custos/kms`.
 
+## Part 1, as built (2026-10-27)
+
+- `packages/core/src/audit/ledger.ts`: `computeAuditPayloadHash`, `computeAuditEntryHash`, `serializeAuditRecord`, `issueAuditSeal`, `verifyAuditSeal`, `verifyAuditLedger`. `AuditRecord` gains `reportedBy`; `isAuditRecord` is exported; the per-record `issueAuditRecord`/`verifyAuditRecord` are removed.
+- `services/audit`: migration `0010` (new nullable columns, unique `seq` and `prev_hash`, table `audit_seals`); `append.ts` (advisory lock, no network call), `chainUnchainedRecords` at boot, `list.ts`, `seal.ts`; `AUDIT_KEY_PROVIDER`, `AUDIT_SIGNING_SEED`, `AUDIT_SIGNING_KMS_KEY_ID`, `AUDIT_SEAL_INTERVAL_MS`; `buildServer` requires `signingKey`; `app.auditLedger.sealOnce()`.
+- `@custos/audit-client` `pullAuditLedger`: fetches the DID document and the ledger and verifies them against the served seal and the caller's held seals for that log. `custos audit-log` remembers the newest verified seal per log in `~/.custos/audit-seal.json` (`--seal-file`) and never steps back to an older one; an unreadable file is an error, not a fresh start.
+- The dashboard reads `entries[].payload` and does not verify (as before).
+- Run live against `pnpm demo` (2026-10-27): register, grant, an agent call; `custos audit-log` verified 92 entries against seal 92, each naming its reporter (`demo-dev-revocation`, `demo-dev-identity`, `demo-dev-vault`); editing entry 92 in Postgres made it exit 1 with `PAYLOAD_MISMATCH`, and restoring the entry made it pass again.
+
 ## What each attacker can do
 
 - **Database access only:** can change or delete entries, but any change to sealed history is detected (`DIVERGED` or a broken chain), and deleting the newest sealed entries is detected against the outside seal (`TRUNCATED`) from part 2. Before part 2, deleting the newest entries together with their seals goes unnoticed unless the verifier remembered a later seal. Entries newer than the newest outside seal (up to one interval plus push lag) can be deleted unnoticed.
@@ -73,4 +81,5 @@ IAM: the audit service gets `s3:PutObject` on the seal prefix only (no `DeleteOb
 - Record format change: `GET /records` returns `{ entries, seal }` instead of individually signed records. `issueAuditRecord`/`verifyAuditRecord` are replaced by the ledger functions; the CLI, the dashboard and the tests that read records move with them.
 - Every way of starting the audit service needs the key setting (and, from part 2, a seal folder or bucket): both demos, the e2e setups, README, `.env.example`, `docs/readme-test.md`.
 - An auditor checks the whole log, or one agent's entries plus the hashes of everyone else's, not a single record on its own.
+- A seal names its log by the audit service's DID, so changing `AUDIT_DID_DOMAIN` starts a different log as far as verifiers are concerned: earlier seals answer `WRONG_LOG`. Treat it like a key rotation.
 - Still not covered: retention and export tooling, and a database-level append-only trigger (tampering is detected by the chain rather than prevented).
