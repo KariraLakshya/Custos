@@ -404,6 +404,25 @@ describe("pullAuditLog (ADR 0017)", () => {
       });
     });
 
+    it("reports a log rewritten under a new key as DIVERGED, not as a routine key change", async () => {
+      const audit = await fakeAudit(4826);
+      for (const action of ["a", "b"]) audit.append(AGENT, action);
+      await audit.seal();
+      const sealFile = await sealFileIn();
+      await pullAuditLog({ auditUrl: audit.url, sealFile });
+
+      audit.rotate();
+      audit.state.entries.splice(0);
+      for (const action of ["x", "y", "z"]) audit.append(AGENT, action);
+      await audit.seal();
+
+      // No --accept-key: the first answer must already be the rewrite.
+      expect(await pullAuditLog({ auditUrl: audit.url, sealFile })).toEqual({
+        verified: false,
+        error: { code: "DIVERGED", seq: 2 },
+      });
+    });
+
     it("a first-time auditor is told about copies under a key it never trusted, and passes once it accepts it", async () => {
       const audit = await fakeAudit(4825);
       audit.append(AGENT, "a");

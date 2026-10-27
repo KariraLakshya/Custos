@@ -402,9 +402,14 @@ describe("custos CLI", () => {
       expect(changed.err).toContain("Do not check it against the service's own DID document");
       expect(newKey).toBeDefined();
 
-      expect(
-        (await runAuditLog(4816, ["--accept-key", newKey!], sealFile)).exitCode,
-      ).toBeUndefined();
+      // Repeatable, not variadic: an agent DID after it stays the DID.
+      const accepted = await runAuditLog(
+        4816,
+        ["--accept-key", newKey!, "did:web:localhost%3A4001:agents:a1"],
+        sealFile,
+      );
+      expect(accepted.exitCode).toBeUndefined();
+      expect(accepted.out).toContain('"post-message"');
     });
 
     it("exits 1 and names the failure when the log was tampered with", async () => {

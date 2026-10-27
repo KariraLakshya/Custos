@@ -238,8 +238,11 @@ export function createCli(): Command {
       defaultSealFile(),
     )
     .option(
-      "--accept-key <key...>",
-      "a seal key you have checked with the audit service's operator (after KEY_CHANGED or UNTRUSTED_KEY)",
+      "--accept-key <key>",
+      "a seal key you have checked with the audit service's operator (after KEY_CHANGED or UNTRUSTED_KEY); repeat for several",
+      // Repeatable rather than variadic, so an agent DID after it is not taken for a key.
+      (key: string, previous: string[]) => [...previous, key],
+      [] as string[],
     )
     .action(async (agentDid: string | undefined, opts: AuditLogOptions) => {
       // The seal store's address holds a password, so it comes from the

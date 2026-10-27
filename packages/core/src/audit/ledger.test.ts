@@ -449,6 +449,28 @@ describe("verifyAuditLedger", () => {
       });
     });
 
+    it("a log rewritten under a new key, before anyone accepts it: the rewrite is reported, not the key", async () => {
+      const original = buildLog([record(1), record(2)]);
+      const underOldKey = await sealAt(original, 2);
+      const rebuilt = buildLog([record(1), { ...record(2), action: "rewritten" }]);
+      const underNewKey = await sealAt(rebuilt, 2, { signWith: otherSigner });
+      // The new-key seal comes first, as the service serves it before held and outside seals.
+      expect(verifyLog(served(rebuilt), [underNewKey, underOldKey], [KEY])).toEqual({
+        ok: false,
+        error: { code: "DIVERGED", seq: 2 },
+      });
+    });
+
+    it("an untrusted key alone is reported once nothing else is wrong", async () => {
+      const log = buildLog([record(1), record(2)]);
+      const trusted = await sealAt(log, 1);
+      const untrusted = await sealAt(log, 2, { signWith: otherSigner });
+      expect(verifyLog(served(log), [untrusted, trusted, untrusted], [KEY])).toEqual({
+        ok: false,
+        error: { code: "SEAL_INVALID", error: { code: "UNTRUSTED_KEY", key: OTHER_KEY } },
+      });
+    });
+
     it("a log rewritten under a new key, even once the new key is accepted: old seals stay checked", async () => {
       const original = buildLog([record(1), record(2)]);
       const underOldKey = await sealAt(original, 2);

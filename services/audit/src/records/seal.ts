@@ -1,5 +1,5 @@
 import { asc, desc, eq, isNotNull, isNull } from "drizzle-orm";
-import type { SealStore } from "@custos/audit-client";
+import { SealCopyConflictError, type SealStore } from "@custos/audit-client";
 import { issueAuditSeal, verifyAuditSeal, type AuditSealSigner } from "@custos/core";
 import { err, ok, type Result } from "@custos/contracts";
 import { auditRecords, auditSeals } from "../db/schema.js";
@@ -72,7 +72,49 @@ export async function sealOnce(params: {
   return ok(head.seq!);
 }
 
-export type CopyError = { readonly code: "COPY_FAILED"; readonly reason: string };
+export type CopyError = {
+  /** SEAL_CONFLICT: a different seal is already stored at that position (evidence of a rewrite). */
+  readonly code: "COPY_FAILED" | "SEAL_CONFLICT";
+  readonly reason: string;
+};
+
+/**
+ * Whether each stored seal verifies under the current key, remembered so each
+ * seal's signature is checked once, not on every tick or status request: the
+ * status route is open, and Ed25519 verification blocks the event loop.
+ */
+export interface CopyVerdicts {
+  check(seq: number, seal: string): { readonly copyable: boolean; readonly fresh: boolean };
+  /** Seals checked and found not to verify under the current key. */
+  notCopyable(): ReadonlySet<number>;
+}
+
+export function createCopyVerdicts(params: {
+  readonly log: string;
+  readonly key: string;
+  /** Injectable for tests. */
+  readonly verify?: typeof verifyAuditSeal;
+}): CopyVerdicts {
+  const verify = params.verify ?? verifyAuditSeal;
+  const known = new Map<string, boolean>();
+  const bad = new Set<number>();
+  return {
+    check(seq, seal) {
+      const id = `${seq}:${seal}`;
+      const cached = known.get(id);
+      if (cached !== undefined) return { copyable: cached, fresh: false };
+      const copyable = verify({ seal, trustedKeys: [params.key], log: params.log }).ok;
+      known.set(id, copyable);
+      if (!copyable) bad.add(seq);
+      return { copyable, fresh: true };
+    },
+    notCopyable: () => bad,
+  };
+}
+
+// A backlog after a long outage is thousands of seals: yield now and then so
+// verifying them never holds up appends for long.
+const VERIFY_BATCH = 50;
 
 /**
  * Copies every stored seal not yet copied to the seal store, oldest first
@@ -93,23 +135,28 @@ export async function copySeals(params: {
   readonly db: AuditDb;
   readonly store: SealStore;
   readonly log: string;
-  readonly key: string;
+  readonly verdicts: CopyVerdicts;
   readonly now: Date;
 }): Promise<Result<number, CopyError>> {
-  const { db, store, log, key, now } = params;
+  const { db, store, log, verdicts, now } = params;
   const pending = await db
     .select({ seq: auditSeals.seq, seal: auditSeals.seal })
     .from(auditSeals)
     .where(isNull(auditSeals.pushedAt))
     .orderBy(asc(auditSeals.seq));
   let copied = 0;
+  let checked = 0;
   for (const row of pending) {
-    if (!verifyAuditSeal({ seal: row.seal, trustedKeys: [key], log }).ok) continue;
+    const verdict = verdicts.check(row.seq, row.seal);
+    if (verdict.fresh && (checked += 1) % VERIFY_BATCH === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    if (!verdict.copyable) continue;
     try {
       await store.put({ log, seq: row.seq, seal: row.seal });
     } catch (error) {
       return err({
-        code: "COPY_FAILED",
+        code: error instanceof SealCopyConflictError ? "SEAL_CONFLICT" : "COPY_FAILED",
         reason: error instanceof Error ? error.message : String(error),
       });
     }
@@ -119,15 +166,19 @@ export async function copySeals(params: {
   return ok(copied);
 }
 
-/** How far sealing and copying have got (ADR 0017 part 2a), for `GET /seals/status`. */
+/**
+ * How far sealing and copying have got (ADR 0017 part 2a), for the open
+ * `GET /seals/status`. Verifies nothing: `notCopyable` comes from the verdicts
+ * copying has already reached.
+ */
 export async function sealStatus(
   db: AuditDb,
-  current: { readonly log: string; readonly key: string },
+  verdicts: CopyVerdicts,
 ): Promise<{
   readonly sealedThrough: number;
   readonly copiedThrough: number;
   readonly oldestUncopiedSealedAt: string | null;
-  /** Uncopied seals that do not verify under the current key: never copied. */
+  /** Uncopied seals found not to verify under the current key: never copied. */
   readonly notCopyable: readonly number[];
 }> {
   const [sealed] = await db
@@ -142,17 +193,16 @@ export async function sealStatus(
     .orderBy(desc(auditSeals.seq))
     .limit(1);
   const uncopied = await db
-    .select({ seq: auditSeals.seq, seal: auditSeals.seal, sealedAt: auditSeals.sealedAt })
+    .select({ seq: auditSeals.seq, sealedAt: auditSeals.sealedAt })
     .from(auditSeals)
     .where(isNull(auditSeals.pushedAt))
     .orderBy(asc(auditSeals.seq));
-  const copyable = (seal: string) =>
-    verifyAuditSeal({ seal, trustedKeys: [current.key], log: current.log }).ok;
-  const oldest = uncopied.find((row) => copyable(row.seal));
+  const bad = verdicts.notCopyable();
+  const oldest = uncopied.find((row) => !bad.has(row.seq));
   return {
     sealedThrough: sealed?.seq ?? 0,
     copiedThrough: copied?.seq ?? 0,
     oldestUncopiedSealedAt: oldest?.sealedAt.toISOString() ?? null,
-    notCopyable: uncopied.filter((row) => !copyable(row.seal)).map((row) => row.seq),
+    notCopyable: uncopied.filter((row) => bad.has(row.seq)).map((row) => row.seq),
   };
 }

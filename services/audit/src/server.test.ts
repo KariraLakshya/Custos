@@ -625,7 +625,12 @@ describe("seals copied outside the audit database (ADR 0017 part 2a)", () => {
     });
     expect((await append(app, "b")).statusCode).toBe(201);
     expect((await app.auditLedger.sealOnce()).ok).toBe(true);
-    expect(await status(app)).toMatchObject({ copiedThrough: 0, lastCopyError: "ECONNREFUSED" });
+    expect(await status(app)).toMatchObject({
+      copiedThrough: 0,
+      lastCopyError: { code: "COPY_FAILED" },
+    });
+    // The open status route shows a code, never the store's own error text.
+    expect(JSON.stringify(await status(app))).not.toContain("ECONNREFUSED");
     expect((await status(app)).oldestUncopiedSealedAt).not.toBeNull();
 
     up = true;
@@ -695,7 +700,7 @@ describe("seals copied outside the audit database (ADR 0017 part 2a)", () => {
     await rebuilt.auditLedger.sealOnce();
     expect(await rebuilt.auditLedger.copyOnce()).toMatchObject({
       ok: false,
-      error: { code: "COPY_FAILED", reason: expect.stringMatching(/different seal/) },
+      error: { code: "SEAL_CONFLICT", reason: expect.stringMatching(/different seal/) },
     });
     expect(await auditor.list(log, 1)).toEqual([original]);
   });

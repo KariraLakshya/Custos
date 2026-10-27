@@ -263,12 +263,20 @@ export function verifyAuditLedger(params: {
   }
 
   let newestSeal: AuditSeal | undefined;
+  // A seal by an untrusted key is set aside, not returned at once: the other
+  // seals are still checked, so a log rewritten and sealed under a new key is
+  // reported as rewritten (DIVERGED, TRUNCATED) rather than as a key change.
+  let untrusted: VerifyAuditSealError | undefined;
   for (const sealEnvelope of params.seals) {
     const verified = verifyAuditSeal({
       seal: sealEnvelope,
       trustedKeys: params.trustedKeys,
       log: params.log,
     });
+    if (!verified.ok && verified.error.code === "UNTRUSTED_KEY") {
+      untrusted ??= verified.error;
+      continue;
+    }
     if (!verified.ok) return err({ code: "SEAL_INVALID", error: verified.error });
     const seal = verified.value;
     const atSeal = hashes[seal.seq - 1];
@@ -278,6 +286,8 @@ export function verifyAuditLedger(params: {
     if (atSeal !== seal.headHash) return err({ code: "DIVERGED", seq: seal.seq });
     if (newestSeal === undefined || seal.seq > newestSeal.seq) newestSeal = seal;
   }
+
+  if (untrusted !== undefined) return err({ code: "SEAL_INVALID", error: untrusted });
 
   return ok({
     records,

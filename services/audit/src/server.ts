@@ -12,6 +12,7 @@ import { appendAuditRecord, chainUnchainedRecords } from "./records/append.js";
 import { listAuditEntries } from "./records/list.js";
 import {
   copySeals,
+  createCopyVerdicts,
   latestSeal,
   sealOnce,
   sealStatus,
@@ -86,7 +87,9 @@ export async function buildServer(options: {
 
   const seal = () =>
     sealOnce({ db, signer, log: didDocument.id, key: currentKey, now: clock.now() });
-  let lastCopyError: string | null = null;
+  const verdicts = createCopyVerdicts({ log: didDocument.id, key: currentKey });
+  // A code only: the reason can name the seal server's host, and this route is open.
+  let lastCopyError: { readonly code: CopyError["code"] } | null = null;
   const copy = async (): Promise<Result<number, CopyError>> => {
     if (options.sealStore === undefined) {
       return { ok: false, error: { code: "COPY_FAILED", reason: "no seal store configured" } };
@@ -95,10 +98,10 @@ export async function buildServer(options: {
       db,
       store: options.sealStore,
       log: didDocument.id,
-      key: currentKey,
+      verdicts,
       now: clock.now(),
     });
-    lastCopyError = result.ok ? null : result.error.reason;
+    lastCopyError = result.ok ? null : { code: result.error.code };
     return result;
   };
   app.decorate("auditLedger", { sealOnce: seal, copyOnce: copy });
@@ -131,7 +134,7 @@ export async function buildServer(options: {
   // How far sealing and copying have got (ADR 0017 part 2a). The newest
   // entries are only as safe as the newest copy, so the lag is shown here.
   app.get("/seals/status", async () => ({
-    ...(await sealStatus(db, { log: didDocument.id, key: currentKey })),
+    ...(await sealStatus(db, verdicts)),
     sealStore: options.sealStore === undefined ? "not configured" : "configured",
     lastCopyError,
   }));

@@ -88,6 +88,12 @@ The audit service seals its ledger with its own key, generated from a seed (ADR 
 export AUDIT_SEAL_STORE_URL=postgres://custos_sealer:custos_sealer@localhost:5434/custos_seals
 ```
 
+```powershell
+$env:AUDIT_SEAL_STORE_URL = "postgres://custos_sealer:custos_sealer@localhost:5434/custos_seals"
+```
+
+Reset the main database and the seal server **together** (`pnpm dev:down`, then remove both Docker volumes). A fresh audit log next to old seal copies starts again at entry 1, and its first copy clashes with the old one: copying stops and every check fails.
+
 ```bash
 # bash / zsh: audit's terminal
 export AUDIT_SIGNING_SEED=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
@@ -256,6 +262,10 @@ To also check the copies on the separate seal server, which someone who changes 
 
 ```bash
 export CUSTOS_AUDIT_SEAL_STORE_URL=postgres://custos_auditor:custos_auditor@localhost:5434/custos_seals
+```
+
+```powershell
+$env:CUSTOS_AUDIT_SEAL_STORE_URL = "postgres://custos_auditor:custos_auditor@localhost:5434/custos_seals"
 ```
 
 Without it, `audit-log` says `"outsideSealsChecked": false` and prints a note.
