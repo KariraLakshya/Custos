@@ -6,6 +6,22 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-27 — Seals copied to a separate server, and a key-change bug fixed
+
+**Commits:** `45ded6c` (the separate seal server), `fa7f1cd` (key changes, and the bug fix), plus documentation. On branch `feat/audit-seal-store`; **not yet pushed**. Part 1 (pull request #111) was merged today.
+
+**What changed, in plain words:**
+
+- **A second, separate stamp book.** Every seal is now also copied to its own database server, which the audit service can only add to: it cannot change or delete anything there, and even the server's owner gets an error if they try. So someone who breaks into the main database and deletes the newest audit lines together with their seals is still caught: the copies say "there were 116 lines", and the log now has 113. You chose this as the step before Amazon's write-once storage.
+- **A bug found while testing it, now fixed.** Every `pnpm demo` restart gives the audit service a new stamp. The checker refused anything stamped with an earlier one, so after a second demo run `custos audit-log` failed every time, on a log nobody had touched. This was already on the main version since part 1.
+- **The fix (your choice: proper key rotation).** Each seal now says which stamp made it. The checker remembers every stamp it has trusted. When a new one appears, it stops and shows it, and you approve it once after checking it against the key the demo prints. Old seals are still checked against their old stamp, so a new stamp can't be used to wipe out history.
+
+**How we know it works:** the automatic tests cover the copying, the seal server being down (nothing is blocked, and it catches up afterwards), and the checker failing safe while the server is unreachable. They also cover the deleted-newest-lines case, a forged seal under a new stamp, and every way the audit service might try to delete or change copies. Live today across two demo runs with the real seal server: the first run verified; after the restart the checker stopped with "key changed" and showed exactly the key the demo printed; once approved it verified; deleting the newest three lines and every seal from the main database was caught from the copies, and went unnoticed without them; after restoring, it verified again.
+
+**What is still not covered:** the seal server's own administrator could delete copies. Amazon's write-once storage (part 2b) removes that, and needs your go-ahead for its live test. The very newest lines (up to about 10 seconds' worth) are not yet sealed at any given moment.
+
+_Why it matters:_ the audit trail can now prove nobody quietly deleted its latest records, unless they also break into a second, separate server. And restarting the system no longer makes an honest log look broken.
+
 ## 2026-10-27 — The audit log becomes a sealed ledger (part 1 of 2)
 
 **Commits:** `b0b31c3` (the ledger's rules), `4f9a6c9` (the audit service keeping it), `c1ad318` (the command-line check, the dashboard and the demos), plus documentation. Pushed on 27 October to branch `feat/audit-ledger`; pull request #111 is open, not yet merged. A later fix (`2b666be`) closed a timing gap a review found, where a busy but honest log could briefly look shortened. Pull request #110 (the Amazon-held revocation key) was merged on 25 October.
