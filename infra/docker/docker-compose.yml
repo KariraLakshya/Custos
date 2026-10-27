@@ -52,7 +52,7 @@ services:
   # Image digest must match infra/mtls/images.json.
   envoy:
     profiles: ["mtls"]
-    image: envoyproxy/envoy:v1.35-latest@sha256:a707c3821b4cecb5db43d8e86e983e0f57b81010fefbabc01feeb071fb8cc08e
+    image: envoyproxy/envoy:v1.36-latest@sha256:93e25ef06d87a908a1114e8dff9a2b3a3046fbbfda7e644d448d752332633de6
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
     # Docker Desktop: uid 101 owns Envoy's keys. Linux: the generator gives
     # them to you, so set CUSTOS_ENVOY_USER=$(id -u):$(id -g).
