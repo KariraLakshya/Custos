@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-27 — Seals copied to a separate server, and a key-change bug fixed
 
-**Commits:** `45ded6c` (the separate seal server), `fa7f1cd` (key changes, and the bug fix), plus documentation. On branch `feat/audit-seal-store`; **not yet pushed**. Part 1 (pull request #111) was merged today.
+**Commits:** `45ded6c` (the separate seal server), `fa7f1cd` (key changes, and the bug fix), `449cb14` (fixes from the final review), plus documentation. Pushed 2026-10-28 as **pull request #112**, waiting for your merge. Part 1 (pull request #111) was merged today.
 
 **What changed, in plain words:**
 
