@@ -1,0 +1,1 @@
+ALTER TABLE "audit_seals" ADD COLUMN "pushed_at" timestamp with time zone;

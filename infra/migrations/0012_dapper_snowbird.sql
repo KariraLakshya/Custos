@@ -1,0 +1,1 @@
+ALTER TABLE "audit_seals" ADD COLUMN "signing_key" text;

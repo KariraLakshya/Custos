@@ -72,3 +72,17 @@ describe("audit env: signing key and sealing (ADR 0017)", () => {
     );
   });
 });
+
+describe("audit env: seal store (ADR 0017 part 2a)", () => {
+  it("is off by default", () => {
+    expect(loadAuditEnv(SEED).AUDIT_SEAL_STORE_URL).toBeUndefined();
+  });
+
+  it("reads a Postgres URL, and refuses one that is not a URL", () => {
+    const url = "postgres://custos_sealer:secret@localhost:5434/custos_seals";
+    expect(loadAuditEnv({ ...SEED, AUDIT_SEAL_STORE_URL: url }).AUDIT_SEAL_STORE_URL).toBe(url);
+    expect(() => loadAuditEnv({ ...SEED, AUDIT_SEAL_STORE_URL: "not a url" })).toThrow(
+      /AUDIT_SEAL_STORE_URL/,
+    );
+  });
+});

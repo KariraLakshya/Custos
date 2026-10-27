@@ -1,5 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { verify } from "../crypto/ed25519.js";
+import { multibaseToPublicKey } from "../did/did-web.js";
 import { err, ok, type Result } from "../result.js";
 import { isAuditRecord, type AuditRecord } from "./record.js";
 
@@ -14,7 +15,8 @@ const ENTRY_DOMAIN = new TextEncoder().encode("custos.audit.entry.v1\u0000");
 /** `prevHash` of entry 1: 32 zero bytes. */
 export const AUDIT_GENESIS_HASH = "0".repeat(64);
 
-export const AUDIT_SEAL_TYPE = "custos-audit-seal+v1";
+// v2 names the key that signed it (ADR 0017, key rotation); v1 seals are refused.
+export const AUDIT_SEAL_TYPE = "custos-audit-seal+v2";
 
 /**
  * An entry as served. `payload` is the record exactly as it was stored at
@@ -34,6 +36,13 @@ export interface AuditSeal {
   readonly log: string;
   readonly seq: number;
   readonly headHash: string;
+  /**
+   * The signing key's public half, multibase (the form a did:web document
+   * publishes). Verified against itself first, then required to be one the
+   * verifier already trusts: the DID document is served by the audit service
+   * and is no source of key history.
+   */
+  readonly key: string;
   readonly sealedAt: string;
 }
 
@@ -47,7 +56,9 @@ export type IssueAuditSealError = { readonly code: "SIGNING_FAILED"; readonly re
 export type VerifyAuditSealError =
   | { readonly code: "MALFORMED_SEAL"; readonly reason: string }
   | { readonly code: "WRONG_LOG" }
-  | { readonly code: "SIGNATURE_INVALID" };
+  | { readonly code: "SIGNATURE_INVALID" }
+  /** A genuine seal by a key the verifier has not accepted: a person must check it once. */
+  | { readonly code: "UNTRUSTED_KEY"; readonly key: string };
 
 export type VerifyAuditLedgerError =
   | { readonly code: "MALFORMED_ENTRY"; readonly index: number; readonly reason: string }
@@ -146,14 +157,21 @@ function isAuditSeal(value: unknown): value is AuditSeal {
     isSeq(seal.seq) &&
     typeof seal.headHash === "string" &&
     HEX_32_BYTES.test(seal.headHash) &&
+    typeof seal.key === "string" &&
     typeof seal.sealedAt === "string"
   );
 }
 
-/** Verifies one seal locally against the audit service's key; it must name `log`. */
+/**
+ * Verifies one seal locally (ADR 0017): its signature under the key it names,
+ * then that key is one of `trustedKeys` (multibase), then it names `log`. The
+ * order matters: a forged seal is `SIGNATURE_INVALID`, so `UNTRUSTED_KEY` only
+ * ever reports a key that really signed, and nothing is learnt from `WRONG_LOG`
+ * without a valid signature.
+ */
 export function verifyAuditSeal(params: {
   readonly seal: string;
-  readonly publicKey: Uint8Array;
+  readonly trustedKeys: readonly string[];
   readonly log: string;
 }): Result<AuditSeal, VerifyAuditSealError> {
   const parts = params.seal.split(".");
@@ -170,10 +188,16 @@ export function verifyAuditSeal(params: {
   if (!isAuditSeal(claims)) {
     return err({ code: "MALFORMED_SEAL", reason: "seal missing required fields" });
   }
-  // The signature first: a forged seal must not learn anything from a WRONG_LOG answer.
+  const publicKey = multibaseToPublicKey(claims.key);
+  if (!publicKey.ok) {
+    return err({ code: "MALFORMED_SEAL", reason: "key is not an Ed25519 multibase key" });
+  }
   const signature = Buffer.from(encodedSignature, "base64url");
-  if (!verify(signature, Buffer.from(encoded, "utf8"), params.publicKey)) {
+  if (!verify(signature, Buffer.from(encoded, "utf8"), publicKey.value)) {
     return err({ code: "SIGNATURE_INVALID" });
+  }
+  if (!params.trustedKeys.includes(claims.key)) {
+    return err({ code: "UNTRUSTED_KEY", key: claims.key });
   }
   if (claims.log !== params.log) return err({ code: "WRONG_LOG" });
   return ok(claims);
@@ -188,11 +212,15 @@ export function verifyAuditSeal(params: {
  * together with any the caller already trusts (one remembered from an earlier
  * check, or one read from outside the database): a log shortened or rebuilt
  * after those were made fails against them.
+ *
+ * `trustedKeys` are every key the caller has accepted for this log, old ones
+ * included: after a rotation, seals made under the old key are still checked
+ * under it. Required, with no default, so trust is always the caller's choice.
  */
 export function verifyAuditLedger(params: {
   readonly entries: readonly unknown[];
   readonly seals: readonly string[];
-  readonly publicKey: Uint8Array;
+  readonly trustedKeys: readonly string[];
   readonly log: string;
 }): Result<VerifiedAuditLedger, VerifyAuditLedgerError> {
   const hashes: string[] = [];
@@ -235,12 +263,20 @@ export function verifyAuditLedger(params: {
   }
 
   let newestSeal: AuditSeal | undefined;
+  // A seal by an untrusted key is set aside, not returned at once: the other
+  // seals are still checked, so a log rewritten and sealed under a new key is
+  // reported as rewritten (DIVERGED, TRUNCATED) rather than as a key change.
+  let untrusted: VerifyAuditSealError | undefined;
   for (const sealEnvelope of params.seals) {
     const verified = verifyAuditSeal({
       seal: sealEnvelope,
-      publicKey: params.publicKey,
+      trustedKeys: params.trustedKeys,
       log: params.log,
     });
+    if (!verified.ok && verified.error.code === "UNTRUSTED_KEY") {
+      untrusted ??= verified.error;
+      continue;
+    }
     if (!verified.ok) return err({ code: "SEAL_INVALID", error: verified.error });
     const seal = verified.value;
     const atSeal = hashes[seal.seq - 1];
@@ -250,6 +286,8 @@ export function verifyAuditLedger(params: {
     if (atSeal !== seal.headHash) return err({ code: "DIVERGED", seq: seal.seq });
     if (newestSeal === undefined || seal.seq > newestSeal.seq) newestSeal = seal;
   }
+
+  if (untrusted !== undefined) return err({ code: "SEAL_INVALID", error: untrusted });
 
   return ok({
     records,

@@ -31,7 +31,13 @@ async function ledger(actions: readonly string[]) {
     return { seq: index + 1, payload, payloadHash };
   });
   const issued = await issueAuditSeal({
-    seal: { log: did.id, seq: actions.length, headHash: prevHash, sealedAt: "t" },
+    seal: {
+      log: did.id,
+      seq: actions.length,
+      headHash: prevHash,
+      key: did.verificationMethod[0].publicKeyMultibase,
+      sealedAt: "t",
+    },
     signer: { sign: async (data) => sign(data, keys.secretKey) },
   });
   if (!issued.ok) throw new Error("fixture");
@@ -132,6 +138,95 @@ describe("pullAuditLedger (ADR 0017)", () => {
     expect(await pullAuditLedger({ auditUrl: AUDIT_URL, fetch: failing })).toMatchObject({
       ok: false,
       error: { reason: "down" },
+    });
+  });
+
+  describe("outside seals (ADR 0017 part 2a)", () => {
+    it("reads them after the DID document and before the ledger, and checks against them", async () => {
+      const body = await ledger(["a", "b"]);
+      const { doFetch, asked } = fakeFetch(body);
+      const order: string[] = [];
+      const recordingFetch = (async (input: URL | string) => {
+        order.push(String(input).endsWith("did.json") ? "did" : "records");
+        return doFetch(input);
+      }) as typeof fetch;
+
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: recordingFetch,
+        outsideSeals: async (log) => {
+          order.push(`store:${log}`);
+          return [body.seal];
+        },
+      });
+
+      expect(order).toEqual(["did", `store:${did.id}`, "records"]);
+      expect(asked).toHaveLength(2);
+      expect(result).toMatchObject({ ok: true, value: { outsideSealCount: 1 } });
+    });
+
+    it("fails closed when the seal store cannot be read, never fetching the ledger", async () => {
+      const body = await ledger(["a"]);
+      const { doFetch, asked } = fakeFetch(body);
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: doFetch,
+        outsideSeals: () => Promise.reject(new Error("ECONNREFUSED 5434")),
+      });
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "SEAL_STORE_UNREACHABLE", reason: "ECONNREFUSED 5434" },
+      });
+      expect(asked).toHaveLength(1);
+    });
+
+    it("reports a log shortened since an outside seal was copied", async () => {
+      const body = await ledger(["a", "b"]);
+      const { doFetch } = fakeFetch({ entries: body.entries.slice(0, 1), seal: null });
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: doFetch,
+        outsideSeals: async () => [body.seal],
+      });
+      expect(result).toEqual({ ok: false, error: { code: "TRUNCATED", sealSeq: 2, headSeq: 1 } });
+    });
+
+    it("answers BAD_RESPONSE for a DID document without an id", async () => {
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: fakeFetch({}, { didBody: { verificationMethod: [] } }).doFetch,
+        outsideSeals: async () => [],
+      });
+      expect(result).toMatchObject({ ok: false, error: { code: "BAD_RESPONSE" } });
+    });
+  });
+
+  describe("trusted keys (ADR 0017, key rotation)", () => {
+    it("trusts only the published key by default, and returns it", async () => {
+      const body = await ledger(["a"]);
+      const result = await pullAuditLedger({ auditUrl: AUDIT_URL, fetch: fakeFetch(body).doFetch });
+      expect(result).toMatchObject({
+        ok: true,
+        value: { publishedKey: did.verificationMethod[0].publicKeyMultibase },
+      });
+    });
+
+    it("uses the caller's keys instead: a seal by a key the caller has not pinned is refused", async () => {
+      const body = await ledger(["a"]);
+      const asked: string[] = [];
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: fakeFetch(body).doFetch,
+        trustedKeys: (log, published) => {
+          asked.push(log, published);
+          return ["z6MkSomeOtherPinnedKey"];
+        },
+      });
+      expect(asked).toEqual([did.id, did.verificationMethod[0].publicKeyMultibase]);
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "SEAL_INVALID", error: { code: "UNTRUSTED_KEY" } },
+      });
     });
   });
 });

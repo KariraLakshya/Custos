@@ -160,6 +160,8 @@ describe("custos-admin demo", () => {
         "AUDIT_SIGNING_SEED",
       ]);
       expect(envOf("audit")["AUDIT_SIGNING_SEED"]).toMatch(/^[0-9a-f]{64}$/);
+      // ADR 0017 part 2a: the audit service copies seals as the insert-only role.
+      expect(envOf("audit")["AUDIT_SEAL_STORE_URL"]).toMatch(/^postgres:\/\/custos_sealer:/);
       expect(envOf("revocation")).not.toHaveProperty("AUDIT_SIGNING_SEED");
       expect(envOf("revocation")).toHaveProperty("REVOCATION_SIGNING_SEED");
       expect(envOf("revocation")).toHaveProperty("REVOCATION_SERVICE_KEY");
@@ -272,6 +274,8 @@ describe("custos-admin demo", () => {
         }
       }
       expect(printed).toMatch(/CUSTOS_OPERATOR_KEY=custos_operator_/);
+      // ADR 0017, key rotation: the audit seal key's public half, to check --accept-key against.
+      expect(printed).toMatch(/audit seal key {2}z6Mk\w+/);
       await handle.stop();
     });
   });

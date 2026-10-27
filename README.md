@@ -82,7 +82,17 @@ Custos is four small services plus a dashboard. Open **five terminals** at the r
 
 Revocation, identity and the vault each need their service key from step 1: they use it to write to the audit log, so every admin action is recorded with who did it. **Paste that service key line into the terminal first**, then start the service. A service started with a missing, revoked or wrongly scoped service key refuses to start.
 
-The audit service seals its ledger with its own key, generated from a seed (ADR 0017). Keep the seed: seals made before a restart must still verify after it.
+The audit service seals its ledger with its own key, generated from a seed (ADR 0017). Keep the seed: a new seed is a new key, and `custos audit-log` will ask you to accept it once (see step 4). Seals are also copied to a separate seal server, started by `pnpm dev` on port 5434; point the audit service at it as its insert-only user:
+
+```bash
+export AUDIT_SEAL_STORE_URL=postgres://custos_sealer:custos_sealer@localhost:5434/custos_seals
+```
+
+```powershell
+$env:AUDIT_SEAL_STORE_URL = "postgres://custos_sealer:custos_sealer@localhost:5434/custos_seals"
+```
+
+Reset the main database and the seal server **together** (`pnpm dev:down`, then remove both Docker volumes). A fresh audit log next to old seal copies starts again at entry 1, and its first copy clashes with the old one: copying stops and every check fails.
 
 ```bash
 # bash / zsh: audit's terminal
@@ -247,6 +257,26 @@ custos audit-log
 Your own admin actions are in it too: registering the agent, granting the tool, storing the passwords and revoking the agent each appear with a `principal` naming the key that did it (`dev-operator`), alongside the agent's own actions.
 
 Pass an agent's DID (the `"did"` from registration) to see just that agent: `custos audit-log <did>`. Entries from the last few seconds show as `unsealedCount` until the next seal. Each entry also names the service that reported it (`reportedBy`).
+
+To also check the copies on the separate seal server, which someone who changes the audit database can't delete, give the CLI its read-only user. It is read from the environment only, because it contains a password:
+
+```bash
+export CUSTOS_AUDIT_SEAL_STORE_URL=postgres://custos_auditor:custos_auditor@localhost:5434/custos_seals
+```
+
+```powershell
+$env:CUSTOS_AUDIT_SEAL_STORE_URL = "postgres://custos_auditor:custos_auditor@localhost:5434/custos_seals"
+```
+
+Without it, `audit-log` says `"outsideSealsChecked": false` and prints a note.
+
+**After a restart with a new audit key** (every `pnpm demo` run, unless `AUDIT_SIGNING_SEED` stays set), `audit-log` stops with `KEY_CHANGED` and shows the new key. Check it against the `audit seal key` line `pnpm demo` printed (never against the audit service's own `/.well-known/did.json`, which the service controls), then accept it once:
+
+```bash
+custos audit-log --accept-key <the key it showed>
+```
+
+The keys you have accepted are kept in `~/.custos/audit-seal.json`, and seals made under each are still checked.
 
 ### 5. Do the same from code with the SDK
 

@@ -1,4 +1,5 @@
 import type { ApiKeyStore } from "@custos/control-plane-auth";
+import { createLocalKeyProvider, publicKeyToMultibase } from "@custos/core";
 import { DEV_KEYS } from "./admin.js";
 
 /** A started process, as much of it as the demo needs. */
@@ -66,6 +67,12 @@ const SERVICES: readonly ServiceSpec[] = [
 type Secrets = Readonly<Record<string, string>>;
 
 /** Only the settings that service reads, never another service's secret. */
+// The dev seal store's roles (infra/seal-store/roles.dev.sql): local-only passwords.
+const DEV_SEAL_STORE_SEALER_URL =
+  "postgres://custos_sealer:custos_sealer@localhost:5434/custos_seals";
+const DEV_SEAL_STORE_AUDITOR_URL =
+  "postgres://custos_auditor:custos_auditor@localhost:5434/custos_seals";
+
 function ownSettings(service: string, keys: Secrets, seeds: Secrets): Record<string, string> {
   switch (service) {
     case "revocation":
@@ -84,7 +91,11 @@ function ownSettings(service: string, keys: Secrets, seeds: Secrets): Record<str
         VAULT_MASTER_KEY: seeds["VAULT_MASTER_KEY"]!,
       };
     case "audit":
-      return { AUDIT_SIGNING_SEED: seeds["AUDIT_SIGNING_SEED"]! };
+      return {
+        AUDIT_SIGNING_SEED: seeds["AUDIT_SIGNING_SEED"]!,
+        // The dev seal store from `pnpm dev` (ADR 0017 part 2a), as its insert-only role.
+        AUDIT_SEAL_STORE_URL: DEV_SEAL_STORE_SEALER_URL,
+      };
     default:
       return {};
   }
@@ -265,11 +276,24 @@ export async function startDemo(deps: DemoDeps): Promise<DemoHandle> {
     throw error;
   }
 
-  printBanner(deps, keys["CUSTOS_OPERATOR_KEY"]!);
+  printBanner(deps, keys["CUSTOS_OPERATOR_KEY"]!, await auditSealKey(seeds["AUDIT_SIGNING_SEED"]!));
   return { finished, stop, kill };
 }
 
-function printBanner(deps: DemoDeps, operatorKey: string): void {
+/**
+ * The public half of the audit service's seal key, multibase (ADR 0017, key
+ * rotation): printed so a person can check what `custos audit-log` asks them
+ * to accept against something the audit service does not control. The seed
+ * itself is never printed.
+ */
+async function auditSealKey(seedHex: string): Promise<string> {
+  const provider = createLocalKeyProvider({
+    importedKeys: { audit: Buffer.from(seedHex, "hex") },
+  });
+  return publicKeyToMultibase(await provider.getPublicKey("audit"));
+}
+
+function printBanner(deps: DemoDeps, operatorKey: string, auditKey: string): void {
   const lines = [
     "",
     "Custos demo is running.",
@@ -279,6 +303,9 @@ function printBanner(deps: DemoDeps, operatorKey: string): void {
     "  vault       http://localhost:4002",
     "  revocation  http://localhost:4003",
     "  audit       http://localhost:4004",
+    "",
+    `  audit seal key  ${auditKey}`,
+    "  (custos audit-log asks you to accept this key the first time it sees it after a restart)",
     "",
     "Tools mock-database and mock-slack are stored. In a NEW terminal, in an EMPTY directory",
     "(register won't overwrite an agent.key from an earlier run), set your operator key:",
@@ -290,6 +317,11 @@ function printBanner(deps: DemoDeps, operatorKey: string): void {
     "",
     `  bash / zsh   alias custos="node ${deps.repoRoot}/apps/cli/dist/bin.js"`,
     `  PowerShell   function custos { node "${deps.repoRoot}/apps/cli/dist/bin.js" @args }`,
+    "",
+    "For `custos audit-log` to also check the seals copied to the separate seal store:",
+    "",
+    `  bash / zsh   export CUSTOS_AUDIT_SEAL_STORE_URL=${DEV_SEAL_STORE_AUDITOR_URL}`,
+    `  PowerShell   $env:CUSTOS_AUDIT_SEAL_STORE_URL = "${DEV_SEAL_STORE_AUDITOR_URL}"`,
     "",
     "Each demo run uses new keys, so credentials from an earlier run no longer verify,",
     "unless IDENTITY_ISSUER_SEED, REVOCATION_SIGNING_SEED and VAULT_MASTER_KEY were set first",

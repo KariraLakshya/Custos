@@ -10,14 +10,27 @@ import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { appendAuditRecord, chainUnchainedRecords } from "./records/append.js";
 import { listAuditEntries } from "./records/list.js";
-import { latestSeal, sealOnce, type SealError } from "./records/seal.js";
+import {
+  copySeals,
+  createCopyVerdicts,
+  latestSeal,
+  sealOnce,
+  sealStatus,
+  type CopyError,
+  type SealError,
+} from "./records/seal.js";
 import type { AuditDb } from "./db/client.js";
+import type { SealStore } from "@custos/audit-client";
 import type { Result } from "@custos/contracts";
 
 declare module "fastify" {
   interface FastifyInstance {
-    /** Seals the head now, if it moved (ADR 0017 §2); the timer calls the same. */
-    auditLedger: { sealOnce(): Promise<Result<number | null, SealError>> };
+    auditLedger: {
+      /** Seals the head now, if it moved (ADR 0017 §2); the timer calls the same. */
+      sealOnce(): Promise<Result<number | null, SealError>>;
+      /** Copies uncopied seals to the seal store (part 2a); an error without one. */
+      copyOnce(): Promise<Result<number, CopyError>>;
+    };
   }
 }
 
@@ -45,8 +58,13 @@ export async function buildServer(options: {
   readonly serverFactory?: EnvoyOnlyTlsListener["serverFactory"];
   readonly didDomain?: string;
   readonly signingKey: { readonly keyProvider: KeyProvider; readonly keyId: string };
-  /** Seal on this interval. Unset (tests): only `app.auditLedger.sealOnce()` seals. */
+  /** Seal (and copy) on this interval. Unset (tests): only `app.auditLedger` calls do. */
   readonly sealIntervalMs?: number;
+  /**
+   * Where seals are copied outside this database (ADR 0017 part 2a). Unset:
+   * nothing is copied, and `GET /seals/status` says so.
+   */
+  readonly sealStore?: SealStore;
   readonly clock?: { now(): Date };
 }): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({
@@ -63,26 +81,63 @@ export async function buildServer(options: {
     publicKey: await keyProvider.getPublicKey(keyId),
   });
   const signer = { sign: (data: Uint8Array) => keyProvider.sign(keyId, data) };
+  const currentKey = didDocument.verificationMethod[0].publicKeyMultibase;
   // Rows from before the ledger, chained once, before anything is appended.
   await chainUnchainedRecords(db);
 
-  const seal = () => sealOnce({ db, signer, log: didDocument.id, now: clock.now() });
-  app.decorate("auditLedger", { sealOnce: seal });
+  const seal = () =>
+    sealOnce({ db, signer, log: didDocument.id, key: currentKey, now: clock.now() });
+  const verdicts = createCopyVerdicts({ log: didDocument.id, key: currentKey });
+  // A code only: the reason can name the seal server's host, and this route is open.
+  let lastCopyError: { readonly code: CopyError["code"] } | null = null;
+  const copy = async (): Promise<Result<number, CopyError>> => {
+    if (options.sealStore === undefined) {
+      return { ok: false, error: { code: "COPY_FAILED", reason: "no seal store configured" } };
+    }
+    const result = await copySeals({
+      db,
+      store: options.sealStore,
+      log: didDocument.id,
+      verdicts,
+      now: clock.now(),
+    });
+    lastCopyError = result.ok ? null : { code: result.error.code };
+    return result;
+  };
+  app.decorate("auditLedger", { sealOnce: seal, copyOnce: copy });
   if (options.sealIntervalMs !== undefined) {
+    let running = false;
     const timer = setInterval(() => {
-      // A failure (KMS unreachable) skips this tick; appends never wait on it.
-      void seal().then(
-        (result) => {
-          if (!result.ok) app.log.warn({ code: result.error.code }, "audit seal failed");
-        },
-        (error: unknown) => app.log.error({ err: error }, "audit seal failed"),
-      );
+      // One tick at a time. A failure (KMS or the seal store unreachable)
+      // skips this tick; appends never wait on either.
+      if (running) return;
+      running = true;
+      void (async () => {
+        const sealed = await seal();
+        if (!sealed.ok) app.log.warn({ code: sealed.error.code }, "audit seal failed");
+        if (options.sealStore !== undefined) {
+          const copied = await copy();
+          if (!copied.ok) app.log.warn({ code: copied.error.code }, "audit seal copy failed");
+        }
+      })()
+        .catch((error: unknown) => app.log.error({ err: error }, "audit seal tick failed"))
+        .finally(() => {
+          running = false;
+        });
     }, options.sealIntervalMs);
     timer.unref();
     app.addHook("onClose", async () => clearInterval(timer));
   }
 
   app.get("/health", async () => ({ status: "ok", service: "audit" }));
+
+  // How far sealing and copying have got (ADR 0017 part 2a). The newest
+  // entries are only as safe as the newest copy, so the lag is shown here.
+  app.get("/seals/status", async () => ({
+    ...(await sealStatus(db, verdicts)),
+    sealStore: options.sealStore === undefined ? "not configured" : "configured",
+    lastCopyError,
+  }));
 
   // The key every seal is verified against.
   app.get("/.well-known/did.json", async () => didDocument);
@@ -122,7 +177,7 @@ export async function buildServer(options: {
     // committed and the log only grows, so entries read afterwards always
     // include the sealed one. The other order lets a seal made between the two
     // reads cover an entry the response lacks, which reads as TRUNCATED.
-    const seal = await latestSeal(db);
+    const seal = await latestSeal(db, currentKey);
     const entries = await listAuditEntries({ db, agentDid: query.agentId });
     return { entries, seal };
   });

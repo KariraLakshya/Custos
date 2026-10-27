@@ -3,6 +3,7 @@
 // history of) the shared dev database. Opt in per package through
 // `createVitestConfig({ test: { globalSetup: [hermeticDatabaseSetup] } })`.
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -18,6 +19,7 @@ const STALE_AFTER_MS = 60 * 60 * 1000;
 // Arbitrary constant shared by every run so that they contend for one lock.
 const SETUP_LOCK_ID = 7_283_501;
 const migrationsFolder = fileURLToPath(new URL("../../infra/migrations", import.meta.url));
+const sealStoreFolder = fileURLToPath(new URL("../../infra/seal-store", import.meta.url));
 
 let created: { name: string; adminUrl: string; previous: string | undefined } | undefined;
 
@@ -86,6 +88,50 @@ export async function createMigratedTestDatabase(adminUrl: string): Promise<{
     await pool.end();
   }
   return { name, url };
+}
+
+/**
+ * A fresh database set up as an audit seal store (ADR 0017 part 2a), with
+ * exactly the SQL a real one gets (`infra/seal-store`), owned by the admin
+ * role in `adminUrl`. Returns URLs for the admin, the insert-only
+ * `custos_sealer` and the read-only `custos_auditor`. The roles are
+ * server-wide and shared by every run (created if missing, under the setup
+ * lock); drop the database with `dropTestDatabase`.
+ */
+export async function createSealStoreTestDatabase(adminUrl: string): Promise<{
+  readonly name: string;
+  readonly url: string;
+  readonly sealerUrl: string;
+  readonly auditorUrl: string;
+}> {
+  const name = testDatabaseName(Date.now(), randomBytes(4).toString("hex"));
+  const roles = readFileSync(`${sealStoreFolder}/roles.dev.sql`, "utf8");
+  const schema = readFileSync(`${sealStoreFolder}/schema.sql`, "utf8");
+  const admin = new pg.Client({ connectionString: adminUrl });
+  await admin.connect();
+  try {
+    await admin.query("SELECT pg_advisory_lock($1)", [SETUP_LOCK_ID]);
+    await dropStale(admin, Date.now());
+    await admin.query(roles);
+    await admin.query(`CREATE DATABASE ${quoted(name)}`);
+  } finally {
+    await admin.end();
+  }
+  const url = withDatabase(adminUrl, name);
+  const owner = new pg.Client({ connectionString: url });
+  await owner.connect();
+  try {
+    await owner.query(schema);
+  } finally {
+    await owner.end();
+  }
+  const as = (user: string) => {
+    const next = new URL(url);
+    next.username = user;
+    next.password = user; // the dev-only passwords in roles.dev.sql
+    return next.toString();
+  };
+  return { name, url, sealerUrl: as("custos_sealer"), auditorUrl: as("custos_auditor") };
 }
 
 export async function dropTestDatabase(adminUrl: string, name: string): Promise<void> {
