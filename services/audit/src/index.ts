@@ -1,4 +1,4 @@
-import { createPostgresSealStore } from "@custos/audit-client";
+import { openSealStore } from "@custos/audit-client";
 import {
   createApiKeyStore,
   createControlPlaneGuard,
@@ -37,7 +37,8 @@ const app = await buildServer({
   sealIntervalMs: env.AUDIT_SEAL_INTERVAL_MS,
   ...(env.AUDIT_SEAL_STORE_URL === undefined
     ? {}
-    : { sealStore: createPostgresSealStore(env.AUDIT_SEAL_STORE_URL) }),
+    : // An S3 bucket that is not write-once stops the boot (ADR 0017 part 2b).
+      { sealStore: await openSealStore(env.AUDIT_SEAL_STORE_URL) }),
   ...(tls.value ? { serverFactory: tls.value.listener.serverFactory } : {}),
 });
 

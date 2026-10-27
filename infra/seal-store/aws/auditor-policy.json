@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListEverySealVersion",
+      "Effect": "Allow",
+      "Action": "s3:ListBucketVersions",
+      "Resource": "arn:aws:s3:::SEAL_BUCKET",
+      "Condition": { "StringLike": { "s3:prefix": "seals/*" } }
+    },
+    {
+      "Sid": "ReadEverySealVersion",
+      "Effect": "Allow",
+      "Action": "s3:GetObjectVersion",
+      "Resource": "arn:aws:s3:::SEAL_BUCKET/seals/*"
+    },
+    {
+      "Sid": "CheckTheBucketIsWriteOnce",
+      "Effect": "Allow",
+      "Action": "s3:GetBucketObjectLockConfiguration",
+      "Resource": "arn:aws:s3:::SEAL_BUCKET"
+    }
+  ]
+}

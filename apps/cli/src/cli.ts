@@ -1,7 +1,7 @@
 import { open, readFile, rm, writeFile } from "node:fs/promises";
 import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
-import { createPostgresSealStore } from "@custos/audit-client";
+import { openSealStore } from "@custos/audit-client";
 import { defaultSealFile, pullAuditLog, type AuditLogError } from "./audit-log.js";
 import { restrictToOwner } from "./key-file.js";
 import { defaultOperatorKeyFile, findOperatorKey, login } from "./login.js";
@@ -246,9 +246,10 @@ export function createCli(): Command {
     )
     .action(async (agentDid: string | undefined, opts: AuditLogOptions) => {
       // The seal store's address holds a password, so it comes from the
-      // environment only, never a flag (ADR 0017 part 2a).
+      // environment only, never a flag (ADR 0017 part 2a). postgres:// or
+      // s3://<bucket> (part 2b).
       const storeUrl = process.env.CUSTOS_AUDIT_SEAL_STORE_URL;
-      const sealStore = storeUrl ? createPostgresSealStore(storeUrl) : undefined;
+      const sealStore = storeUrl ? await openSealStore(storeUrl) : undefined;
       const result = await pullAuditLog({
         auditUrl: opts.auditUrl,
         sealFile: opts.sealFile,
