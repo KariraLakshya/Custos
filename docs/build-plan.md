@@ -164,9 +164,10 @@ Chosen by the founder on 2026-10-25 as the next work: the blocker ADR 0014 named
 Chosen by the founder on 2026-10-26: the audit trail is the evidence a DPDP auditor would be shown. Two pull requests, merged in order.
 
 - Part 1: a stable audit key (`local` or KMS); each entry linked to the one before by a hash; the head signed periodically ("seals"); the reporting service recorded in each entry; a verifier in `packages/core` used by `custos audit-log`
-- Part 2: every seal also written to a write-once store outside the database (S3 Object Lock in production, a local folder in development), and checked by the verifier
+- Part 2a (founder, 2026-10-27): every seal also copied to a separate Postgres server the audit service can only add to, and checked by the verifier
+- Part 2b (later): the same copy in S3 Object Lock, which nobody can delete during retention
 
-**DONE =** each proven by a test: an edited, reordered or deleted middle entry is detected; a log rebuilt and re-sealed with the same key is reported as `DIVERGED` against a seal the verifier already holds; deleting the newest sealed entries **and** the database's copy of their seal is detected from the outside store (`TRUNCATED`); concurrent appends never fork the chain; appends make no KMS call; the reporter in each entry is the authenticated caller; against real AWS, seals are written to an Object Lock bucket and cannot be overwritten.
+**DONE =** each proven by a test: an edited, reordered or deleted middle entry is detected; a log rebuilt and re-sealed with the same key is reported as `DIVERGED` against a seal the verifier already holds; concurrent appends never fork the chain; appends make no KMS call; the reporter in each entry is the authenticated caller (part 1, done). Part 2a: deleting the newest sealed entries **and** the database's copy of their seal is detected from the seal store (`TRUNCATED`); a log rebuilt and re-sealed with the same key, with the forged seal copied through the service's own role, is reported `DIVERGED`; the service's role cannot update, delete, truncate, drop or disable the triggers of the copies; an unreachable seal store blocks nothing and is caught up later, and the verifier fails closed while it is down. Part 2b: against real AWS, seals are written to an Object Lock bucket and cannot be overwritten or deleted.
 
 ---
 

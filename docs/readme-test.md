@@ -22,16 +22,16 @@ About 30–45 minutes, plus:
 
 You pass if you see all of these, in order:
 
-| Step | You should see                                                              |
-| ---- | --------------------------------------------------------------------------- |
-| 4    | `custos verify agent.json` prints `verified: credential is authentic`       |
-| 4    | The first `custos use mock-database …` prints `denied: POLICY_DENIED`       |
-| 4    | After `custos grant`, the same command returns Ada Lovelace and Alan Turing |
-| 4    | `custos use mock-slack …` prints `denied: POLICY_DENIED`                    |
-| 4    | `custos deprovision` shows `"delivered": 1`                                 |
-| 4    | `custos use mock-database …` then prints `denied: AGENT_REVOKED`            |
-| 4    | `custos audit-log` lists your actions and exits without an error            |
-| 2    | The dashboard at http://localhost:4005 shows the decisions as they happen   |
+| Step | You should see                                                                                                                                                                                                              |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4    | `custos verify agent.json` prints `verified: credential is authentic`                                                                                                                                                       |
+| 4    | The first `custos use mock-database …` prints `denied: POLICY_DENIED`                                                                                                                                                       |
+| 4    | After `custos grant`, the same command returns Ada Lovelace and Alan Turing                                                                                                                                                 |
+| 4    | `custos use mock-slack …` prints `denied: POLICY_DENIED`                                                                                                                                                                    |
+| 4    | `custos deprovision` shows `"delivered": 1`                                                                                                                                                                                 |
+| 4    | `custos use mock-database …` then prints `denied: AGENT_REVOKED`                                                                                                                                                            |
+| 4    | `custos audit-log` lists your actions and exits without an error (on a second demo run it first stops with `KEY_CHANGED`; accept the key the demo printed with `--accept-key`, and say whether the message made that clear) |
+| 2    | The dashboard at http://localhost:4005 shows the decisions as they happen                                                                                                                                                   |
 
 ## What to write down
 

@@ -31,7 +31,13 @@ async function ledger(actions: readonly string[]) {
     return { seq: index + 1, payload, payloadHash };
   });
   const issued = await issueAuditSeal({
-    seal: { log: did.id, seq: actions.length, headHash: prevHash, sealedAt: "t" },
+    seal: {
+      log: did.id,
+      seq: actions.length,
+      headHash: prevHash,
+      key: did.verificationMethod[0].publicKeyMultibase,
+      sealedAt: "t",
+    },
     signer: { sign: async (data) => sign(data, keys.secretKey) },
   });
   if (!issued.ok) throw new Error("fixture");
@@ -192,6 +198,35 @@ describe("pullAuditLedger (ADR 0017)", () => {
         outsideSeals: async () => [],
       });
       expect(result).toMatchObject({ ok: false, error: { code: "BAD_RESPONSE" } });
+    });
+  });
+
+  describe("trusted keys (ADR 0017, key rotation)", () => {
+    it("trusts only the published key by default, and returns it", async () => {
+      const body = await ledger(["a"]);
+      const result = await pullAuditLedger({ auditUrl: AUDIT_URL, fetch: fakeFetch(body).doFetch });
+      expect(result).toMatchObject({
+        ok: true,
+        value: { publishedKey: did.verificationMethod[0].publicKeyMultibase },
+      });
+    });
+
+    it("uses the caller's keys instead: a seal by a key the caller has not pinned is refused", async () => {
+      const body = await ledger(["a"]);
+      const asked: string[] = [];
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: fakeFetch(body).doFetch,
+        trustedKeys: (log, published) => {
+          asked.push(log, published);
+          return ["z6MkSomeOtherPinnedKey"];
+        },
+      });
+      expect(asked).toEqual([did.id, did.verificationMethod[0].publicKeyMultibase]);
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "SEAL_INVALID", error: { code: "UNTRUSTED_KEY" } },
+      });
     });
   });
 });

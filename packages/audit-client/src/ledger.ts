@@ -16,6 +16,8 @@ export type PullAuditLedgerError =
 export interface PulledAuditLedger extends VerifiedAuditLedger {
   /** The audit log's DID. */
   readonly log: string;
+  /** The key the audit service publishes now (multibase); not a source of trust by itself. */
+  readonly publishedKey: string;
   /** The seal the service served, to keep for the next check (ADR 0017 §5). */
   readonly servedSeal: string | null;
   /** How many seals from outside the database were checked; undefined when none were asked for. */
@@ -40,6 +42,13 @@ export async function pullAuditLedger(params: {
   readonly agentDid?: string;
   readonly heldSeals?: (log: string) => readonly string[];
   readonly outsideSeals?: (log: string) => Promise<readonly string[]>;
+  /**
+   * The keys trusted for this log (ADR 0017, key rotation). Default: only the
+   * key the service publishes now, which suits a check against the same
+   * running service. An auditor passes the keys it has pinned instead, since
+   * the service controls what it publishes.
+   */
+  readonly trustedKeys?: (log: string, publishedKey: string) => readonly string[];
   readonly fetch?: typeof fetch;
 }): Promise<{ ok: true; value: PulledAuditLedger } | { ok: false; error: PullAuditLedgerError }> {
   const doFetch = params.fetch ?? fetch;
@@ -84,6 +93,8 @@ export async function pullAuditLedger(params: {
   const multibase = didDocument?.verificationMethod?.[0]?.publicKeyMultibase;
   const key = typeof multibase === "string" ? multibaseToPublicKey(multibase) : undefined;
   if (key === undefined || !key.ok) return bad("DID document has no readable key");
+  // A readable key means `multibase` is that key's string.
+  const publishedKey = multibase as string;
   if (!Array.isArray(body.entries)) return bad("records: no entries");
   if (body.seal !== null && typeof body.seal !== "string") return bad("records: malformed seal");
 
@@ -95,7 +106,7 @@ export async function pullAuditLedger(params: {
       ...(params.heldSeals?.(didDocument.id) ?? []),
       ...(outside ?? []),
     ],
-    publicKey: key.value,
+    trustedKeys: params.trustedKeys?.(didDocument.id, publishedKey) ?? [publishedKey],
     log: didDocument.id,
   });
   if (!verified.ok) return verified;
@@ -104,6 +115,7 @@ export async function pullAuditLedger(params: {
     value: {
       ...verified.value,
       log: didDocument.id,
+      publishedKey,
       servedSeal,
       ...(outside === undefined ? {} : { outsideSealCount: outside.length }),
     },

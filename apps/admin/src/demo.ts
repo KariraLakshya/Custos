@@ -1,4 +1,5 @@
 import type { ApiKeyStore } from "@custos/control-plane-auth";
+import { createLocalKeyProvider, publicKeyToMultibase } from "@custos/core";
 import { DEV_KEYS } from "./admin.js";
 
 /** A started process, as much of it as the demo needs. */
@@ -275,11 +276,24 @@ export async function startDemo(deps: DemoDeps): Promise<DemoHandle> {
     throw error;
   }
 
-  printBanner(deps, keys["CUSTOS_OPERATOR_KEY"]!);
+  printBanner(deps, keys["CUSTOS_OPERATOR_KEY"]!, await auditSealKey(seeds["AUDIT_SIGNING_SEED"]!));
   return { finished, stop, kill };
 }
 
-function printBanner(deps: DemoDeps, operatorKey: string): void {
+/**
+ * The public half of the audit service's seal key, multibase (ADR 0017, key
+ * rotation): printed so a person can check what `custos audit-log` asks them
+ * to accept against something the audit service does not control. The seed
+ * itself is never printed.
+ */
+async function auditSealKey(seedHex: string): Promise<string> {
+  const provider = createLocalKeyProvider({
+    importedKeys: { audit: Buffer.from(seedHex, "hex") },
+  });
+  return publicKeyToMultibase(await provider.getPublicKey("audit"));
+}
+
+function printBanner(deps: DemoDeps, operatorKey: string, auditKey: string): void {
   const lines = [
     "",
     "Custos demo is running.",
@@ -289,6 +303,9 @@ function printBanner(deps: DemoDeps, operatorKey: string): void {
     "  vault       http://localhost:4002",
     "  revocation  http://localhost:4003",
     "  audit       http://localhost:4004",
+    "",
+    `  audit seal key  ${auditKey}`,
+    "  (custos audit-log asks you to accept this key the first time it sees it after a restart)",
     "",
     "Tools mock-database and mock-slack are stored. In a NEW terminal, in an EMPTY directory",
     "(register won't overwrite an agent.key from an earlier run), set your operator key:",

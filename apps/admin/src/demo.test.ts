@@ -274,6 +274,8 @@ describe("custos-admin demo", () => {
         }
       }
       expect(printed).toMatch(/CUSTOS_OPERATOR_KEY=custos_operator_/);
+      // ADR 0017, key rotation: the audit seal key's public half, to check --accept-key against.
+      expect(printed).toMatch(/audit seal key {2}z6Mk\w+/);
       await handle.stop();
     });
   });

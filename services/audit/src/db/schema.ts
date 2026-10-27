@@ -48,6 +48,9 @@ export const auditSeals = pgTable("audit_seals", {
   // The signed compact envelope, stored as signed: the key is stable.
   seal: text("seal").notNull(),
   sealedAt: timestamp("sealed_at", { withTimezone: true }).notNull(),
+  // The key that signed it, multibase (ADR 0017, key rotation); null on seals
+  // made before keys were named. Only seals by the current key are served or copied.
+  signingKey: text("signing_key"),
   // When the seal was copied to the seal store (ADR 0017 part 2a); null until then.
   pushedAt: timestamp("pushed_at", { withTimezone: true }),
 });

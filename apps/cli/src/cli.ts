@@ -2,10 +2,34 @@ import { open, readFile, rm, writeFile } from "node:fs/promises";
 import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
 import { createPostgresSealStore } from "@custos/audit-client";
-import { defaultSealFile, pullAuditLog } from "./audit-log.js";
+import { defaultSealFile, pullAuditLog, type AuditLogError } from "./audit-log.js";
 import { restrictToOwner } from "./key-file.js";
 import { defaultOperatorKeyFile, findOperatorKey, login } from "./login.js";
 import { loadCredentialFile, verifyCredentialIndependently } from "./verify.js";
+
+interface AuditLogOptions {
+  readonly auditUrl: string;
+  readonly sealFile: string;
+  readonly acceptKey?: string[];
+}
+
+/** The seal key a failed check is waiting on a person to accept, if that is why it failed. */
+function untrustedKeyOf(error: AuditLogError): string | undefined {
+  if (error.code === "KEY_CHANGED") return error.current;
+  if (error.code === "SEAL_INVALID" && error.error.code === "UNTRUSTED_KEY") return error.error.key;
+  return undefined;
+}
+
+/** What to do about a seal key this machine has not trusted (ADR 0017, key rotation). */
+function acceptKeyHelp(key: string): string {
+  return [
+    `the audit log is sealed with a key this machine has not trusted: ${key}`,
+    "Check it with whoever runs the audit service (`pnpm demo` prints its seal key at start).",
+    "Do not check it against the service's own DID document: the service controls that.",
+    `If it matches, run again with: --accept-key ${key}`,
+    "",
+  ].join("\n");
+}
 
 const DEFAULT_URLS: CustosConfig = {
   identityUrl: "http://localhost:4001",
@@ -213,7 +237,11 @@ export function createCli(): Command {
       "where the newest verified seal is remembered between checks",
       defaultSealFile(),
     )
-    .action(async (agentDid: string | undefined, opts: { auditUrl: string; sealFile: string }) => {
+    .option(
+      "--accept-key <key...>",
+      "a seal key you have checked with the audit service's operator (after KEY_CHANGED or UNTRUSTED_KEY)",
+    )
+    .action(async (agentDid: string | undefined, opts: AuditLogOptions) => {
       // The seal store's address holds a password, so it comes from the
       // environment only, never a flag (ADR 0017 part 2a).
       const storeUrl = process.env.CUSTOS_AUDIT_SEAL_STORE_URL;
@@ -223,12 +251,15 @@ export function createCli(): Command {
         sealFile: opts.sealFile,
         ...(agentDid === undefined ? {} : { agentDid }),
         ...(sealStore === undefined ? {} : { sealStore }),
+        ...(opts.acceptKey === undefined ? {} : { acceptKeys: opts.acceptKey }),
       }).finally(() => sealStore?.close());
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       if (!result.verified) {
         process.stderr.write(
           `the audit log failed independent verification: ${result.error.code}\n`,
         );
+        const newKey = untrustedKeyOf(result.error);
+        if (newKey !== undefined) process.stderr.write(acceptKeyHelp(newKey));
         process.exitCode = 1;
       } else if (!result.outsideSealsChecked) {
         process.stderr.write(

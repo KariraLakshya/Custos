@@ -337,6 +337,7 @@ describe("custos CLI", () => {
           log: didDocument.id,
           seq: 1,
           headHash: computeAuditEntryHash({ seq: 1, prevHash: AUDIT_GENESIS_HASH, payloadHash }),
+          key: didDocument.verificationMethod[0].publicKeyMultibase,
           sealedAt: "2026-09-12T10:00:10.000Z",
         },
         signer: { sign: (data) => Promise.resolve(sign(data, secretKey)) },
@@ -360,19 +361,23 @@ describe("custos CLI", () => {
       await new Promise<void>((resolve) => server?.listen(port, "127.0.0.1", resolve));
     }
 
-    async function runAuditLog(port: number) {
-      const sealFile = join(await mkdtemp(join(tmpdir(), "custos-audit-")), "seal.json");
+    async function runAuditLog(port: number, extra: string[] = [], sealFileIn?: string) {
+      const sealFile =
+        sealFileIn ?? join(await mkdtemp(join(tmpdir(), "custos-audit-")), "seal.json");
       const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
       const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const previousExitCode = process.exitCode;
       process.exitCode = undefined;
       await createCli().parseAsync(
-        ["audit-log", "--audit-url", `http://127.0.0.1:${port}`, "--seal-file", sealFile],
+        ["audit-log", "--audit-url", `http://127.0.0.1:${port}`, "--seal-file", sealFile, ...extra],
         { from: "user" },
       );
       const exitCode = process.exitCode;
       process.exitCode = previousExitCode;
-      return { exitCode, out: stdout.mock.calls.join(""), err: stderr.mock.calls.join("") };
+      const result = { exitCode, out: stdout.mock.calls.join(""), err: stderr.mock.calls.join("") };
+      stdout.mockRestore();
+      stderr.mockRestore();
+      return result;
     }
 
     it("pulls and prints the independently verified, sealed audit log", async () => {
@@ -381,6 +386,25 @@ describe("custos CLI", () => {
       expect(exitCode).toBeUndefined();
       expect(out).toContain('"verified": true');
       expect(out).toContain('"sealedThrough": 1');
+    });
+
+    it("after a restart on a new key, explains how to check and accept it, then passes with --accept-key", async () => {
+      const sealFile = join(await mkdtemp(join(tmpdir(), "custos-audit-")), "seal.json");
+      await serveLedger(4816);
+      expect((await runAuditLog(4816, [], sealFile)).exitCode).toBeUndefined();
+      await new Promise((resolve) => server?.close(resolve));
+      await serveLedger(4816); // same address and log, new key
+
+      const changed = await runAuditLog(4816, [], sealFile);
+      expect(changed.exitCode).toBe(1);
+      const newKey = /--accept-key (z\S+)/.exec(changed.err)?.[1];
+      expect(changed.err).toContain("KEY_CHANGED");
+      expect(changed.err).toContain("Do not check it against the service's own DID document");
+      expect(newKey).toBeDefined();
+
+      expect(
+        (await runAuditLog(4816, ["--accept-key", newKey!], sealFile)).exitCode,
+      ).toBeUndefined();
     });
 
     it("exits 1 and names the failure when the log was tampered with", async () => {

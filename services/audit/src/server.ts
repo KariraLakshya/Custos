@@ -80,10 +80,12 @@ export async function buildServer(options: {
     publicKey: await keyProvider.getPublicKey(keyId),
   });
   const signer = { sign: (data: Uint8Array) => keyProvider.sign(keyId, data) };
+  const currentKey = didDocument.verificationMethod[0].publicKeyMultibase;
   // Rows from before the ledger, chained once, before anything is appended.
   await chainUnchainedRecords(db);
 
-  const seal = () => sealOnce({ db, signer, log: didDocument.id, now: clock.now() });
+  const seal = () =>
+    sealOnce({ db, signer, log: didDocument.id, key: currentKey, now: clock.now() });
   let lastCopyError: string | null = null;
   const copy = async (): Promise<Result<number, CopyError>> => {
     if (options.sealStore === undefined) {
@@ -93,6 +95,7 @@ export async function buildServer(options: {
       db,
       store: options.sealStore,
       log: didDocument.id,
+      key: currentKey,
       now: clock.now(),
     });
     lastCopyError = result.ok ? null : result.error.reason;
@@ -128,7 +131,7 @@ export async function buildServer(options: {
   // How far sealing and copying have got (ADR 0017 part 2a). The newest
   // entries are only as safe as the newest copy, so the lag is shown here.
   app.get("/seals/status", async () => ({
-    ...(await sealStatus(db)),
+    ...(await sealStatus(db, { log: didDocument.id, key: currentKey })),
     sealStore: options.sealStore === undefined ? "not configured" : "configured",
     lastCopyError,
   }));
@@ -171,7 +174,7 @@ export async function buildServer(options: {
     // committed and the log only grows, so entries read afterwards always
     // include the sealed one. The other order lets a seal made between the two
     // reads cover an entry the response lacks, which reads as TRUNCATED.
-    const seal = await latestSeal(db);
+    const seal = await latestSeal(db, currentKey);
     const entries = await listAuditEntries({ db, agentDid: query.agentId });
     return { entries, seal };
   });

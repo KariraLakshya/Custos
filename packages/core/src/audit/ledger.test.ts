@@ -1,6 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { describe, expect, it } from "vitest";
 import { generateKeyPair, sign } from "../crypto/ed25519.js";
+import { publicKeyToMultibase } from "../did/did-web.js";
 import {
   AUDIT_GENESIS_HASH,
   AUDIT_SEAL_TYPE,
@@ -19,6 +20,10 @@ const AGENT = "did:web:localhost%3A4001:agents:a";
 const OTHER = "did:web:localhost%3A4001:agents:b";
 const keys = generateKeyPair();
 const signer = { sign: async (data: Uint8Array) => sign(data, keys.secretKey) };
+const KEY = publicKeyToMultibase(keys.publicKey);
+const other = generateKeyPair();
+const OTHER_KEY = publicKeyToMultibase(other.publicKey);
+const otherSigner = { sign: async (data: Uint8Array) => sign(data, other.secretKey) };
 
 function record(n: number, agentDid = AGENT): AuditRecord {
   return {
@@ -50,12 +55,18 @@ function buildLog(records: readonly AuditRecord[]) {
 async function sealAt(
   entries: readonly { seq: number; hash: string }[],
   seq: number,
-  options: { log?: string; signWith?: typeof signer } = {},
+  options: { log?: string; signWith?: typeof signer; key?: string } = {},
 ): Promise<string> {
   const head = entries[seq - 1];
   if (head === undefined) throw new Error("fixture: no entry at seq");
   const issued = await issueAuditSeal({
-    seal: { log: options.log ?? LOG, seq, headHash: head.hash, sealedAt: "2026-10-27T10:01:00Z" },
+    seal: {
+      log: options.log ?? LOG,
+      seq,
+      headHash: head.hash,
+      key: options.key ?? (options.signWith === otherSigner ? OTHER_KEY : KEY),
+      sealedAt: "2026-10-27T10:01:00Z",
+    },
     signer: options.signWith ?? signer,
   });
   if (!issued.ok) throw new Error(issued.error.reason);
@@ -69,8 +80,11 @@ const served = (entries: readonly (ServedAuditEntry & { hash?: string })[]) =>
     ...(payload === undefined ? {} : { payload }),
   }));
 
-const verifyLog = (entries: readonly unknown[], seals: readonly string[] = []) =>
-  verifyAuditLedger({ entries, seals, publicKey: keys.publicKey, log: LOG });
+const verifyLog = (
+  entries: readonly unknown[],
+  seals: readonly string[] = [],
+  trustedKeys: readonly string[] = [KEY],
+) => verifyAuditLedger({ entries, seals, trustedKeys, log: LOG });
 
 describe("computeAuditEntryHash", () => {
   it("is SHA-256 over the domain tag, seq, previous hash and payload hash", () => {
@@ -119,7 +133,7 @@ describe("issueAuditSeal and verifyAuditSeal", () => {
     const log = buildLog([record(1)]);
     const verified = verifyAuditSeal({
       seal: await sealAt(log, 1),
-      publicKey: keys.publicKey,
+      trustedKeys: [KEY],
       log: LOG,
     });
     expect(verified).toMatchObject({
@@ -130,7 +144,7 @@ describe("issueAuditSeal and verifyAuditSeal", () => {
 
   it("fails closed when the signer throws", async () => {
     const issued = await issueAuditSeal({
-      seal: { log: LOG, seq: 1, headHash: AUDIT_GENESIS_HASH, sealedAt: "x" },
+      seal: { log: LOG, seq: 1, headHash: AUDIT_GENESIS_HASH, key: KEY, sealedAt: "x" },
       signer: {
         sign: async () => {
           throw new Error("ThrottlingException");
@@ -145,19 +159,40 @@ describe("issueAuditSeal and verifyAuditSeal", () => {
 
   it("reports a non-Error throw as text", async () => {
     const issued = await issueAuditSeal({
-      seal: { log: LOG, seq: 1, headHash: AUDIT_GENESIS_HASH, sealedAt: "x" },
+      seal: { log: LOG, seq: 1, headHash: AUDIT_GENESIS_HASH, key: KEY, sealedAt: "x" },
       signer: { sign: () => Promise.reject("down") },
     });
     expect(issued).toMatchObject({ ok: false, error: { reason: "down" } });
   });
 
-  it("refuses a seal signed by another key", async () => {
+  it("names the key that signed it", async () => {
     const log = buildLog([record(1)]);
-    const other = generateKeyPair();
-    const seal = await sealAt(log, 1, {
-      signWith: { sign: async (data) => sign(data, other.secretKey) },
+    const verified = verifyAuditSeal({ seal: await sealAt(log, 1), trustedKeys: [KEY], log: LOG });
+    expect(verified).toMatchObject({ ok: true, value: { key: KEY } });
+  });
+
+  it("refuses a genuine seal by a key that is not trusted, naming that key", async () => {
+    const log = buildLog([record(1)]);
+    const seal = await sealAt(log, 1, { signWith: otherSigner });
+    expect(verifyAuditSeal({ seal, trustedKeys: [KEY], log: LOG })).toEqual({
+      ok: false,
+      error: { code: "UNTRUSTED_KEY", key: OTHER_KEY },
     });
-    expect(verifyAuditSeal({ seal, publicKey: keys.publicKey, log: LOG })).toEqual({
+  });
+
+  it("refuses a seal that names a trusted key but was signed by another", async () => {
+    const log = buildLog([record(1)]);
+    const seal = await sealAt(log, 1, { signWith: otherSigner, key: KEY });
+    expect(verifyAuditSeal({ seal, trustedKeys: [KEY, OTHER_KEY], log: LOG })).toEqual({
+      ok: false,
+      error: { code: "SIGNATURE_INVALID" },
+    });
+  });
+
+  it("reports a forged seal naming an unknown key as a bad signature, not an untrusted key", async () => {
+    const log = buildLog([record(1)]);
+    const seal = await sealAt(log, 1, { signWith: signer, key: OTHER_KEY });
+    expect(verifyAuditSeal({ seal, trustedKeys: [KEY], log: LOG })).toEqual({
       ok: false,
       error: { code: "SIGNATURE_INVALID" },
     });
@@ -166,7 +201,7 @@ describe("issueAuditSeal and verifyAuditSeal", () => {
   it("refuses a genuine seal of another log", async () => {
     const log = buildLog([record(1)]);
     const seal = await sealAt(log, 1, { log: "did:web:other.example" });
-    expect(verifyAuditSeal({ seal, publicKey: keys.publicKey, log: LOG })).toEqual({
+    expect(verifyAuditSeal({ seal, trustedKeys: [KEY], log: LOG })).toEqual({
       ok: false,
       error: { code: "WRONG_LOG" },
     });
@@ -180,7 +215,7 @@ describe("issueAuditSeal and verifyAuditSeal", () => {
     expect(
       verifyAuditSeal({
         seal: `${edited.toString("base64url")}.${signature}`,
-        publicKey: keys.publicKey,
+        trustedKeys: [KEY],
         log: LOG,
       }),
     ).toEqual({ ok: false, error: { code: "SIGNATURE_INVALID" } });
@@ -222,11 +257,52 @@ describe("issueAuditSeal and verifyAuditSeal", () => {
     ],
     [
       "no time",
-      () => signedClaims({ typ: AUDIT_SEAL_TYPE, log: LOG, seq: 1, headHash: "ab".repeat(32) }),
+      () =>
+        signedClaims({
+          typ: AUDIT_SEAL_TYPE,
+          log: LOG,
+          seq: 1,
+          headHash: "ab".repeat(32),
+          key: KEY,
+        }),
+    ],
+    [
+      "no key",
+      () =>
+        signedClaims({
+          typ: AUDIT_SEAL_TYPE,
+          log: LOG,
+          seq: 1,
+          headHash: "ab".repeat(32),
+          sealedAt: "t",
+        }),
+    ],
+    [
+      "a key that is not multibase",
+      () =>
+        signedClaims({
+          typ: AUDIT_SEAL_TYPE,
+          log: LOG,
+          seq: 1,
+          headHash: "ab".repeat(32),
+          key: "not-a-key",
+          sealedAt: "t",
+        }),
+    ],
+    [
+      "a v1 seal, which names no key",
+      () =>
+        signedClaims({
+          typ: "custos-audit-seal+v1",
+          log: LOG,
+          seq: 1,
+          headHash: "ab".repeat(32),
+          sealedAt: "t",
+        }),
     ],
     ["a null body", () => signedClaims(null)],
   ])("refuses a malformed seal: %s", async (_name, make) => {
-    const result = verifyAuditSeal({ seal: await make(), publicKey: keys.publicKey, log: LOG });
+    const result = verifyAuditSeal({ seal: await make(), trustedKeys: [KEY], log: LOG });
     expect(result).toMatchObject({ ok: false, error: { code: "MALFORMED_SEAL" } });
   });
 });
@@ -266,6 +342,16 @@ describe("verifyAuditLedger", () => {
     const result = verifyLog(view, [await sealAt(log, 3)]);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.records.map((r) => r.seq)).toEqual([1, 3]);
+  });
+
+  it("checks seals made before and after a key rotation, each under its own trusted key", async () => {
+    const log = buildLog([record(1), record(2)]);
+    const before = await sealAt(log, 1);
+    const after = await sealAt(log, 2, { signWith: otherSigner });
+    expect(verifyLog(served(log), [before, after], [KEY, OTHER_KEY])).toMatchObject({
+      ok: true,
+      value: { newestSeal: { seq: 2, key: OTHER_KEY } },
+    });
   });
 
   it("keeps the newest of several matching seals, in any order", async () => {
@@ -354,15 +440,24 @@ describe("verifyAuditLedger", () => {
       });
     });
 
-    it("a seal signed by another key", async () => {
+    it("a seal by a key the verifier never accepted", async () => {
       const log = buildLog([record(1)]);
-      const other = generateKeyPair();
-      const forged = await sealAt(log, 1, {
-        signWith: { sign: async (data) => sign(data, other.secretKey) },
-      });
+      const forged = await sealAt(log, 1, { signWith: otherSigner });
       expect(verifyLog(served(log), [forged])).toEqual({
         ok: false,
-        error: { code: "SEAL_INVALID", error: { code: "SIGNATURE_INVALID" } },
+        error: { code: "SEAL_INVALID", error: { code: "UNTRUSTED_KEY", key: OTHER_KEY } },
+      });
+    });
+
+    it("a log rewritten under a new key, even once the new key is accepted: old seals stay checked", async () => {
+      const original = buildLog([record(1), record(2)]);
+      const underOldKey = await sealAt(original, 2);
+      const rebuilt = buildLog([record(1), { ...record(2), action: "rewritten" }]);
+      const underNewKey = await sealAt(rebuilt, 2, { signWith: otherSigner });
+      expect(verifyLog(served(rebuilt), [underNewKey], [OTHER_KEY]).ok).toBe(true);
+      expect(verifyLog(served(rebuilt), [underNewKey, underOldKey], [KEY, OTHER_KEY])).toEqual({
+        ok: false,
+        error: { code: "DIVERGED", seq: 2 },
       });
     });
   });
