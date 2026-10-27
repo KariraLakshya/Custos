@@ -15,6 +15,28 @@ services:
       timeout: 5s
       retries: 10
 
+  # The audit seal store (ADR 0017, part 2a): a separate Postgres server
+  # holding copies of the audit ledger's seals. Separate on purpose: someone
+  # who can change the main database must not reach these copies. Its schema
+  # and dev roles are created on first start (an empty volume) only.
+  seal-store:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: custos_seal_admin
+      POSTGRES_PASSWORD: custos_seal_admin
+      POSTGRES_DB: custos_seals
+    ports:
+      - "5434:5432"
+    volumes:
+      - custos-seal-store:/var/lib/postgresql/data
+      - ../seal-store:/custos-seal-store:ro
+      - ../seal-store/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U custos_seal_admin -d custos_seals"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     ports:
@@ -61,3 +83,4 @@ services:
 
 volumes:
   custos-postgres:
+  custos-seal-store:

@@ -201,4 +201,103 @@ describe("pullAuditLog (ADR 0017)", () => {
     });
     expect(result).toMatchObject({ verified: false, error: { code: "UNREACHABLE" } });
   });
+
+  describe("with an outside seal store (ADR 0017 part 2a)", () => {
+    /** A store holding `copies`, recording what it was asked for. */
+    function store(copies: () => readonly string[]) {
+      const asked: { log: string; fromSeq: number }[] = [];
+      return {
+        asked,
+        list: async (log: string, fromSeq: number) => {
+          asked.push({ log, fromSeq });
+          return copies();
+        },
+      };
+    }
+
+    it("checks every copy from the start on a first run, and says it did", async () => {
+      const audit = await fakeAudit(4817);
+      audit.append(AGENT, "a");
+      const first = await audit.seal();
+      audit.append(AGENT, "b");
+      const second = await audit.seal();
+      const sealStore = store(() => [first, second]);
+
+      const result = await pullAuditLog({
+        auditUrl: audit.url,
+        sealFile: await sealFileIn(),
+        sealStore,
+      });
+
+      expect(sealStore.asked).toEqual([{ log: audit.did.id, fromSeq: 1 }]);
+      expect(result).toMatchObject({
+        verified: true,
+        outsideSealsChecked: true,
+        newestOutsideSeal: { seq: 2 },
+      });
+    });
+
+    it("asks only from the seal it remembered on later runs", async () => {
+      const audit = await fakeAudit(4818);
+      audit.append(AGENT, "a");
+      const first = await audit.seal();
+      const sealFile = await sealFileIn();
+      await pullAuditLog({ auditUrl: audit.url, sealFile, sealStore: store(() => [first]) });
+
+      audit.append(AGENT, "b");
+      const second = await audit.seal();
+      const later = store(() => [first, second]);
+      await pullAuditLog({ auditUrl: audit.url, sealFile, sealStore: later });
+
+      expect(later.asked).toEqual([{ log: audit.did.id, fromSeq: 1 }]);
+      const remembered = JSON.parse(await readFile(sealFile, "utf8")) as Record<
+        string,
+        { seq: number }
+      >;
+      expect(remembered[audit.did.id]?.seq).toBe(2);
+    });
+
+    it("reports TRUNCATED when the newest entries and the served seal are gone but a copy remains", async () => {
+      const audit = await fakeAudit(4819);
+      for (const action of ["a", "b", "c"]) audit.append(AGENT, action);
+      const copy = await audit.seal();
+      audit.state.entries.splice(1);
+      audit.state.seal = null;
+
+      const result = await pullAuditLog({
+        auditUrl: audit.url,
+        sealFile: await sealFileIn(),
+        sealStore: store(() => [copy]),
+      });
+
+      expect(result).toEqual({
+        verified: false,
+        error: { code: "TRUNCATED", sealSeq: 3, headSeq: 1 },
+      });
+    });
+
+    it("fails closed when the store is configured but cannot be read", async () => {
+      const audit = await fakeAudit(4820);
+      audit.append(AGENT, "a");
+      await audit.seal();
+      const result = await pullAuditLog({
+        auditUrl: audit.url,
+        sealFile: await sealFileIn(),
+        sealStore: { list: () => Promise.reject(new Error("ECONNREFUSED")) },
+      });
+      expect(result).toMatchObject({ verified: false, error: { code: "SEAL_STORE_UNREACHABLE" } });
+    });
+
+    it("says no outside seals were checked when no store is given", async () => {
+      const audit = await fakeAudit(4821);
+      audit.append(AGENT, "a");
+      await audit.seal();
+      expect(
+        await pullAuditLog({ auditUrl: audit.url, sealFile: await sealFileIn() }),
+      ).toMatchObject({
+        verified: true,
+        outsideSealsChecked: false,
+      });
+    });
+  });
 });

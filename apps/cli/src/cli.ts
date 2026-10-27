@@ -1,6 +1,7 @@
 import { open, readFile, rm, writeFile } from "node:fs/promises";
 import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
 import { Command } from "commander";
+import { createPostgresSealStore } from "@custos/audit-client";
 import { defaultSealFile, pullAuditLog } from "./audit-log.js";
 import { restrictToOwner } from "./key-file.js";
 import { defaultOperatorKeyFile, findOperatorKey, login } from "./login.js";
@@ -213,17 +214,26 @@ export function createCli(): Command {
       defaultSealFile(),
     )
     .action(async (agentDid: string | undefined, opts: { auditUrl: string; sealFile: string }) => {
+      // The seal store's address holds a password, so it comes from the
+      // environment only, never a flag (ADR 0017 part 2a).
+      const storeUrl = process.env.CUSTOS_AUDIT_SEAL_STORE_URL;
+      const sealStore = storeUrl ? createPostgresSealStore(storeUrl) : undefined;
       const result = await pullAuditLog({
         auditUrl: opts.auditUrl,
         sealFile: opts.sealFile,
         ...(agentDid === undefined ? {} : { agentDid }),
-      });
+        ...(sealStore === undefined ? {} : { sealStore }),
+      }).finally(() => sealStore?.close());
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       if (!result.verified) {
         process.stderr.write(
           `the audit log failed independent verification: ${result.error.code}\n`,
         );
         process.exitCode = 1;
+      } else if (!result.outsideSealsChecked) {
+        process.stderr.write(
+          "note: no outside seal store was checked (set CUSTOS_AUDIT_SEAL_STORE_URL); the newest entries are protected only by seals this machine remembered\n",
+        );
       }
     });
 

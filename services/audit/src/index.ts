@@ -1,3 +1,4 @@
+import { createPostgresSealStore } from "@custos/audit-client";
 import {
   createApiKeyStore,
   createControlPlaneGuard,
@@ -34,6 +35,9 @@ const app = await buildServer({
   didDomain: env.AUDIT_DID_DOMAIN,
   signingKey: createSigningKey(env),
   sealIntervalMs: env.AUDIT_SEAL_INTERVAL_MS,
+  ...(env.AUDIT_SEAL_STORE_URL === undefined
+    ? {}
+    : { sealStore: createPostgresSealStore(env.AUDIT_SEAL_STORE_URL) }),
   ...(tls.value ? { serverFactory: tls.value.listener.serverFactory } : {}),
 });
 

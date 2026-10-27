@@ -134,4 +134,64 @@ describe("pullAuditLedger (ADR 0017)", () => {
       error: { reason: "down" },
     });
   });
+
+  describe("outside seals (ADR 0017 part 2a)", () => {
+    it("reads them after the DID document and before the ledger, and checks against them", async () => {
+      const body = await ledger(["a", "b"]);
+      const { doFetch, asked } = fakeFetch(body);
+      const order: string[] = [];
+      const recordingFetch = (async (input: URL | string) => {
+        order.push(String(input).endsWith("did.json") ? "did" : "records");
+        return doFetch(input);
+      }) as typeof fetch;
+
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: recordingFetch,
+        outsideSeals: async (log) => {
+          order.push(`store:${log}`);
+          return [body.seal];
+        },
+      });
+
+      expect(order).toEqual(["did", `store:${did.id}`, "records"]);
+      expect(asked).toHaveLength(2);
+      expect(result).toMatchObject({ ok: true, value: { outsideSealCount: 1 } });
+    });
+
+    it("fails closed when the seal store cannot be read, never fetching the ledger", async () => {
+      const body = await ledger(["a"]);
+      const { doFetch, asked } = fakeFetch(body);
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: doFetch,
+        outsideSeals: () => Promise.reject(new Error("ECONNREFUSED 5434")),
+      });
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "SEAL_STORE_UNREACHABLE", reason: "ECONNREFUSED 5434" },
+      });
+      expect(asked).toHaveLength(1);
+    });
+
+    it("reports a log shortened since an outside seal was copied", async () => {
+      const body = await ledger(["a", "b"]);
+      const { doFetch } = fakeFetch({ entries: body.entries.slice(0, 1), seal: null });
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: doFetch,
+        outsideSeals: async () => [body.seal],
+      });
+      expect(result).toEqual({ ok: false, error: { code: "TRUNCATED", sealSeq: 2, headSeq: 1 } });
+    });
+
+    it("answers BAD_RESPONSE for a DID document without an id", async () => {
+      const result = await pullAuditLedger({
+        auditUrl: AUDIT_URL,
+        fetch: fakeFetch({}, { didBody: { verificationMethod: [] } }).doFetch,
+        outsideSeals: async () => [],
+      });
+      expect(result).toMatchObject({ ok: false, error: { code: "BAD_RESPONSE" } });
+    });
+  });
 });

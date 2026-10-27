@@ -21,6 +21,10 @@ const fieldsSchema = baseEnvSchema.extend({
   // How often the head of the ledger is sealed, when it has moved (ADR 0017
   // §2). Entries newer than the last seal are not sealed yet.
   AUDIT_SEAL_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
+  // The separate Postgres server seals are copied to (ADR 0017 part 2a), as
+  // the insert-only custos_sealer role. Holds a password: never log it. Unset:
+  // nothing is copied, and GET /seals/status says so.
+  AUDIT_SEAL_STORE_URL: z.string().url().optional(),
   // Optional Envoy-only TLS listener (ADR 0009): all three, plus MTLS_CA,
   // or none. Envoy forwards callers' certificates to it (dev port 4014).
   AUDIT_MTLS_PORT: z.coerce.number().int().positive().optional(),

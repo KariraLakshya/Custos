@@ -66,6 +66,12 @@ const SERVICES: readonly ServiceSpec[] = [
 type Secrets = Readonly<Record<string, string>>;
 
 /** Only the settings that service reads, never another service's secret. */
+// The dev seal store's roles (infra/seal-store/roles.dev.sql): local-only passwords.
+const DEV_SEAL_STORE_SEALER_URL =
+  "postgres://custos_sealer:custos_sealer@localhost:5434/custos_seals";
+const DEV_SEAL_STORE_AUDITOR_URL =
+  "postgres://custos_auditor:custos_auditor@localhost:5434/custos_seals";
+
 function ownSettings(service: string, keys: Secrets, seeds: Secrets): Record<string, string> {
   switch (service) {
     case "revocation":
@@ -84,7 +90,11 @@ function ownSettings(service: string, keys: Secrets, seeds: Secrets): Record<str
         VAULT_MASTER_KEY: seeds["VAULT_MASTER_KEY"]!,
       };
     case "audit":
-      return { AUDIT_SIGNING_SEED: seeds["AUDIT_SIGNING_SEED"]! };
+      return {
+        AUDIT_SIGNING_SEED: seeds["AUDIT_SIGNING_SEED"]!,
+        // The dev seal store from `pnpm dev` (ADR 0017 part 2a), as its insert-only role.
+        AUDIT_SEAL_STORE_URL: DEV_SEAL_STORE_SEALER_URL,
+      };
     default:
       return {};
   }
@@ -290,6 +300,11 @@ function printBanner(deps: DemoDeps, operatorKey: string): void {
     "",
     `  bash / zsh   alias custos="node ${deps.repoRoot}/apps/cli/dist/bin.js"`,
     `  PowerShell   function custos { node "${deps.repoRoot}/apps/cli/dist/bin.js" @args }`,
+    "",
+    "For `custos audit-log` to also check the seals copied to the separate seal store:",
+    "",
+    `  bash / zsh   export CUSTOS_AUDIT_SEAL_STORE_URL=${DEV_SEAL_STORE_AUDITOR_URL}`,
+    `  PowerShell   $env:CUSTOS_AUDIT_SEAL_STORE_URL = "${DEV_SEAL_STORE_AUDITOR_URL}"`,
     "",
     "Each demo run uses new keys, so credentials from an earlier run no longer verify,",
     "unless IDENTITY_ISSUER_SEED, REVOCATION_SIGNING_SEED and VAULT_MASTER_KEY were set first",
