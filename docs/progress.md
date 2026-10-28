@@ -8,7 +8,9 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-28 — Seal copies in Amazon's write-once storage (part 2b), built; real-AWS check still to run
 
-**Commits:** on branch `feat/audit-seal-s3`; **not yet pushed**. Part 2a (pull request #112) was merged today.
+**Commits:** `b172561` (the S3 store), plus documentation, on branch `feat/audit-seal-s3`. Pushed 2026-10-28 as **pull request #117**, waiting for your merge. Part 2a (pull request #112) was merged today.
+
+**Also found today:** this computer handed out "random" network ports from the low range our tests use, instead of Windows' usual high range. That was behind months of on-and-off test failures after Docker restarts. You reset it to the Windows default.
 
 **What changed, in plain words:**
 
