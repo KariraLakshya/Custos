@@ -18,7 +18,9 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 **How we know it works so far:** the automatic tests run against a stand-in that behaves like a locked Amazon bucket, including the soft-delete trick. They show that a deleted newest part of the log is still caught, and that a rewritten log with its seal swapped in is caught. We also broke the code on purpose in five ways (for example, reading only the newest version), and the tests caught each one.
 
-**Not proven yet:** that real Amazon S3 behaves as the stand-in does. The test against real AWS is written and needs S3 permission on the `custos-dev` AWS user first (you chose a strict lock, 1 day, for it).
+**Not proven yet, by your decision:** that real Amazon S3 behaves as the stand-in does. You chose to keep using the separate Postgres seal server until launch and run the real-AWS check then; switching over is a configuration change plus that check.
+
+**What comes next (your decision, 28 Oct):** first, packaging Custos into containers that run anywhere. Then delegation provenance: proving the whole chain of who authorised which agent, through which other agents, to touch which data, the gap no competitor has closed and what India's data-protection law will ask for. The sidecar and the kernel-level guard (eBPF) follow.
 
 _Why it matters:_ this is the last step that makes the audit trail evidence even against the people who run the system, which is what a regulator or a customer's auditor needs.
 
