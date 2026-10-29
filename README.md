@@ -270,6 +270,8 @@ $env:CUSTOS_AUDIT_SEAL_STORE_URL = "postgres://custos_auditor:custos_auditor@loc
 
 Without it, `audit-log` says `"outsideSealsChecked": false` and prints a note.
 
+In production, the copies go to an AWS S3 bucket with Object Lock instead, which nobody can delete from during its retention period, not even the bucket's own administrator: set both variables to `s3://<bucket>`. The bucket needs Object Lock with a default COMPLIANCE retention, or the audit service refuses to start. The IAM policies for the audit service and for auditors are in `infra/seal-store/aws/`.
+
 **After a restart with a new audit key** (every `pnpm demo` run, unless `AUDIT_SIGNING_SEED` stays set), `audit-log` stops with `KEY_CHANGED` and shows the new key. Check it against the `audit seal key` line `pnpm demo` printed (never against the audit service's own `/.well-known/did.json`, which the service controls), then accept it once:
 
 ```bash

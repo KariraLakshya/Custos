@@ -14,6 +14,8 @@ import {
   dropTestDatabase,
 } from "@custos/vitest-config/hermetic-db";
 import { createPostgresSealStore, type SealStore } from "@custos/audit-client";
+import { fakeS3 } from "@custos/audit-client/testing";
+import { createS3SealStore } from "@custos/audit-client/s3";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDb, type AuditDb } from "./db/client.js";
@@ -778,5 +780,94 @@ describe("seals copied outside the audit database (ADR 0017 part 2a)", () => {
         error: { code: "DIVERGED", seq: 2 },
       });
     });
+  });
+});
+
+// ADR 0017 part 2b: the copies in a versioned S3 bucket with Object Lock
+// (here the stand-in from @custos/audit-client/testing). Its administrator
+// cannot delete a locked seal, but can hide it behind a delete marker and put
+// another in its place; the auditor reads every version, so neither works.
+describe("seals copied to S3 Object Lock (ADR 0017 part 2b)", () => {
+  const cleanups: (() => Promise<void>)[] = [];
+  afterAll(async () => {
+    for (const cleanup of cleanups.reverse()) await cleanup();
+  });
+
+  async function fixture() {
+    const audit = await createMigratedTestDatabase(databaseUrl);
+    const own = createDb(audit.url);
+    cleanups.push(async () => {
+      await own.$client.end();
+      await dropTestDatabase(databaseUrl, audit.name);
+    });
+    const s3 = fakeS3({ pageSize: 2 });
+    const store = createS3SealStore({ client: s3.client, bucket: "seals" });
+    const plane = createTestControlPlane(own);
+    const key = await plane.key("service", ["audit:write"]);
+    const build = () =>
+      buildServer({
+        db: own,
+        controlPlaneAuth: plane.guard,
+        didDomain: "127.0.0.1:4851",
+        signingKey: signingKey(5),
+        sealStore: store,
+      });
+    const app = await build();
+    const log = "did:web:127.0.0.1%3A4851";
+    const append = (target: App, action: string) =>
+      post(target, event("did:web:127.0.0.1%3A4851:agents:a", action), key);
+    /** What the seal store's administrator can do under Object Lock: add a delete marker. */
+    const hide = (seq: number) => {
+      const objectKey = `seals/${encodeURIComponent(log)}/${String(seq).padStart(20, "0")}.json`;
+      s3.objects.get(objectKey)!.push({ versionId: `marker-${seq}`, body: undefined });
+    };
+    const verify = async (target: App) =>
+      (await pullVerified(target, { held: [...(await store.list(log, 1))] })).result;
+    return { own, app, build, log, append, hide, verify };
+  }
+
+  it("copies every seal and verifies against the copies", async () => {
+    const { app, append, verify } = await fixture();
+    for (const action of ["a", "b", "c"]) {
+      await append(app, action);
+      await app.auditLedger.sealOnce();
+    }
+    expect(await app.auditLedger.copyOnce()).toEqual({ ok: true, value: 3 });
+    expect((await verify(app)).ok).toBe(true);
+  });
+
+  it("detects the newest entries deleted with every seal, even with the copy hidden", async () => {
+    const { own, app, append, hide, verify } = await fixture();
+    for (const action of ["a", "b", "c"]) await append(app, action);
+    await app.auditLedger.sealOnce();
+    await app.auditLedger.copyOnce();
+
+    await own.delete(auditRecords).where(sql`${auditRecords.seq} >= 2`);
+    await own.delete(auditSeals);
+    hide(3);
+
+    expect(await verify(app)).toEqual({
+      ok: false,
+      error: { code: "TRUNCATED", sealSeq: 3, headSeq: 1 },
+    });
+  });
+
+  it("detects a rewritten log whose seal was put in place of the hidden original", async () => {
+    const { own, app, build, append, hide, verify } = await fixture();
+    for (const action of ["a", "b"]) await append(app, action);
+    await app.auditLedger.sealOnce();
+    await app.auditLedger.copyOnce();
+
+    // The audit service's key and the seal store's administrator, together.
+    await own.delete(auditRecords);
+    await own.delete(auditSeals);
+    hide(2);
+    const rebuilt = await build();
+    for (const action of ["x", "y"]) await append(rebuilt, action);
+    await rebuilt.auditLedger.sealOnce();
+    // With the original hidden, If-None-Match lets the forged seal in.
+    expect(await rebuilt.auditLedger.copyOnce()).toEqual({ ok: true, value: 1 });
+
+    expect(await verify(rebuilt)).toEqual({ ok: false, error: { code: "DIVERGED", seq: 2 } });
   });
 });

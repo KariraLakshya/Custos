@@ -1,4 +1,5 @@
 import pg from "pg";
+import type { S3SealClient } from "./s3-seal-store.js";
 
 /**
  * Where copies of the audit ledger's seals are kept, outside the audit
@@ -25,6 +26,47 @@ export class SealCopyConflictError extends Error {
     super(`a different seal is already stored for ${log} at seq ${seq}`);
     this.name = "SealCopyConflictError";
   }
+}
+
+/** The seal store is not write-once (ADR 0017 part 2b): fix it before starting. */
+export class SealStoreMisconfiguredError extends Error {
+  constructor(reason: string) {
+    super(`the S3 seal store is not write-once: ${reason}`);
+    this.name = "SealStoreMisconfiguredError";
+  }
+}
+
+/**
+ * Opens the seal store at `url`: `postgres://` (part 2a) or `s3://<bucket>`
+ * (part 2b, Object Lock). An S3 bucket is checked first: one that S3 says is
+ * not write-once throws `SealStoreMisconfiguredError`; one that cannot be
+ * reached is opened anyway, and its first read or write fails instead. The
+ * URL may hold a password, so no error repeats it. The S3 client is loaded
+ * only for an `s3://` URL.
+ */
+export async function openSealStore(
+  url: string,
+  options: { readonly s3Client?: S3SealClient } = {},
+): Promise<SealStore> {
+  const scheme = url.slice(0, Math.max(0, url.indexOf(":")));
+  if (scheme === "postgres" || scheme === "postgresql") return createPostgresSealStore(url);
+  if (scheme !== "s3") throw new Error(`unsupported seal store URL scheme: ${scheme || "(none)"}`);
+  const parsed = new URL(url);
+  if (
+    parsed.hostname === "" ||
+    (parsed.pathname !== "" && parsed.pathname !== "/") ||
+    parsed.search !== "" ||
+    parsed.username !== ""
+  ) {
+    throw new Error("an S3 seal store URL is s3://<bucket>, nothing more");
+  }
+  const { createS3SealClient, createS3SealStore } = await import("./s3-seal-store.js");
+  const store = createS3SealStore({
+    client: options.s3Client ?? createS3SealClient(),
+    bucket: parsed.hostname,
+  });
+  await store.checkWriteOnce();
+  return store;
 }
 
 /**

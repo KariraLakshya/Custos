@@ -6,9 +6,29 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-28 — Seal copies in Amazon's write-once storage (part 2b), built; real-AWS check still to run
+
+**Commits:** `b172561` (the S3 store), plus documentation, on branch `feat/audit-seal-s3`. Pushed 2026-10-28 as **pull request #117**, waiting for your merge. Part 2a (pull request #112) was merged today.
+
+**Also found today:** this computer handed out "random" network ports from the low range our tests use, instead of Windows' usual high range. That was behind months of on-and-off test failures after Docker restarts. You reset it to the Windows default.
+
+**What changed, in plain words:**
+
+- **The second stamp book can now be a vault nobody can empty.** The seal copies can go to an Amazon S3 storage bucket with "Object Lock" switched on in its strictest mode. Once a seal is written there, nobody can delete or change it until the lock runs out (one year in production, matching the Indian data-protection law's one-year record keeping). That includes the audit service, whoever administers the bucket, and even the owner of the AWS account. Until now, whoever ran the separate seal server could still quietly delete copies.
+- **A loophole found before it shipped.** Amazon lets an administrator "delete" a locked file in a soft way: the file stays, but a "deleted" label hides it from ordinary lists, and a new file can then be put under the same name. A checker that read only the ordinary list would miss the original and see the fake. Ours reads every stored version, so a hidden seal is still checked, and a swapped-in fake shows up beside the original as a rewrite.
+- **The audit service refuses to start on an unsafe bucket.** If the bucket is not locked in the strict mode, the service stops at start-up with a clear message instead of quietly copying into storage that could be emptied.
+
+**How we know it works so far:** the automatic tests run against a stand-in that behaves like a locked Amazon bucket, including the soft-delete trick. They show that a deleted newest part of the log is still caught, and that a rewritten log with its seal swapped in is caught. We also broke the code on purpose in five ways (for example, reading only the newest version), and the tests caught each one.
+
+**Not proven yet, by your decision:** that real Amazon S3 behaves as the stand-in does. You chose to keep using the separate Postgres seal server until launch and run the real-AWS check then; switching over is a configuration change plus that check.
+
+**What comes next (your decision, 28 Oct):** first, packaging Custos into containers that run anywhere. Then delegation provenance: proving the whole chain of who authorised which agent, through which other agents, to touch which data, the gap no competitor has closed and what India's data-protection law will ask for. The sidecar and the kernel-level guard (eBPF) follow.
+
+_Why it matters:_ this is the last step that makes the audit trail evidence even against the people who run the system, which is what a regulator or a customer's auditor needs.
+
 ## 2026-10-27 — Seals copied to a separate server, and a key-change bug fixed
 
-**Commits:** `45ded6c` (the separate seal server), `fa7f1cd` (key changes, and the bug fix), `449cb14` (fixes from the final review), plus documentation. Pushed 2026-10-28 as **pull request #112**, waiting for your merge. Part 1 (pull request #111) was merged today.
+**Commits:** `45ded6c` (the separate seal server), `fa7f1cd` (key changes, and the bug fix), `449cb14` (fixes from the final review), plus documentation. Pushed 2026-10-28 as **pull request #112**, merged the same day. Part 1 (pull request #111) was merged today.
 
 **What changed, in plain words:**
 
