@@ -23,6 +23,6 @@
     "@custos/tsconfig": "workspace:*",
     "@types/pg": "^8.11.10",
     "typescript": "^5.7.2",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.5"
   }
 }
