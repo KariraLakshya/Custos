@@ -186,7 +186,7 @@ Custos runs from container images, with no source checkout and no Node on the ho
 
 **DONE =** each proven in CI: every image builds; the stack comes up from the images alone (no source mount, no host Node) and passes the README lifecycle (register, grant, allowed, other tool denied, revoke, refused); an image started without a required secret (for example `AUDIT_SIGNING_SEED`) refuses to boot; no seed, key file, `.env` or `infra/mtls/certs` content is in any image layer; every image runs as a non-root user; base images are pinned by digest.
 
-**Not in this phase:** Kubernetes manifests, the sidecar, publishing images to a registry (unless the founder decides otherwise, ADR 0018 open question 1), multi-architecture builds, a production hardening guide.
+**Not in this phase:** Kubernetes manifests, the sidecar, publishing images to a registry (founder, 2026-10-30: later, revisited at launch; ADR 0018), multi-architecture builds, a production hardening guide.
 
 ## Phase 8 — Delegation provenance
 

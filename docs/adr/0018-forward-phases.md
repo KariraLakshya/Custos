@@ -34,6 +34,6 @@ This ADR records scope and order only. Each phase's design choices (image base a
 - Phase 5's DONE check (non-author README run) is still owed. Phase 7 makes it easier: a tester needs Docker only.
 - `docs/build-plan.drawio` does not show Phases 7–11 yet (recorded in `docs/state.md` Known issues).
 
-## Open questions
+## Decided questions
 
-1. **Publish images?** Should release builds push the images to a public registry (for example GitHub Container Registry)? The repository is public, so this is outward-facing. Default until the founder decides: no; images are built and tested in CI only.
+1. **Publish images?** Decided by the founder 2026-10-30: **not in Phase 7.** Images are built and tested in CI only. Publishing release images to a public registry (for example GitHub Container Registry) is recorded for later, to be revisited at launch alongside ADR 0017 part 2b's deferred real-AWS proof.
