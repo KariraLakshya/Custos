@@ -33,6 +33,20 @@ updates:
     directory: "/infra/docker"
     schedule:
       interval: "weekly"
+    ignore:
+      # Built locally by `pnpm images:build` (ADR 0019); not in any registry.
+      - dependency-name: "custos-*"
+    cooldown:
+      default-days: 7
+  # The Custos images' Dockerfile (ADR 0019): keeps its digest-pinned Node base current.
+  - package-ecosystem: "docker"
+    directory: "/infra/docker/images"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # The project targets Node 22 LTS (CLAUDE.md section 5).
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7
   - package-ecosystem: "github-actions"

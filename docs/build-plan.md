@@ -7,7 +7,7 @@
 
 ## Current phase
 
-> **CURRENT: After Phase 6 — the audit log as a sealed ledger (ADR 0017). Parts 1 and 2a merged (PRs #111, #112, 2026-10-27/28); part 2b (S3 Object Lock) built on branch `feat/audit-seal-s3`; its real-AWS proof is **deferred to launch** by the founder (2026-10-28): the separate Postgres seal server stays the outside store until then, and switching is setting `AUDIT_SEAL_STORE_URL=s3://<bucket>` plus that proof. Next, decided 2026-10-28: packaging (container images), then delegation provenance, then sidecar and eBPF; to be written up as phases with an ADR in the first PR after this one merges. Before that: revocation and publisher keys in KMS (ADR 0016), merged 2026-10-25 (PR #110). Before that: Phase 6 — Cross-org federation, closed 2026-10-22 (all five steps on `main`). Started 2026-10-16 by the founder's decision, _before_ Phase 5's DONE check.** No further phase is planned yet: the next piece of work is chosen with the founder. Deliberate deviation from "do not start a phase until the previous one's DONE criteria pass": no non-author tester could be found. Phase 5's DONE check (the non-author README run, brief in `docs/readme-test.md`) stays open and is still owed. ADR 0014 is Accepted and all five steps are built (the foreign-agent verifier, A's merge of the published list, the publisher, B's gate and status cache in `packages/federation`, and the two-stack end-to-end run). ADR 0014's e2e version of the DONE criterion passes in `apps/admin/src/federation.e2e.test.ts`, on one machine and one Postgres server: A's services are stopped and A's database refuses connections, B still verifies, and a revocation published through the publisher is refused by B within one poll. The criterion below says "machine A's server is switched off entirely" and the milestone says "two machines", and the founder accepted this one-machine run as closing Phase 6 on 2026-10-22. Next: the founder-approved cross-company dashboard panel (beyond this plan). Previously: Phase 5 — DONE check (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
+> **CURRENT: Phase 7 — Packaging (ADR 0018, 2026-10-30), on branch `feat/packaging`. Phases 7–11 below are the founder's 2026-10-28 order.** Previously: after Phase 6 — the audit log as a sealed ledger (ADR 0017). **Parts 1 and 2a merged (PRs #111, #112, 2026-10-27/28); part 2b (S3 Object Lock) merged 2026-10-29 (PR #117); its real-AWS proof is **deferred to launch** by the founder (2026-10-28): the separate Postgres seal server stays the outside store until then, and switching is setting `AUDIT_SEAL_STORE_URL=s3://<bucket>` plus that proof. Next, decided 2026-10-28: packaging (container images), then delegation provenance, then sidecar and eBPF; being written up as phases with an ADR on branch `feat/packaging`. Before that: revocation and publisher keys in KMS (ADR 0016), merged 2026-10-25 (PR #110). Before that: Phase 6 — Cross-org federation, closed 2026-10-22 (all five steps on `main`). Started 2026-10-16 by the founder's decision, _before_ Phase 5's DONE check.** No further phase is planned yet: the next piece of work is chosen with the founder. Deliberate deviation from "do not start a phase until the previous one's DONE criteria pass": no non-author tester could be found. Phase 5's DONE check (the non-author README run, brief in `docs/readme-test.md`) stays open and is still owed. ADR 0014 is Accepted and all five steps are built (the foreign-agent verifier, A's merge of the published list, the publisher, B's gate and status cache in `packages/federation`, and the two-stack end-to-end run). ADR 0014's e2e version of the DONE criterion passes in `apps/admin/src/federation.e2e.test.ts`, on one machine and one Postgres server: A's services are stopped and A's database refuses connections, B still verifies, and a revocation published through the publisher is refused by B within one poll. The criterion below says "machine A's server is switched off entirely" and the milestone says "two machines", and the founder accepted this one-machine run as closing Phase 6 on 2026-10-22. Next: the founder-approved cross-company dashboard panel (beyond this plan). Previously: Phase 5 — DONE check (the non-author README run). Phase 5b (auth hardening) is complete: steps 1–5 done, every DONE criterion below proven in CI, threat model in `docs/threat-model.md`. Phase 6 follows the README run.
 
 Update this line as phases complete. Claude Code must not build ahead of it.
 
@@ -171,8 +171,72 @@ Chosen by the founder on 2026-10-26: the audit trail is the evidence a DPDP audi
 
 ---
 
+## Forward phases (ADR 0018)
+
+Added 2026-10-30 from the founder's decision of 2026-10-28 (ADR 0018). Built in this order. Each phase opens with its own ADR for the consequential choices it makes; the DONE lines below are the scope. "Not in this phase" is as binding as the DONE line.
+
+## Phase 7 — Packaging
+
+Custos runs from container images, with no source checkout and no Node on the host.
+
+- One image per service (identity, vault, revocation, audit), the dashboard, and a one-shot migration image, built from the monorepo
+- A Compose profile that brings the stack up from those images only, next to the existing `mtls` and `sso` profiles; `pnpm dev` and `pnpm demo` are unchanged
+- A lifecycle check that drives the CLI against the running image stack (the existing e2e tests build services in-process and cannot do this)
+- Image design (base image, pruning the monorepo per image, user, pinning) in its own ADR with the first image
+
+**DONE =** each proven in CI: every image builds; the stack comes up from the images alone (no source mount, no host Node) and passes the README lifecycle (register, grant, allowed, other tool denied, revoke, refused); an image started without a required secret (for example `AUDIT_SIGNING_SEED`) refuses to boot; no seed, key file, `.env` or `infra/mtls/certs` content is in any image layer; every image runs as a non-root user; base images are pinned by digest.
+
+**Not in this phase:** Kubernetes manifests, the sidecar, publishing images to a registry (founder, 2026-10-30: later, revisited at launch; ADR 0018), multi-architecture builds, a production hardening guide.
+
+## Phase 8 — Delegation provenance
+
+Every audit record proves which agent acted, under whose authority, through which other agents (CLAUDE.md §10, DPDP).
+
+- An agent can delegate to another agent a subset of what it may do; each link in the chain is signed by the delegator
+- The vault checks the whole chain on every token request, locally (no control-plane call on the hot path)
+- The audit record carries the authority chain, the declared data categories of the tool, the policy applied and the decision, inside the sealed ledger (ADR 0017)
+
+**DONE =** each proven in CI: an agent acting for a human through one sub-agent gets a token, and its audit record carries the full chain, verifiable by `custos audit-log`; a chain with a forged, unsigned or expired link is refused; a sub-agent asking for a tool or action its delegator was not granted is refused; revoking any link refuses every agent below it within the revocation bound; the chain is checked without any network call.
+
+**Not in this phase:** delegation across companies (federation chains), classifying data by inspecting it (categories are declared per tool), a DPDP export format, the sidecar.
+
+## Phase 9 — Sidecar
+
+Agent traffic to tools passes through a Custos process next to the agent, which holds the token flow so the agent never does.
+
+- A sidecar process sharing the agent's network namespace; the agent calls the sidecar, the sidecar gets the scoped token and calls the tool
+- The hot path in the sidecar: local credential check, cached policy and revocation state pushed from the control plane
+
+**DONE =** each proven in CI under Compose (agent and sidecar in one network namespace, since Kubernetes comes later): an agent with no credential of its own completes a tool call through the sidecar; a revoked agent is refused by the sidecar within the revocation bound; the sidecar keeps allowing and denying correctly with the control plane stopped, until its cache TTL, then fails closed; the agent cannot read the sidecar's token or key.
+
+**Not in this phase:** Kubernetes injection, blocking an agent that bypasses the sidecar (Phase 10), the data proxy or content inspection.
+
+## Phase 10 — eBPF egress enforcement
+
+An agent cannot reach a tool except through its sidecar, enforced in the Linux kernel.
+
+- Entry precondition: an ADR choosing the language and loader for the eBPF program (not TypeScript; CLAUDE.md §5 "Rust … not now" is revisited there)
+- Linux only; proven on a CI Linux runner, since the development machine is Windows
+
+**DONE =** each proven in CI on Linux: a process assigned to an agent cannot open a connection to a tool host directly, and the attempt is refused and audited; the same call through the sidecar succeeds; if the enforcement program is not loaded, the sidecar refuses to serve that agent (fail closed).
+
+**Not in this phase:** a Kubernetes DaemonSet, non-Linux hosts, content inspection, enforcement of anything other than egress.
+
+## Phase 11 — Kubernetes
+
+The Phase 7 images, Phase 9 sidecar and Phase 10 enforcer, deployed on Kubernetes.
+
+- Manifests (format chosen in the phase's ADR); the sidecar added to agent pods; the enforcer as a DaemonSet
+- Proven on a throwaway cluster in CI (for example kind)
+
+**DONE =** each proven in CI: the stack deploys from the Phase 7 images and passes the README lifecycle; an agent pod gets its sidecar and cannot reach a tool directly; secrets come from Kubernetes Secrets, never ConfigMaps or images; every pod runs non-root with a read-only root filesystem.
+
+**Not in this phase:** a service mesh, multi-region, autoscaling, a managed-cloud deployment, edge verifiers.
+
+---
+
 ## Later (demand-pulled, not scheduled)
 
-Sidecar and hot/cold split deployment, structured data proxy, content inspection, egress and eBPF enforcement, hosted and TEE deployment modes, open-source release and protocol publication.
+Hot/cold split deployment beyond the sidecar, structured data proxy, content inspection, hosted and TEE deployment modes, protocol publication.
 
 Interfaces should accommodate these. Implementations wait for demand.

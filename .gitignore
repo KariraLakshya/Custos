@@ -34,3 +34,8 @@ agent.json
 # rendered Envoy config: generated per machine, never committed.
 infra/mtls/certs/
 infra/mtls/envoy.yaml
+
+# Secrets for the container images stack (infra/docker/images/env.sh, ADR 0019):
+# generated per machine, never committed.
+infra/docker/images.env
+infra/docker/images.env.tmp

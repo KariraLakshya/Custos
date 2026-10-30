@@ -8,6 +8,7 @@ Thanks for helping. Custos is a trust layer for AI agents. We need to know wheth
 - Use **only** [the README](../README.md), from "Quickstart: zero to a revoked agent" through the end of step 4. Step 5 (the SDK) is optional.
 - **Don't ask the author for help while you're doing it.** If you're stuck for more than 10 minutes, write down where and why, then use the README's Troubleshooting table. If that doesn't get you moving again, stop. That's a valid result.
 - Run commands as written. If you have to change one to make it work, note what you changed.
+- You may instead follow the README's "Run from container images" section in place of steps 1 to 3, then do step 4 inside the tools container. The pass criteria are the same. Say which path you took.
 
 ## What you need
 
