@@ -36,8 +36,8 @@ importers:
         specifier: ^0.31.11
         version: 0.31.11
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
       eslint:
         specifier: ^10.12.0
         version: 10.12.0
@@ -84,8 +84,8 @@ importers:
         specifier: ^12.1.0
         version: 12.1.0
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -286,8 +286,8 @@ importers:
         specifier: ^2.4.0
         version: 2.4.0
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
@@ -484,8 +484,8 @@ importers:
         specifier: workspace:*
         version: link:../control-plane-auth
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
     devDependencies:
       '@custos/tsconfig':
         specifier: workspace:*
@@ -530,8 +530,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/observability
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
@@ -582,8 +582,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/observability
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
@@ -640,8 +640,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/observability
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
@@ -695,8 +695,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/observability
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
@@ -763,8 +763,8 @@ importers:
         specifier: ^5.0.4
         version: 5.0.4(vitest@5.0.4)
       drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
+        specifier: ^0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1)
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -2072,8 +2072,8 @@ packages:
     resolution: {integrity: sha512-YCYqxTLIB2OCqf6w9/Vef13baBVbwQIPcbT4Y56AfO6B9ajZhDhD8Jkveg/hJvT/iuMloKD/IYYkyMMNhr7Kqg==}
     hasBin: true
 
-  drizzle-orm@0.45.3:
-    resolution: {integrity: sha512-CAloER21cDdcgZ1OmjrZX82EeRNsdP+y0onX/eyoYDaYzki/adrAa91lzM5jWh7zZPK4qUbw/6LGv9J+A+uizA==}
+  drizzle-orm@0.45.4:
+    resolution: {integrity: sha512-NiM1YZpJ2UxyeE67DpDDZ+Tsw4YLX3trSlkNT7Tm9eKoUNb1LvaAaQzXgYQsWs+AQ9TUmmwMmBOCXuqqxUWKKQ==}
     peerDependencies:
       '@aws-sdk/client-rds-data': '>=3'
       '@cloudflare/workers-types': '>=4'
@@ -4334,7 +4334,7 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.3(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1):
+  drizzle-orm@0.45.4(@types/pg@8.23.1)(gel@2.2.0)(pg@8.23.1):
     optionalDependencies:
       '@types/pg': 8.23.1
       gel: 2.2.0
