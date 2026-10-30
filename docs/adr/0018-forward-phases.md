@@ -31,7 +31,7 @@ This ADR records scope and order only. Each phase's design choices (image base a
 ## Consequences
 
 - `CLAUDE.md` §2's list is unchanged: it already defers to the build plan's current phase. Each item becomes buildable only when its phase is current.
-- Phase 5's DONE check (non-author README run) is still owed. Phase 7 makes it easier: a tester needs Docker only.
+- Phase 5's DONE check (non-author README run) is still owed. Phase 7 makes it easier: a tester needs Docker, plus pnpm to launch the scripts (no Node for the services themselves).
 - `docs/build-plan.drawio` does not show Phases 7–11 yet (recorded in `docs/state.md` Known issues).
 
 ## Decided questions

@@ -6,6 +6,27 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-10-30 — Custos now ships as ready-to-run containers (Phase 7, packaging)
+
+**Commits:** on branch `feat/packaging`; hashes and pull request added when pushed.
+
+**The plan first.** Your 28 October decision on what comes after the audit work is now written into the build plan as five phases, each with a finish line a machine can check: 7 packaging, 8 delegation provenance (who authorised which agent, through which other agents), 9 the sidecar, 10 the kernel-level guard (eBPF), 11 Kubernetes. ADR 0018 records the order and why. You decided today that the containers are built and tested by our automatic checks only, and not published publicly until launch.
+
+**What changed, in plain words:**
+
+- **Custos comes in sealed boxes.** Each of the four services, the dashboard, and a toolbox (the setup steps, the admin command and the `custos` command) is now a container image: a sealed box with exactly the code it needs and nothing else. Until now Custos only ran from its source code on a developer's machine with the right version of Node installed. Now anyone with Docker can run `pnpm images:build` then `pnpm images:up` and get the whole system running; pnpm only launches the scripts, the services themselves need nothing installed on the machine.
+- **No secrets inside the boxes.** The signing seeds and keys are made fresh on each machine and handed to the boxes only when they start. A box started without its key refuses to run rather than running unprotected.
+- **Nothing runs as the administrator** inside any box, so a break-in through one service gets an ordinary user, not full control.
+- **Every box is built from one exact, fingerprinted starting image**, so nobody can change what we ship by changing the image we build on.
+
+**How we know it works:** a set of seven automatic checks runs the full story against the boxes alone: register an agent, it is refused before being granted a tool, allowed after, refused on a tool it was not granted, revoked, then refused. The checks also prove that no secret is in any box, that every box runs as an ordinary user, that each service refuses to start without its key, that the starting images are fingerprinted, and that no source code from the machine is plugged into any box. Each security check was also fed a deliberately bad box (one with a planted key, one running as administrator, one that starts without its key) to prove the check catches it. All seven passed on this computer. They also run on GitHub's machines on every change; that first run happens when this is pushed.
+
+**Why it matters:** this is the step from "runs on the founder's laptop" to "runs anywhere". It makes the outside tester check from Phase 5 easier (they need Docker, not a developer setup), and it is the base the sidecar and Kubernetes phases build on.
+
+**Limits, stated plainly:** the boxes are tested on one machine at a time; running the services spread across several machines needs real hostnames and comes with the Kubernetes phase. The boxes are not published anywhere yet, by your decision.
+
+---
+
 ## 2026-10-28 — Seal copies in Amazon's write-once storage (part 2b), built; real-AWS check still to run
 
 **Commits:** `b172561` (the S3 store), plus documentation, on branch `feat/audit-seal-s3`. Pushed 2026-10-28 as **pull request #117**, merged 2026-10-29. Part 2a (pull request #112) was merged today.
