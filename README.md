@@ -323,6 +323,27 @@ node packages/sdk/examples/quickstart.mjs
 
 Stop each service with Ctrl+C, then `pnpm dev:down` to stop the databases. Data persists in a Docker volume between runs.
 
+### Run from container images
+
+The same stack also runs from Docker images instead of steps 1 to 3: the services, migrations, `custos-admin` and the `custos` CLI all run in containers, so they need no Node on your machine. Starting them still goes through pnpm scripts, and `images:up` is a bash script (on Windows, Git Bash must be on your `PATH`).
+
+```bash
+pnpm images:build   # build the images: four services, the dashboard, and a tools image
+pnpm images:up      # write dev secrets, migrate, create keys, start everything, store the stand-in tools
+```
+
+When it finishes, the services are on the usual ports and the dashboard is at http://localhost:4005. `mock-database` and `mock-slack` are already in the vault. Do step 4 in a shell inside the tools container, where the operator key and the seal server's read-only user are already set and `custos` is on the path (skip the alias). The files `register` writes stay in that container and go when it is removed:
+
+```bash
+docker compose --env-file infra/docker/images.env -f infra/docker/docker-compose.yml --profile images exec tools bash
+```
+
+The image stack uses the same databases as `pnpm demo` and signs with its own audit key, so switching between them is a key rotation: the first `custos audit-log` after a switch asks you to confirm the new key with `--accept-key` (see ADR 0017, "Key rotation"). A tools container that has never checked the log asks once for each key already in it.
+
+`pnpm images:down` stops and removes the Custos containers; `pnpm dev:down` stops everything, databases included.
+
+The first `images:up` writes random seeds and API keys to `infra/docker/images.env`. They reach the containers only when they start, never an image. The file is gitignored: don't commit or share it. Delete it to start over with new ones; credentials issued under the old seeds then stop verifying.
+
 ---
 
 ### Optional: services authenticate to each other with certificates (mTLS)

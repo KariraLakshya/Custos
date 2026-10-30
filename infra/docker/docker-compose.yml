@@ -81,6 +81,134 @@ services:
     volumes:
       - ../sso/realm-custos.json:/opt/keycloak/data/import/realm-custos.json:ro
 
+  # ---- Custos from its container images (ADR 0019). Opt-in, profile
+  # `images`: `pnpm images:build`, then `pnpm images:up`. Secrets come only
+  # from infra/docker/images.env (generated, gitignored), passed with
+  # --env-file by those scripts; each service gets only its own. Unset, a
+  # secret is empty and that service refuses to boot. `${VAR:-}` rather than
+  # `${VAR:?}`: compose interpolates every profile, and plain `pnpm dev` has
+  # no env file.
+  #
+  # One container owns the network namespace and all Custos containers join
+  # it, so every service is `localhost:400x` to every other, exactly as in
+  # development, and the did:web DIDs (did:web:localhost%3A4001, ...) stay
+  # valid. Ports are published from the owner only.
+  custos-net:
+    profiles: ["images"]
+    image: custos-tools:local
+    pull_policy: never
+    init: true
+    command: ["sleep", "infinity"]
+    ports:
+      - "4001:4001"
+      - "4002:4002"
+      - "4003:4003"
+      - "4004:4004"
+      - "4005:4005"
+
+  audit:
+    profiles: ["images"]
+    image: custos-audit:local
+    pull_policy: never
+    build: { context: ../.., dockerfile: infra/docker/images/Dockerfile, target: audit }
+    network_mode: "service:custos-net"
+    depends_on:
+      custos-net: { condition: service_started }
+      postgres: { condition: service_healthy }
+      seal-store: { condition: service_healthy }
+    environment:
+      PORT: "4004"
+      DATABASE_URL: postgres://custos:custos@postgres:5432/custos
+      # The seal store's insert-only role (infra/seal-store/roles.dev.sql, dev password).
+      AUDIT_SEAL_STORE_URL: postgres://custos_sealer:custos_sealer@seal-store:5432/custos_seals
+      AUDIT_SIGNING_SEED: ${AUDIT_SIGNING_SEED:-}
+    healthcheck: &custos-health
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:'+process.env.PORT+(process.env.PORT==='4005'?'/':'/health')).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  revocation:
+    profiles: ["images"]
+    image: custos-revocation:local
+    pull_policy: never
+    build: { context: ../.., dockerfile: infra/docker/images/Dockerfile, target: revocation }
+    network_mode: "service:custos-net"
+    depends_on:
+      audit: { condition: service_healthy }
+    environment:
+      PORT: "4003"
+      DATABASE_URL: postgres://custos:custos@postgres:5432/custos
+      REVOCATION_SIGNING_SEED: ${REVOCATION_SIGNING_SEED:-}
+      REVOCATION_SERVICE_KEY: ${REVOCATION_SERVICE_KEY:-}
+    healthcheck: *custos-health
+
+  identity:
+    profiles: ["images"]
+    image: custos-identity:local
+    pull_policy: never
+    build: { context: ../.., dockerfile: infra/docker/images/Dockerfile, target: identity }
+    network_mode: "service:custos-net"
+    depends_on:
+      revocation: { condition: service_healthy }
+    environment:
+      PORT: "4001"
+      DATABASE_URL: postgres://custos:custos@postgres:5432/custos
+      IDENTITY_ISSUER_SEED: ${IDENTITY_ISSUER_SEED:-}
+      IDENTITY_SERVICE_KEY: ${IDENTITY_SERVICE_KEY:-}
+    healthcheck: *custos-health
+
+  vault:
+    profiles: ["images"]
+    image: custos-vault:local
+    pull_policy: never
+    build: { context: ../.., dockerfile: infra/docker/images/Dockerfile, target: vault }
+    network_mode: "service:custos-net"
+    depends_on:
+      identity: { condition: service_healthy }
+    environment:
+      PORT: "4002"
+      DATABASE_URL: postgres://custos:custos@postgres:5432/custos
+      VAULT_MASTER_KEY: ${VAULT_MASTER_KEY:-}
+      VAULT_SERVICE_KEY: ${VAULT_SERVICE_KEY:-}
+    healthcheck: *custos-health
+
+  dashboard:
+    profiles: ["images"]
+    image: custos-dashboard:local
+    pull_policy: never
+    build: { context: ../.., dockerfile: infra/docker/images/Dockerfile, target: dashboard }
+    network_mode: "service:custos-net"
+    depends_on:
+      vault: { condition: service_healthy }
+    environment:
+      PORT: "4005"
+    healthcheck: *custos-health
+
+  # Migrations, custos-admin and the custos CLI, inside the stack's network.
+  # Idle until used: `docker compose ... exec tools custos <command>`.
+  tools:
+    profiles: ["images"]
+    image: custos-tools:local
+    pull_policy: never
+    build: { context: ../.., dockerfile: infra/docker/images/Dockerfile, target: tools }
+    network_mode: "service:custos-net"
+    init: true
+    command: ["sleep", "infinity"]
+    depends_on:
+      custos-net: { condition: service_started }
+    environment:
+      DATABASE_URL: postgres://custos:custos@postgres:5432/custos
+      CUSTOS_OPERATOR_KEY: ${CUSTOS_OPERATOR_KEY:-}
+      # The seal store's read-only role, for `custos audit-log` (dev password).
+      CUSTOS_AUDIT_SEAL_STORE_URL: postgres://custos_auditor:custos_auditor@seal-store:5432/custos_seals
+
 volumes:
   custos-postgres:
   custos-seal-store:

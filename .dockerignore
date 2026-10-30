@@ -1,0 +1,31 @@
+# Build context for infra/docker/images/Dockerfile (ADR 0019). Everything the
+# images need is rebuilt inside from source and the lockfile; everything else
+# stays out, above all anything that could hold a secret.
+
+# Rebuilt inside the image
+**/node_modules
+**/dist
+**/coverage
+**/.turbo
+**/*.tsbuildinfo
+
+# Secrets and per-machine credentials: never in any layer
+.env*
+infra/docker/images.env
+infra/mtls/certs
+infra/mtls/envoy.yaml
+**/*.key
+**/agent.json
+.smoke-tmp
+
+# Not needed to build, and large or local
+.git
+.claude
+.husky
+.github
+.changeset
+**/graphify-out
+graphify-out
+.graphify_*
+docs
+**/*.log
