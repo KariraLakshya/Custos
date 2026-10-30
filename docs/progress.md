@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-30 — Custos now ships as ready-to-run containers (Phase 7, packaging)
 
-**Commits:** `63ae3e7`, `24e6d58` (the plan and ADR 0018), `c08c79b` (the containers and checks), `7f6cb3e` (docs), `5671e5b` (a Linux fix). Pushed 2026-10-30 as **pull request #118**; all automatic checks green, waiting to be merged.
+**Commits:** `63ae3e7`, `24e6d58` (the plan and ADR 0018), `c08c79b` (the containers and checks), `7f6cb3e` (docs), `5671e5b` (a Linux fix). Pushed 2026-10-30 as **pull request #118**, all automatic checks green, merged to the main branch the same day. **Phase 7 is closed.**
 
 **The plan first.** Your 28 October decision on what comes after the audit work is now written into the build plan as five phases, each with a finish line a machine can check: 7 packaging, 8 delegation provenance (who authorised which agent, through which other agents), 9 the sidecar, 10 the kernel-level guard (eBPF), 11 Kubernetes. ADR 0018 records the order and why. You decided today that the containers are built and tested by our automatic checks only, and not published publicly until launch.
 
