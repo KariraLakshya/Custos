@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-10-30 — Custos now ships as ready-to-run containers (Phase 7, packaging)
 
-**Commits:** on branch `feat/packaging`; hashes and pull request added when pushed.
+**Commits:** `63ae3e7`, `24e6d58` (the plan and ADR 0018), `c08c79b` (the containers and checks), `7f6cb3e` (docs), `5671e5b` (a Linux fix). Pushed 2026-10-30 as **pull request #118**; all automatic checks green, waiting to be merged.
 
 **The plan first.** Your 28 October decision on what comes after the audit work is now written into the build plan as five phases, each with a finish line a machine can check: 7 packaging, 8 delegation provenance (who authorised which agent, through which other agents), 9 the sidecar, 10 the kernel-level guard (eBPF), 11 Kubernetes. ADR 0018 records the order and why. You decided today that the containers are built and tested by our automatic checks only, and not published publicly until launch.
 
@@ -19,7 +19,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 - **Nothing runs as the administrator** inside any box, so a break-in through one service gets an ordinary user, not full control.
 - **Every box is built from one exact, fingerprinted starting image**, so nobody can change what we ship by changing the image we build on.
 
-**How we know it works:** a set of seven automatic checks runs the full story against the boxes alone: register an agent, it is refused before being granted a tool, allowed after, refused on a tool it was not granted, revoked, then refused. The checks also prove that no secret is in any box, that every box runs as an ordinary user, that each service refuses to start without its key, that the starting images are fingerprinted, and that no source code from the machine is plugged into any box. Each security check was also fed a deliberately bad box (one with a planted key, one running as administrator, one that starts without its key) to prove the check catches it. All seven passed on this computer. They also run on GitHub's machines on every change; that first run happens when this is pushed.
+**How we know it works:** a set of seven automatic checks runs the full story against the boxes alone: register an agent, it is refused before being granted a tool, allowed after, refused on a tool it was not granted, revoked, then refused. The checks also prove that no secret is in any box, that every box runs as an ordinary user, that each service refuses to start without its key, that the starting images are fingerprinted, and that no source code from the machine is plugged into any box. Each security check was also fed a deliberately bad box (one with a planted key, one running as administrator, one that starts without its key) to prove the check catches it. All seven passed on this computer and on GitHub's Linux machines, which now run them on every change. The first GitHub run caught one real problem this computer could not: the check scripts had been saved from Windows without permission to run on Linux. Fixed the same day.
 
 **Why it matters:** this is the step from "runs on the founder's laptop" to "runs anywhere". It makes the outside tester check from Phase 5 easier (they need Docker, not a developer setup), and it is the base the sidecar and Kubernetes phases build on.
 
