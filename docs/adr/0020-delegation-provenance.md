@@ -1,6 +1,6 @@
 # 0020: Delegation provenance — signed hand-offs that only narrow, checked locally by the vault
 
-**Status:** Proposed 2026-11-02 (Phase 8, ADR 0018). Four questions for the founder are listed at the end. Their answers may change §1, §5 and §6. Accepted when the Phase 8 pull request merges.
+**Status:** Proposed 2026-11-02 (Phase 8, ADR 0018). The founder answered its four questions the same day, each as recommended (see "Founder decisions"). Accepted when the Phase 8 pull request merges.
 
 ## Context
 
@@ -105,7 +105,7 @@ The issued token gains a `chain` claim: the DIDs from the root delegator to the 
 - **Cancelling one hand-off without firing anyone** is _not_ in this design. Hand-offs are short-lived instead: `maxLifetime` default 1 h, and never past the parent.
 - **Taking a tool back from the root agent** needs an ungrant endpoint, which does not exist yet (the Risk page lists "no way to remove a single permission" as planned). With one, the root lookup in §4 refuses the chain at the next token request (≤ 60 s). Without one, firing the root agent is the way.
 
-Both of the last two are founder questions (Q2).
+The founder decided (2026-11-02) that firing is enough for Phase 8: neither per-hand-off cancellation nor an ungrant endpoint is built in this phase.
 
 ### 6. The audit record carries the evidence, not just the names
 
@@ -160,7 +160,7 @@ Each must be proven in CI:
 
 ## Not in this phase
 
-Cross-company chains (federation), with `iss` resolution kept general so they fit later. Also not in this phase: inspecting data (categories stay declared), a DPDP export format, the sidecar, an SD-JWT encoding, and per-hand-off cancellation unless the founder chooses it (Q2).
+Cross-company chains (federation), with `iss` resolution kept general so they fit later. Also not in this phase: inspecting data (categories stay declared), a DPDP export format, the sidecar, an SD-JWT encoding, per-hand-off cancellation, and an ungrant endpoint (founder, 2026-11-02).
 
 ## Consequences
 
@@ -168,15 +168,12 @@ Cross-company chains (federation), with `iss` resolution kept general so they fi
 - `custos audit-log` gains a chain check, so a ledger entry with a forged chain fails verification like an edited payload.
 - Grants made before this change must be re-granted before they can be delegated. That is one command per grant.
 
-## Questions for the founder
+## Founder decisions (2026-11-02)
 
-1. **Format:** Custos's own signed hand-off now, mappable to Delegate SD-JWT later (recommended), or Delegate SD-JWT now, or AIP/Biscuit.
-2. **Revoking a link:** firing an agent already cuts everyone below it.
-   - Is that enough for Phase 8 (recommended, with short hand-offs)?
-   - Or do we also build cancelling one hand-off without firing anyone (a new revocation list)?
-   - And should Phase 8 include "take a tool back" (ungrant), which closes the open "no way to remove a single permission" risk?
-3. **Limits:** at most 3 hand-offs in a chain and 1 hour per hand-off (recommended), or other values.
-4. **The human at the root** is the operator who granted the tool: an SSO person, or a named operator key, with the record saying which. Is that the right meaning?
+1. **Format:** Custos's own signed hand-off (§2), mappable to Delegate SD-JWT later. Not the draft now, not AIP/Biscuit.
+2. **Revoking a link:** firing an agent, which cuts every agent below it (§4), is enough for Phase 8, with hand-offs kept short. No per-hand-off cancellation and no ungrant endpoint in this phase.
+3. **Limits:** `DELEGATION_MAX_LINKS` 3 and `DELEGATION_MAX_LIFETIME_SECONDS` 3600, as in §"Limits".
+4. **The human at the root:** the operator who granted the tool, recorded as an SSO person or a named operator key, with the record saying which (§1). Grants made with an operator key may be delegated.
 
 ## Sources
 
