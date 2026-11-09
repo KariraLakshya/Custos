@@ -6,6 +6,16 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-09 — A fix for the release robot
+
+**Commit:** on branch `fix/release-skip-hooks`, pushed 2026-11-09 as its own pull request.
+
+**What happened:** the Phase 8 merge carried the project's first "release note" file (a changeset). On every merge to main, a release robot gathers these notes into a version-number update and opens a pull request for it. It had never had a note to work with before, so its handover step had never run, and it failed on that first run. To hand over the update it uploads a branch, and uploading runs the safety check we use on our own computers: all tests before any upload. The robot's machine has no database, so the database tests failed and the upload was refused. Nothing was published (every package is private), and Custos itself was not affected.
+
+**The fix:** the robot skips that local safety check. It loses nothing, because the same tests already run on every pull request before anything can merge.
+
+---
+
 ## 2026-11-09 — Agents can hand work to other agents, and the audit log proves who authorised it (Phase 8, delegation provenance)
 
 **Commits:** `15d41e3`, `fbd76fb` (the design and your decisions), `bed6d60` (the code and tests), `a3b59a1` (docs). Pushed 2026-11-09 as **pull request #122** against the main branch; Phase 8 closes when it merges with the automatic checks green.
