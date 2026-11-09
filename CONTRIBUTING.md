@@ -13,7 +13,7 @@ pnpm dev
 - Small, single-purpose PRs.
 - Run `pnpm lint`, `pnpm typecheck`, and `pnpm test` before opening a PR — CI enforces all three plus coverage thresholds (95% lines/branches in `packages/core`, 80% elsewhere).
 - Every security-relevant change needs a negative test (tampered/expired/revoked/unauthorized case), not just the happy path.
-- Record a [Changeset](https://github.com/changesets/changesets) (`pnpm changeset`) for any release-worthy change.
+- Note user-visible changes in the PR description. There is no changelog tool until packages are published (ADR 0021).
 - New dependencies need a stated justification; prefer a primitive over a convenience wrapper.
 - Consequential decisions (new dependency of substance, protocol/format choice, persistence or crypto change) get an ADR in `docs/adr/`.
 
