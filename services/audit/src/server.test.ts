@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   multibaseToPublicKey,
   verifyAuditLedger,
@@ -160,6 +160,66 @@ describe("the ledger (ADR 0017)", () => {
       id: serviceKeyId(),
       name: "test-service",
     });
+  });
+
+  it("serialises a record without delegation exactly as before (ADR 0020: old hashes unchanged)", async () => {
+    const app = await build({ clock: fixedClock("2026-10-27T10:00:00.000Z") });
+    const agentDid = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    await post(app, { ...event(agentDid), reason: "kept" });
+    const [row] = await db
+      .select({ payload: auditRecords.payload, payloadHash: auditRecords.payloadHash })
+      .from(auditRecords)
+      .where(sql`${auditRecords.agentDid} = ${agentDid}`);
+    // Written out by hand, in the pre-delegation key order: a change to how
+    // a plain record is built shows here, not just in a hash.
+    const expected =
+      `{"agentDid":"${agentDid}","authorityChain":["${agentDid}"],"tool":"mock-slack",` +
+      `"action":"post-message","dataCategories":["message-content"],` +
+      `"policy":{"rule":"agent-tool-allowlist","decision":"allow"},"reason":"kept",` +
+      `"recordedAt":"2026-10-27T10:00:00.000Z",` +
+      `"reportedBy":{"kind":"service","id":"${serviceKeyId()}","name":"test-service"}}`;
+    expect(row?.payload).toBe(expected);
+    expect(row?.payloadHash).toBe(createHash("sha256").update(expected).digest("hex"));
+  });
+
+  it("stores a delegated action's chain, reference and evidence, and it still verifies (ADR 0020 §6)", async () => {
+    const app = await build();
+    const agentDid = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    const root = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    const delegation = {
+      root: { kind: "operator", id: "0123456789abcdef", name: "lakshya", via: "sso" },
+      handOffs: ["a.b"],
+      credentials: [{ id: "c" }],
+      checkedAt: "2026-11-09T10:00:00.000Z",
+    };
+    const delegated = {
+      ...event(agentDid),
+      policy: { rule: "delegation:mock-slack", decision: "allow" },
+      authorityChain: [root, agentDid],
+      delegationRef: "ref-1",
+    };
+    expect((await post(app, { ...delegated, delegation })).statusCode).toBe(201);
+    expect((await post(app, delegated)).statusCode).toBe(201);
+    const [issued, called] = await recordsOf(app, agentDid);
+    expect(issued).toMatchObject({
+      authorityChain: [root, agentDid],
+      delegationRef: "ref-1",
+      delegation,
+    });
+    expect(called).toMatchObject({ authorityChain: [root, agentDid], delegationRef: "ref-1" });
+    expect(called).not.toHaveProperty("delegation");
+  });
+
+  it.each([
+    [
+      "a chain that does not end at the agent",
+      (did: string) => ({ authorityChain: [did, "did:web:x"], delegationRef: "r" }),
+    ],
+    ["a chain with no reference", (did: string) => ({ authorityChain: ["did:web:x", did] })],
+  ])("400s %s: the reporter cannot attach any chain it likes", async (_label, extra) => {
+    const app = await build();
+    const agentDid = `did:web:127.0.0.1%3A4824:agents:${randomUUID()}`;
+    expect((await post(app, { ...event(agentDid), ...extra(agentDid) })).statusCode).toBe(400);
   });
 
   it("serves another agent's entries as hashes only, and one agent's view still verifies", async () => {

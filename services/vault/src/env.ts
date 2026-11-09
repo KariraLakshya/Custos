@@ -21,7 +21,16 @@ const fieldsSchema = baseEnvSchema.extend({
   VAULT_PUBLIC_URL: z.string().url().default("http://localhost:4002"),
   // Freshness window for a token-request proof: |now - iat|. Explicit
   // configuration, never an accident (CLAUDE.md section 3).
-  VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS: z.coerce.number().int().positive().default(60),
+  // At most 5 minutes; it is also a delegation chain's clock skew, which
+  // `custos audit-log` re-verifies under this upper bound.
+  VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS: z.coerce.number().int().positive().max(300).default(60),
+  // Delegation chains (ADR 0020): most hand-offs in one chain, longest a
+  // hand-off may live, most bytes of hand-offs and credentials together.
+  // A chain over any of them is refused; there is no way to switch them off.
+  DELEGATION_MAX_LINKS: z.coerce.number().int().positive().max(15).default(3),
+  // At most a day: `custos audit-log` re-verifies chains under these upper bounds.
+  DELEGATION_MAX_LIFETIME_SECONDS: z.coerce.number().int().positive().max(86_400).default(3600),
+  DELEGATION_MAX_BYTES: z.coerce.number().int().positive().max(262_144).default(16_384),
   // Bounded staleness (CLAUDE.md section 3): if no resync has succeeded
   // within this window the vault denies calls rather than trusting a stale
   // allow list. Explicit configuration, never an accident.

@@ -1,8 +1,10 @@
 import { err, ok, type Result } from "@custos/contracts";
 import {
+  buildHandOff,
   buildRegistrationRequest,
   buildTokenRequestProof,
   didWebFromDomain,
+  type DelegatedGrant,
 } from "@custos/core/possession";
 import { z } from "zod";
 
@@ -74,6 +76,37 @@ export interface DeprovisionResult {
   readonly broadcast: { readonly delivered: number; readonly failed: readonly string[] };
 }
 
+/**
+ * Permission one agent passes to another (ADR 0020): signed hand-offs from
+ * the first delegator down, with each delegator's credential. Plain JSON, not
+ * a secret: it is bound to the receiving agent, who must still prove it holds
+ * its own key. Give it to the receiving agent, which passes it to `connect`.
+ */
+export interface Delegation {
+  readonly handOffs: readonly string[];
+  readonly credentials: readonly AgentCredential[];
+}
+
+/** How long a hand-off lives by default: 10 minutes, within any vault's default limit of 1 hour. */
+export const DEFAULT_DELEGATION_TTL_SECONDS = 600;
+
+export interface DelegateOptions {
+  /** The receiving agent's DID. */
+  readonly to: string;
+  /** What it may do: each tool with the actions allowed on it. */
+  readonly grants: readonly DelegatedGrant[];
+  /** Default {@link DEFAULT_DELEGATION_TTL_SECONDS}; never past the delegation it extends. */
+  readonly ttlSeconds?: number;
+  /**
+   * How many more times it may be passed on. Default 0 for a first hand-off
+   * (the receiver may not pass it on); one less than the parent's when
+   * extending one.
+   */
+  readonly depth?: number;
+  /** A delegation this agent received and is passing on, narrowed. */
+  readonly extending?: Delegation;
+}
+
 export interface Custos {
   /**
    * Registers a new agent: generates its keypair locally, proves possession
@@ -87,7 +120,21 @@ export interface Custos {
    * Binds an agent to a tool. No network until `call`. Needs the agent's
    * private key: every token request proves possession of it (ADR 0007).
    */
-  connect(agent: Pick<Agent, "credential" | "secretKey">, tool: string): ToolConnection;
+  connect(
+    agent: Pick<Agent, "credential" | "secretKey">,
+    tool: string,
+    options?: { readonly delegation?: Delegation },
+  ): ToolConnection;
+  /**
+   * Lets `agent` pass some of what it may do to another agent (ADR 0020),
+   * signed here with its own key. Local only: nothing is sent anywhere, and
+   * Custos first sees it when the receiver uses it. Throws on a hand-off the
+   * vault would refuse anyway (widening, passing on what may not be).
+   */
+  delegate(
+    agent: Pick<Agent, "did" | "credential" | "secretKey">,
+    options: DelegateOptions,
+  ): Delegation;
   /** Revokes the agent everywhere — every tool it can reach cuts it off. */
   deprovision(
     agent: Pick<Agent, "id">,
@@ -146,6 +193,35 @@ function errorCode(body: unknown): string {
     return typeof error.code === "string" ? error.code : "UNKNOWN";
   }
   return "UNKNOWN";
+}
+
+interface ParentClaims {
+  readonly sub: string;
+  readonly grants: readonly DelegatedGrant[];
+  readonly depth: number;
+  readonly exp: number;
+}
+
+/** The claims of the hand-off a delegation ends with; only read here, the vault verifies it. */
+function lastHandOffClaims(delegation: Delegation): ParentClaims {
+  const last = delegation.handOffs[delegation.handOffs.length - 1];
+  try {
+    const claims = JSON.parse(
+      Buffer.from(last?.split(".")[0] ?? "", "base64url").toString("utf8"),
+    ) as ParentClaims;
+    if (typeof claims.sub === "string" && Array.isArray(claims.grants)) return claims;
+  } catch {
+    // reported below
+  }
+  throw new Error("delegate: the delegation being extended is not a readable hand-off chain");
+}
+
+/** Every tool and action in `grants` is within `parent`'s. */
+function narrows(grants: readonly DelegatedGrant[], parent: readonly DelegatedGrant[]): boolean {
+  return grants.every((grant) => {
+    const held = parent.find((p) => p.tool === grant.tool);
+    return held !== undefined && grant.actions.every((action) => held.actions.includes(action));
+  });
 }
 
 /** Programmer error, not a denial: a key that isn't 32 bytes of hex never reaches the vault. */
@@ -219,7 +295,57 @@ export function createCustos(config: CustosConfig): Custos {
       return parseOrThrow("grant", grantSchema, response.body);
     },
 
-    connect(agent, tool) {
+    delegate(agent, options) {
+      const now = new Date();
+      const ttlSeconds = options.ttlSeconds ?? DEFAULT_DELEGATION_TTL_SECONDS;
+      const secretKey = parseSecretKey(agent.secretKey);
+      if (options.extending === undefined) {
+        const handOff = buildHandOff({
+          from: agent.did,
+          to: options.to,
+          grants: options.grants,
+          depth: options.depth ?? 0,
+          now,
+          ttlSeconds,
+          secretKey,
+        });
+        return { handOffs: [handOff], credentials: [agent.credential] };
+      }
+      const parent = lastHandOffClaims(options.extending);
+      if (parent.sub !== agent.did) {
+        throw new Error("delegate: only the agent a delegation was given to can pass it on");
+      }
+      if (parent.depth < 1) {
+        throw new Error("delegate: this delegation may not be passed on (its depth is 0)");
+      }
+      const depth = options.depth ?? parent.depth - 1;
+      if (depth >= parent.depth) {
+        throw new Error(`delegate: depth must be less than the parent's (${parent.depth})`);
+      }
+      if (!narrows(options.grants, parent.grants)) {
+        throw new Error("delegate: can only pass on tools and actions it was itself given");
+      }
+      // Never past the hand-off it extends.
+      const remaining = parent.exp - Math.floor(now.getTime() / 1000);
+      if (remaining <= 0) throw new Error("delegate: the delegation being extended has expired");
+      const handOff = buildHandOff({
+        from: agent.did,
+        to: options.to,
+        grants: options.grants,
+        depth,
+        previous: options.extending.handOffs[options.extending.handOffs.length - 1]!,
+        now,
+        ttlSeconds: Math.min(ttlSeconds, remaining),
+        secretKey,
+      });
+      return {
+        handOffs: [...options.extending.handOffs, handOff],
+        credentials: [...options.extending.credentials, agent.credential],
+      };
+    },
+
+    connect(agent, tool, options) {
+      const delegation = options?.delegation;
       return {
         tool,
         // A fresh scoped token per call: tokens are bound to one action and
@@ -240,6 +366,8 @@ export function createCustos(config: CustosConfig): Custos {
             action,
             credential: agent.credential,
             proof,
+            // Sent with every request: each call gets a fresh token.
+            ...(delegation === undefined ? {} : { delegation }),
           });
           if (!tokenResponse.ok) {
             return err({

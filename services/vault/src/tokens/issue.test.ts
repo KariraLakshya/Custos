@@ -53,6 +53,7 @@ const cipher = createLocalSecretCipher(new Uint8Array(32).fill(3));
 const ISSUER_SEED = new Uint8Array(32).fill(11);
 const TOKENS_URL = "https://vault.custos.example/tokens";
 const MAX_SKEW = 60;
+const OPERATOR = { kind: "operator", id: "key-test", name: "test-operator" } as const;
 
 const controlPlane = createTestControlPlane(identityDb);
 let operatorKey: string;
@@ -185,7 +186,7 @@ async function withGrantedAgent<T>(
 ): Promise<T> {
   return withTrustedIdentity(port, async ({ agent, trustedIssuer }) => {
     const tool = await toolWithSecret();
-    await grantToolAccess(vaultDb, agent.agentDid, tool);
+    await grantToolAccess(vaultDb, agent.agentDid, tool, OPERATOR);
     const signing = await vaultSigningKey();
     return run({
       agent,
@@ -213,7 +214,7 @@ describe("issueToolToken", () => {
   it("issues a 60s token whose subject is the agent (credentialSubject.id), not the issuer", async () => {
     await withTrustedIdentity(4211, async ({ agent, trustedIssuer }) => {
       const tool = await toolWithSecret();
-      await grantToolAccess(vaultDb, agent.agentDid, tool);
+      await grantToolAccess(vaultDb, agent.agentDid, tool, OPERATOR);
       const now = new Date();
 
       const result = await issueToolToken({
@@ -290,7 +291,7 @@ describe("issueToolToken", () => {
   it("does not treat a grant recorded under the issuer's DID as a grant to any agent", async () => {
     await withTrustedIdentity(4215, async ({ agent, trustedIssuer }) => {
       const tool = await toolWithSecret();
-      await grantToolAccess(vaultDb, trustedIssuer.did, tool);
+      await grantToolAccess(vaultDb, trustedIssuer.did, tool, OPERATOR);
 
       const result = await issueToolToken({
         db: vaultDb,
@@ -312,8 +313,8 @@ describe("issueToolToken", () => {
     await withTrustedIdentity(4216, async ({ agent, trustedIssuer, register }) => {
       const other = await register();
       const tool = await toolWithSecret();
-      await grantToolAccess(vaultDb, agent.agentDid, tool);
-      await grantToolAccess(vaultDb, other.agentDid, tool);
+      await grantToolAccess(vaultDb, agent.agentDid, tool, OPERATOR);
+      await grantToolAccess(vaultDb, other.agentDid, tool, OPERATOR);
       const revocation = revokedAgent(agent.agentDid);
       const request = async (who: Registered) =>
         issueToolToken({
@@ -529,7 +530,7 @@ describe("issueToolToken", () => {
   it("surfaces a signing failure (e.g. the KMS is unreachable) as an error value", async () => {
     await withTrustedIdentity(4214, async ({ agent, trustedIssuer }) => {
       const tool = await toolWithSecret();
-      await grantToolAccess(vaultDb, agent.agentDid, tool);
+      await grantToolAccess(vaultDb, agent.agentDid, tool, OPERATOR);
       const failingKeyProvider = {
         createKeyPair: () => Promise.reject(new Error("unreachable")),
         sign: () => Promise.reject(new Error("kms unreachable")),
@@ -578,7 +579,7 @@ describe("issueToolToken proof of possession (ADR 0007 decision 3)", () => {
       // The agent is granted a second tool; a request it made for that tool
       // is captured and presented for this one.
       const otherTool = await toolWithSecret();
-      await grantToolAccess(vaultDb, agent.agentDid, otherTool);
+      await grantToolAccess(vaultDb, agent.agentDid, otherTool, OPERATOR);
       const replayCache = createInMemoryReplayCache();
       const madeForOther = await proofCheck(
         agent.secretKey,

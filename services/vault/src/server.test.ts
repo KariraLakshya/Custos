@@ -1,5 +1,7 @@
 import type { SignedCredential } from "@custos/core";
 import {
+  buildHandOff,
+  handOffHash,
   buildRegistrationRequest,
   buildTokenRequestProof,
   createLocalKeyProvider,
@@ -19,10 +21,11 @@ import {
 } from "@custos/revocation";
 import { mutableClock } from "@custos/testing";
 import type { AuditEvent } from "@custos/audit-client";
+import { auditEventSchema } from "@custos/contracts";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createDb } from "./db/client.js";
 import { agentPolicies, toolCredentials } from "./db/schema.js";
 import { buildServer } from "./server.js";
@@ -489,6 +492,167 @@ describe("vault service", () => {
         });
         expect(response.statusCode).toBe(200);
       });
+    });
+  });
+
+  describe("delegation (ADR 0020)", () => {
+    it("issues a token under a chain, refuses one that does not cover the request, and audits only the requester", async () => {
+      await withRegisteredAgent(4252, async (delegator) => {
+        const delegate = await registerAgentAt(4252);
+        const events: AuditEvent[] = [];
+        const app = await buildServer({
+          controlPlaneAuth: controlPlane.guard,
+          db: vaultDb,
+          cipher,
+          trustedIssuerDid: delegator.issuer,
+          revocation: freshEmptyRevocationCache(),
+          connectors: [createMockSlackConnector()],
+          auditReporter: { report: (event) => events.push(event) },
+        });
+        await app.inject({
+          method: "POST",
+          url: "/credentials",
+          headers: bearer(operatorKey),
+          payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+        });
+        await app.inject({
+          method: "POST",
+          url: "/policies",
+          headers: bearer(operatorKey),
+          payload: { agentId: agentDidOf(delegator), tool: "mock-slack" },
+        });
+        const handOff = buildHandOff({
+          from: agentDidOf(delegator),
+          to: agentDidOf(delegate),
+          grants: [{ tool: "mock-slack", actions: ["post-message"] }],
+          depth: 0,
+          now: new Date(),
+          ttlSeconds: 600,
+          secretKey: agentKeys.get(delegator)!,
+        });
+        const delegation = { handOffs: [handOff], credentials: [delegator] };
+
+        const issued = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: { ...(await tokenRequest(delegate, "mock-slack", "post-message")), delegation },
+        });
+        expect(issued.statusCode).toBe(200);
+        // The agent gets its token, not the evidence about other agents.
+        expect(Object.keys(issued.json()).sort()).toEqual(["expiresAt", "token"]);
+        const call = await app.inject({
+          method: "POST",
+          url: "/call",
+          payload: {
+            token: issued.json().token,
+            action: "post-message",
+            input: { channel: "#ops", text: "hi" },
+          },
+        });
+        expect(call.statusCode).toBe(200);
+
+        const refused = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: { ...(await tokenRequest(delegate, "mock-slack", "list-channels")), delegation },
+        });
+        expect(refused.statusCode).toBe(403);
+        expect(refused.json().error).toEqual({
+          code: "DELEGATION_DENIED",
+          agentId: agentDidOf(delegate),
+          reason: "NOT_COVERED",
+        });
+
+        const chain = [agentDidOf(delegator), agentDidOf(delegate)];
+        const ref = handOffHash(handOff);
+        const agentOnly = agentEvents(events);
+        expect(agentOnly).toEqual([
+          // Issuance: recorded once, with the chain's whole evidence (ADR 0020 §6).
+          // It touches no data, so names no data category.
+          {
+            agentDid: agentDidOf(delegate),
+            tool: "mock-slack",
+            action: "post-message",
+            dataCategories: [],
+            policy: { rule: "delegation:mock-slack", decision: "allow" },
+            reason: "token issued under delegation",
+            authorityChain: chain,
+            delegationRef: ref,
+            delegation: {
+              root: expect.objectContaining({ kind: "operator", name: expect.any(String) }),
+              handOffs: [handOff],
+              credentials: [delegator],
+              checkedAt: expect.any(String),
+            },
+          },
+          // The call: the chain and the link to the issuance entry only.
+          {
+            agentDid: agentDidOf(delegate),
+            tool: "mock-slack",
+            action: "post-message",
+            dataCategories: ["messaging-content"],
+            policy: { rule: "delegation:mock-slack", decision: "allow" },
+            authorityChain: chain,
+            delegationRef: ref,
+          },
+          {
+            agentDid: agentDidOf(delegate),
+            tool: "mock-slack",
+            action: "list-channels",
+            dataCategories: ["messaging-content"],
+            policy: { rule: "delegation:mock-slack", decision: "deny" },
+            reason: "delegation chain refused: NOT_COVERED",
+          },
+        ]);
+
+        // A root grant recorded with no `via` (a key with no recorded origin)
+        // is reported without one, not as null.
+        await vaultDb
+          .update(agentPolicies)
+          .set({ grantedByVia: null })
+          .where(
+            and(
+              eq(agentPolicies.agentDid, agentDidOf(delegator)),
+              eq(agentPolicies.tool, "mock-slack"),
+            ),
+          );
+        const again = await app.inject({
+          method: "POST",
+          url: "/tokens",
+          payload: { ...(await tokenRequest(delegate, "mock-slack", "post-message")), delegation },
+        });
+        expect(again.statusCode).toBe(200);
+        const rootless = agentEvents(events).at(-1) as AuditEvent;
+        expect(rootless.delegation?.root).not.toHaveProperty("via");
+
+        // Every event the vault produced passes the audit service's own
+        // contract, so none is refused there and lost.
+        for (const event of events) {
+          expect(auditEventSchema.safeParse(event).success).toBe(true);
+        }
+      });
+    });
+
+    it("400s a delegation that is not hand-offs and credentials", async () => {
+      const app = await buildServer({
+        controlPlaneAuth: controlPlane.guard,
+        db: vaultDb,
+        cipher,
+        revocation: freshEmptyRevocationCache(),
+        auditReporter: { report: () => {} },
+      });
+      const response = await app.inject({
+        method: "POST",
+        url: "/tokens",
+        payload: {
+          tool: "mock-slack",
+          action: "post-message",
+          credential: { issuer: "did:web:x" },
+          proof: "p",
+          delegation: { handOffs: "not-a-list", credentials: [] },
+        },
+      });
+      expect(response.statusCode).toBe(400);
     });
   });
 
@@ -1072,6 +1236,18 @@ describe("vault control-plane auditing (ADR 0008 §7)", () => {
     expect(events[2]!.principal!.id).toBe(revokeOnly.split("_")[2]);
     expect(JSON.stringify(events)).not.toContain("never-audited-secret");
     expect(JSON.stringify(events)).not.toContain(operatorKey);
+
+    // The grant row names the same operator: the root of any delegation (ADR 0020 §1).
+    const [grant] = await vaultDb
+      .select()
+      .from(agentPolicies)
+      .where(and(eq(agentPolicies.agentDid, agentDid), eq(agentPolicies.tool, tool)));
+    expect(grant).toMatchObject({
+      grantedByKind: "operator",
+      grantedById: operatorKey.split("_")[2],
+      grantedByName: "test-operator",
+      grantedByVia: "custos-admin",
+    });
   });
 });
 

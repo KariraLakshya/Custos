@@ -52,6 +52,11 @@ const app = await buildServer({
   trustedIssuerDid: env.VAULT_TRUSTED_ISSUER_DID,
   publicUrl: env.VAULT_PUBLIC_URL,
   tokenProofMaxSkewSeconds: env.VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS,
+  delegationLimits: {
+    maxLinks: env.DELEGATION_MAX_LINKS,
+    maxLifetimeSeconds: env.DELEGATION_MAX_LIFETIME_SECONDS,
+    maxBytes: env.DELEGATION_MAX_BYTES,
+  },
   revocationMaxStalenessMs: env.REVOCATION_MAX_STALENESS_MS,
   revocationMaxClockSkewMs: env.REVOCATION_LIST_MAX_CLOCK_SKEW_SECONDS * 1000,
   revocationResyncIntervalMs: env.REVOCATION_RESYNC_INTERVAL_MS,

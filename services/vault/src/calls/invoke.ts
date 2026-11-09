@@ -81,6 +81,11 @@ export async function invokeTool(params: {
       dataCategories: categories ?? [],
       policy: { rule, decision },
       ...(reason === undefined ? {} : { reason }),
+      // A delegated call names its whole chain and links to the issuance
+      // entry that carries the evidence (ADR 0020 §6).
+      ...(claims.chain === undefined || claims.dref === undefined
+        ? {}
+        : { authorityChain: claims.chain, delegationRef: claims.dref }),
     });
   }
 
@@ -89,17 +94,32 @@ export async function invokeTool(params: {
     return err({ code: "ACTION_MISMATCH" });
   }
 
-  const verdict = revocation.verdict(claims.sub);
-  if (verdict === "revoked") {
-    report("deny", "revocation", "agent is revoked");
-    return err({ code: "AGENT_REVOKED", agentId: claims.sub });
-  }
-  // The view was never told which bit is this agent's (it asks for a token
-  // through `/tokens`, which records it). Not the same as revoked, so it is
-  // recorded as its own reason, but it still denies.
-  if (verdict === "unknown") {
-    report("deny", "revocation-state-unknown", "no status list index is known for this agent");
-    return err({ code: "REVOCATION_STATE_UNKNOWN_AGENT", agentId: claims.sub });
+  // A delegated token names every agent from the first delegator down to
+  // `sub` (ADR 0020 §4): firing any of them cuts this call off, at the next
+  // request, with the same bound as firing the agent itself.
+  for (const did of claims.chain ?? [claims.sub]) {
+    const verdict = revocation.verdict(did);
+    if (verdict === "revoked") {
+      report(
+        "deny",
+        "revocation",
+        did === claims.sub ? "agent is revoked" : `agent ${did} in its delegation chain is revoked`,
+      );
+      return err({ code: "AGENT_REVOKED", agentId: claims.sub });
+    }
+    // The view was never told which bit is this agent's (it asks for a token
+    // through `/tokens`, which records it, delegators included). Not the
+    // same as revoked, so it is recorded as its own reason, but it still denies.
+    if (verdict === "unknown") {
+      report(
+        "deny",
+        "revocation-state-unknown",
+        did === claims.sub
+          ? "no status list index is known for this agent"
+          : `no status list index is known for ${did} in its delegation chain`,
+      );
+      return err({ code: "REVOCATION_STATE_UNKNOWN_AGENT", agentId: did });
+    }
   }
   // Fail closed on bounded staleness: if the local view is too old to trust,
   // deny rather than serve an allow decision from a stale cache.
@@ -129,7 +149,8 @@ export async function invokeTool(params: {
 
   const result = await connector.call({ action, input, credential, agentId: claims.sub });
   if (result.ok) {
-    report("allow", "scoped-token", undefined, connector.dataCategories);
+    const rule = claims.chain === undefined ? "scoped-token" : `delegation:${claims.tool}`;
+    report("allow", rule, undefined, connector.dataCategories);
   } else {
     report("deny", "connector", result.error.code, connector.dataCategories);
   }

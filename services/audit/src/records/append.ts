@@ -47,8 +47,17 @@ function chainFields(head: { seq: number; hash: string }, payload: string) {
   };
 }
 
-/** An agent action's chain is the agent; a control-plane action was taken by its principal. */
-function authorityChainOf(agentDid: string | undefined, principal: unknown): readonly string[] {
+/**
+ * An agent action's chain is the agent, or the delegation chain the vault
+ * verified for it (ADR 0020 §6, which the contract has checked ends at the
+ * agent); a control-plane action was taken by its principal.
+ */
+function authorityChainOf(
+  agentDid: string | undefined,
+  principal: unknown,
+  delegated?: readonly string[],
+): readonly string[] {
+  if (delegated !== undefined) return delegated;
   return principal === undefined && agentDid !== undefined ? [agentDid] : [];
 }
 
@@ -68,7 +77,7 @@ export async function appendAuditRecord(params: {
   const record: AuditRecord = {
     ...(event.agentDid === undefined ? {} : { agentDid: event.agentDid }),
     ...(event.principal === undefined ? {} : { principal: event.principal }),
-    authorityChain: authorityChainOf(event.agentDid, event.principal),
+    authorityChain: authorityChainOf(event.agentDid, event.principal, event.authorityChain),
     ...(event.tool === undefined ? {} : { tool: event.tool }),
     action: event.action,
     dataCategories: event.dataCategories,
@@ -76,6 +85,10 @@ export async function appendAuditRecord(params: {
     ...(event.reason === undefined ? {} : { reason: event.reason }),
     recordedAt: now.toISOString(),
     reportedBy,
+    // Last, and only when present, so every other record serialises exactly
+    // as before and its payload hash is unchanged.
+    ...(event.delegationRef === undefined ? {} : { delegationRef: event.delegationRef }),
+    ...(event.delegation === undefined ? {} : { delegation: event.delegation }),
   };
   const payload = serializeAuditRecord(record);
 

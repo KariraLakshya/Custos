@@ -1,5 +1,6 @@
 import {
   createLocalKeyProvider,
+  type DelegationLimits,
   type KeyProvider,
   type SecretCipher,
   type SignedCredential,
@@ -10,7 +11,7 @@ import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { z } from "zod";
 import { storeToolCredential } from "./credentials/store.js";
-import { issueToolToken } from "./tokens/issue.js";
+import { issueToolToken, type IssueToolTokenError } from "./tokens/issue.js";
 import { createInMemoryReplayCache } from "./tokens/replay-cache.js";
 import { createTrustedIssuer } from "./tokens/trusted-issuer.js";
 import { invokeTool } from "./calls/invoke.js";
@@ -39,6 +40,14 @@ const issueTokenSchema = z.object({
   credential: z.object({ issuer: z.string().min(1) }).passthrough(),
   // Proof of possession of the agent's key (ADR 0007). Bounded before parsing.
   proof: z.string().min(1).max(4096),
+  // A chain the requester acts under (ADR 0020). Only its outer shape is
+  // bounded here; the size limit and everything else is the verifier's.
+  delegation: z
+    .object({
+      handOffs: z.array(z.string()).max(16),
+      credentials: z.array(z.unknown()).max(16),
+    })
+    .optional(),
 });
 
 const callSchema = z.object({
@@ -56,6 +65,44 @@ const tombstoneSchema = z.object({
   tombstone: z.string().min(1),
 });
 
+const DEFAULT_DELEGATION_LIMITS = {
+  maxLinks: 3,
+  maxLifetimeSeconds: 3600,
+  maxBytes: 16_384,
+} as const;
+
+/** The audit fields for a `/tokens` refusal that is a decision about a proven agent. */
+function deniedAtIssue(
+  error: IssueToolTokenError,
+  tool: string,
+): { agentId: string; rule: string; reason: string } | undefined {
+  switch (error.code) {
+    case "POLICY_DENIED":
+      return {
+        agentId: error.agentId,
+        rule: "agent-tool-allowlist",
+        reason: "no policy grant for this agent/tool pair",
+      };
+    case "AGENT_REVOKED":
+      return {
+        agentId: error.agentId,
+        rule: "revocation",
+        reason:
+          error.revokedDid === undefined
+            ? "agent is revoked"
+            : `agent ${error.revokedDid} in its delegation chain is revoked`,
+      };
+    case "DELEGATION_DENIED":
+      return {
+        agentId: error.agentId,
+        rule: `delegation:${tool}`,
+        reason: `delegation chain refused: ${error.reason}`,
+      };
+    default:
+      return undefined;
+  }
+}
+
 function statusFor(code: string): number {
   if (code === "UNKNOWN_TOOL") return 404;
   if (
@@ -69,7 +116,9 @@ function statusFor(code: string): number {
   // A revoked agent is authenticated but no longer permitted, and a stale
   // local view means we cannot safely say either way — both deny. A denied
   // policy grant is the same shape of decision: authenticated, not permitted.
-  if (code === "AGENT_REVOKED" || code === "POLICY_DENIED") return 403;
+  if (code === "AGENT_REVOKED" || code === "POLICY_DENIED" || code === "DELEGATION_DENIED") {
+    return 403;
+  }
   if (code === "REVOCATION_STATE_STALE" || code === "REVOCATION_STATE_UNKNOWN_AGENT") return 503;
   if (code === "UNKNOWN_ACTION" || code === "INVALID_INPUT") return 400;
   return 502;
@@ -129,6 +178,11 @@ export async function buildServer(options: {
    */
   readonly publicUrl?: string;
   readonly tokenProofMaxSkewSeconds?: number;
+  /**
+   * Limits on delegation chains (ADR 0020). Clock skew for hand-offs is
+   * `tokenProofMaxSkewSeconds`: both are agent-signed times.
+   */
+  readonly delegationLimits?: Omit<DelegationLimits, "maxClockSkewSeconds">;
   readonly revocationUrl?: string;
   readonly revocationMaxStalenessMs?: number;
   /** Allowed clock difference with the revocation service, in ms (ADR 0013). */
@@ -155,6 +209,10 @@ export async function buildServer(options: {
   const clock = options.clock ?? { now: () => new Date() };
   const tokensAudience = new URL("/tokens", options.publicUrl ?? "http://localhost:4002").href;
   const tokenProofMaxSkewSeconds = options.tokenProofMaxSkewSeconds ?? 60;
+  const delegationLimits: DelegationLimits = {
+    ...(options.delegationLimits ?? DEFAULT_DELEGATION_LIMITS),
+    maxClockSkewSeconds: tokenProofMaxSkewSeconds,
+  };
   const replayCache = createInMemoryReplayCache();
   const trustedIssuer = createTrustedIssuer({
     did: options.trustedIssuerDid ?? "did:web:localhost%3A4001",
@@ -289,10 +347,11 @@ export async function buildServer(options: {
       reply.code(400);
       return { error: "INVALID_INPUT" };
     }
-    await grantToolAccess(db, body.data.agentId, body.data.tool);
+    const principal = principalOf(request);
+    await grantToolAccess(db, body.data.agentId, body.data.tool, principal);
     auditReporter.report(
       controlPlaneEvent({
-        principal: principalOf(request),
+        principal,
         scope: "policies:write",
         action: "policies.grant",
         decision: "allow",
@@ -326,31 +385,60 @@ export async function buildServer(options: {
         maxSkewSeconds: tokenProofMaxSkewSeconds,
         replayCache,
       },
+      ...(body.data.delegation === undefined
+        ? {}
+        : { delegation: { chain: body.data.delegation, limits: delegationLimits } }),
     });
     if (!result.ok) {
-      // Only these two codes are genuine authorization decisions about a
+      // Only these codes are genuine authorization decisions about a
       // confirmed identity; the rest (unknown tool, bad credential, signing
       // failure) are not attributable "did this agent's action" outcomes.
-      if (result.error.code === "POLICY_DENIED" || result.error.code === "AGENT_REVOKED") {
+      // A refused chain names only the proven requester, never what the
+      // chain claims (ADR 0020).
+      const denial = deniedAtIssue(result.error, body.data.tool);
+      if (denial !== undefined) {
         auditReporter.report({
-          agentDid: result.error.agentId,
+          agentDid: denial.agentId,
           tool: body.data.tool,
           action: body.data.action,
           dataCategories: connectorsByTool.get(body.data.tool)?.dataCategories ?? [],
-          policy: {
-            rule: result.error.code === "POLICY_DENIED" ? "agent-tool-allowlist" : "revocation",
-            decision: "deny",
-          },
-          reason:
-            result.error.code === "POLICY_DENIED"
-              ? "no policy grant for this agent/tool pair"
-              : "agent is revoked",
+          policy: { rule: denial.rule, decision: "deny" },
+          reason: denial.reason,
         });
       }
       reply.code(statusFor(result.error.code));
       return { error: result.error };
     }
-    return result.value;
+    const { delegation, ...issued } = result.value;
+    // A delegated token's issuance is recorded once, with the chain's whole
+    // evidence; each call made with it then names the chain and this entry's
+    // reference only (ADR 0020 §6, founder's decision 2026-11-09).
+    if (delegation !== undefined) {
+      auditReporter.report({
+        agentDid: delegation.agentId,
+        tool: body.data.tool,
+        action: body.data.action,
+        // Issuing a token touches no data; the calls made with it do.
+        dataCategories: [],
+        policy: { rule: `delegation:${body.data.tool}`, decision: "allow" },
+        reason: "token issued under delegation",
+        authorityChain: delegation.chain,
+        delegationRef: delegation.ref,
+        delegation: {
+          root: {
+            kind: delegation.root.kind,
+            id: delegation.root.id,
+            name: delegation.root.name,
+            ...(delegation.root.via === undefined ? {} : { via: delegation.root.via }),
+          },
+          handOffs: delegation.handOffs,
+          credentials: delegation.credentials,
+          checkedAt: delegation.checkedAt,
+        },
+      });
+    }
+    // The agent gets its token only, not the evidence about other agents.
+    return issued;
   });
 
   app.post("/call", async (request, reply) => {

@@ -231,6 +231,89 @@ describe("invokeTool", () => {
     });
   });
 
+  // ADR 0020 §4: a delegated token is checked for every agent in its chain.
+  describe("a delegated token", () => {
+    const root = "did:web:localhost:agents:root";
+    const middle = "did:web:localhost:agents:middle";
+    const sub = "did:web:localhost:agents:leaf";
+
+    async function callAs(verdicts: Record<string, "ok" | "revoked" | "unknown">) {
+      const tool = `test-tool-${randomUUID()}`;
+      await storeToolCredential({ db, cipher, tool, secret: "sk_test_x" });
+      const now = new Date();
+      const { token, publicKey } = await mintToken({
+        sub,
+        tool,
+        action: "query",
+        iat: Math.floor(now.getTime() / 1000),
+        exp: Math.floor(now.getTime() / 1000) + 60,
+        chain: [root, middle, sub],
+        dref: "ref-of-the-chain",
+      });
+      const events: unknown[] = [];
+      const connector = recordingConnector(tool);
+      const result = await invokeTool({
+        db,
+        cipher,
+        connectors: new Map([[tool, connector]]),
+        token,
+        vaultPublicKey: publicKey,
+        action: "query",
+        input: {},
+        now,
+        revocation: { verdict: (did) => verdicts[did] ?? "ok", isStale: () => false },
+        auditReporter: { report: (event) => void events.push(event) },
+      });
+      return { result, events, connector, tool };
+    }
+
+    it("is allowed while every agent in the chain is fine, recorded under the delegation rule", async () => {
+      const { result, events, tool } = await callAs({});
+      expect(result.ok).toBe(true);
+      // Names the whole chain and links to its issuance entry (ADR 0020 §6),
+      // without the evidence, which is recorded once at issuance.
+      expect(events[0]).toMatchObject({
+        agentDid: sub,
+        policy: { rule: `delegation:${tool}`, decision: "allow" },
+        authorityChain: [root, middle, sub],
+        delegationRef: "ref-of-the-chain",
+      });
+      expect(events[0]).not.toHaveProperty("delegation");
+    });
+
+    it("is refused when any delegator above the caller is revoked", async () => {
+      for (const revoked of [root, middle]) {
+        const { result, events, connector } = await callAs({ [revoked]: "revoked" });
+        expect(result).toEqual({ ok: false, error: { code: "AGENT_REVOKED", agentId: sub } });
+        expect(events[0]).toMatchObject({
+          agentDid: sub,
+          policy: { rule: "revocation", decision: "deny" },
+          reason: `agent ${revoked} in its delegation chain is revoked`,
+          authorityChain: [root, middle, sub],
+          delegationRef: "ref-of-the-chain",
+        });
+        expect(connector.calls).toHaveLength(0);
+      }
+    });
+
+    it("is refused when the caller itself is revoked", async () => {
+      const { result, events } = await callAs({ [sub]: "revoked" });
+      expect(result).toEqual({ ok: false, error: { code: "AGENT_REVOKED", agentId: sub } });
+      expect(events[0]).toMatchObject({ reason: "agent is revoked" });
+    });
+
+    it("is refused when the view cannot place a delegator", async () => {
+      const { result, events } = await callAs({ [middle]: "unknown" });
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "REVOCATION_STATE_UNKNOWN_AGENT", agentId: middle },
+      });
+      expect(events[0]).toMatchObject({
+        reason: `no status list index is known for ${middle} in its delegation chain`,
+      });
+    });
+  });
+
   it("rejects a token scoped to a tool with a registered connector but no stored credential", async () => {
     const tool = `test-tool-${randomUUID()}`;
     const now = new Date();

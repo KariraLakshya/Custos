@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { isAuditRecord, type AuditRecord } from "./record.js";
 
 const AGENT_DID = "did:web:localhost%3A4001:agents:0f8f6a1e-9c2b-4a3d-8f1e-1b2c3d4e5f60";
+const ROOT_DID = "did:web:localhost%3A4001:agents:root";
+const EVIDENCE = {
+  root: { kind: "operator", id: "0123456789abcdef", name: "lakshya", via: "sso" },
+  handOffs: ["a.b"],
+  credentials: [{}],
+  checkedAt: "2026-09-12T10:00:00.000Z",
+} as const;
 
 function recordFor(overrides: Partial<AuditRecord> = {}): AuditRecord {
   return {
@@ -44,6 +51,49 @@ describe("isAuditRecord", () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  it("accepts a delegated action: the full chain, its reference and the evidence (ADR 0020 §6)", () => {
+    const delegated = { authorityChain: [ROOT_DID, AGENT_DID], delegationRef: "ref" };
+    expect(isAuditRecord(recordFor(delegated))).toBe(true);
+    expect(isAuditRecord(recordFor({ ...delegated, delegation: EVIDENCE }))).toBe(true);
+    const keyRoot = { kind: "operator", id: EVIDENCE.root.id, name: EVIDENCE.root.name } as const;
+    expect(
+      isAuditRecord(recordFor({ ...delegated, delegation: { ...EVIDENCE, root: keyRoot } })),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["an empty delegationRef", { ...recordFor(), delegationRef: "" }],
+    ["evidence without a delegationRef", { ...recordFor(), delegation: EVIDENCE }],
+    ["non-object evidence", { ...recordFor(), delegationRef: "r", delegation: "x" }],
+    [
+      "evidence with no root",
+      { ...recordFor(), delegationRef: "r", delegation: { ...EVIDENCE, root: undefined } },
+    ],
+    [
+      "evidence with an unknown via",
+      {
+        ...recordFor(),
+        delegationRef: "r",
+        delegation: { ...EVIDENCE, root: { ...EVIDENCE.root, via: "x" } },
+      },
+    ],
+    [
+      "evidence with non-string hand-offs",
+      { ...recordFor(), delegationRef: "r", delegation: { ...EVIDENCE, handOffs: [1] } },
+    ],
+    [
+      "evidence with no credentials list",
+      { ...recordFor(), delegationRef: "r", delegation: { ...EVIDENCE, credentials: {} } },
+    ],
+    [
+      "evidence with no checkedAt",
+      { ...recordFor(), delegationRef: "r", delegation: { ...EVIDENCE, checkedAt: 1 } },
+    ],
+    ["null evidence", { ...recordFor(), delegationRef: "r", delegation: null }],
+  ])("rejects %s", (_label, value) => {
+    expect(isAuditRecord(value)).toBe(false);
   });
 
   it.each([

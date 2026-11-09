@@ -47,6 +47,32 @@ describe("vault env", () => {
     });
   });
 
+  // Upper bounds `custos audit-log` re-verifies delegation chains under (ADR 0020 §6).
+  describe("delegation and proof bounds", () => {
+    const base = { VAULT_MASTER_KEY: validMasterKey, VAULT_SERVICE_KEY: SERVICE_KEY };
+
+    it("accepts the largest values audit-log re-verifies under", () => {
+      const env = loadVaultEnv({
+        ...base,
+        DELEGATION_MAX_LINKS: "15",
+        DELEGATION_MAX_LIFETIME_SECONDS: "86400",
+        DELEGATION_MAX_BYTES: "262144",
+        VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS: "300",
+      });
+      expect(env.DELEGATION_MAX_LIFETIME_SECONDS).toBe(86_400);
+      expect(env.VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS).toBe(300);
+    });
+
+    it.each([
+      ["DELEGATION_MAX_LINKS", "16"],
+      ["DELEGATION_MAX_LIFETIME_SECONDS", "86401"],
+      ["DELEGATION_MAX_BYTES", "262145"],
+      ["VAULT_TOKEN_PROOF_MAX_SKEW_SECONDS", "301"],
+    ])("refuses %s=%s", (name, value) => {
+      expect(() => loadVaultEnv({ ...base, [name]: value })).toThrow(new RegExp(name));
+    });
+  });
+
   it("defaults the trusted issuer to the local identity service's DID", () => {
     expect(
       loadVaultEnv({ VAULT_MASTER_KEY: validMasterKey, VAULT_SERVICE_KEY: SERVICE_KEY })

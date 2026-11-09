@@ -1,15 +1,19 @@
 import {
+  handOffHash,
   issueScopedToken,
   multibaseToPublicKey,
   proofReplayExpiresAtMs,
   verifyCredential,
+  verifyDelegationChain,
   verifyTokenRequestProof,
+  type DelegationChainError,
+  type DelegationLimits,
   type KeyProvider,
   type SignedCredential,
 } from "@custos/core";
 import { err, ok, type Result } from "@custos/contracts";
 import { toolCredentialExists } from "../credentials/store.js";
-import { isToolAllowed } from "../policy/policy.js";
+import { isToolAllowed, rootGrantOf, type GrantedBy } from "../policy/policy.js";
 import type { VaultDb } from "../db/client.js";
 import type { ReplayCache } from "./replay-cache.js";
 import type { TrustedIssuer } from "./trusted-issuer.js";
@@ -20,13 +24,42 @@ export type IssueToolTokenError =
   | { readonly code: "UNKNOWN_TOOL"; readonly tool: string }
   | { readonly code: "INVALID_AGENT_CREDENTIAL"; readonly reason: string }
   | { readonly code: "INVALID_PROOF_OF_POSSESSION"; readonly reason: string }
-  | { readonly code: "AGENT_REVOKED"; readonly agentId: string }
+  /** `revokedDid` is set when the revoked agent is a delegator, not the requester. */
+  | { readonly code: "AGENT_REVOKED"; readonly agentId: string; readonly revokedDid?: string }
   | { readonly code: "POLICY_DENIED"; readonly agentId: string; readonly tool: string }
+  /**
+   * A presented delegation chain was refused (ADR 0020). `agentId` is the
+   * requester, already proven; nothing the refused chain claims is reported.
+   */
+  | {
+      readonly code: "DELEGATION_DENIED";
+      readonly agentId: string;
+      readonly reason:
+        | DelegationChainError["code"]
+        | "DELEGATOR_STATUS_INVALID"
+        | "NO_ROOT_GRANT"
+        | "CHAIN_ENDS_NOW";
+    }
   | { readonly code: "SIGNING_FAILED"; readonly reason: string };
 
 export interface IssuedToolToken {
   readonly token: string;
   readonly expiresAt: string;
+}
+
+/** What a delegated token was issued under: the evidence the audit record carries. */
+export interface IssuedDelegation {
+  readonly agentId: string;
+  /** From the first delegator to the requester. */
+  readonly chain: readonly string[];
+  /** The operator whose grant to the first delegator is the root (ADR 0020 §1). */
+  readonly root: GrantedBy;
+  readonly handOffs: readonly string[];
+  readonly credentials: readonly unknown[];
+  /** `handOffHash` of the hand-off naming the requester; the token's `dref`. */
+  readonly ref: string;
+  /** The vault's time of the check, which an auditor re-verifies the chain at. */
+  readonly checkedAt: string;
 }
 
 /**
@@ -83,7 +116,14 @@ export async function issueToolToken(params: {
   };
   readonly trustedIssuer: TrustedIssuer;
   readonly proofOfPossession: ProofCheck;
-}): Promise<Result<IssuedToolToken, IssueToolTokenError>> {
+  /**
+   * A chain the requester acts under (ADR 0020), with the limits it is held
+   * to. Absent: the requester acts on its own grant, as before.
+   */
+  readonly delegation?: { readonly chain: unknown; readonly limits: DelegationLimits };
+}): Promise<
+  Result<IssuedToolToken & { readonly delegation?: IssuedDelegation }, IssueToolTokenError>
+> {
   const {
     db,
     keyProvider,
@@ -147,6 +187,26 @@ export async function issueToolToken(params: {
   if (!proof.ok) {
     return err({ code: "INVALID_PROOF_OF_POSSESSION", reason: proof.error.code });
   }
+
+  // The chain, if any, is checked now: after the proof has shown who the
+  // requester is, and before the proof's id is recorded, so a refused chain
+  // does not use the proof up (ADR 0015 order). Pure and local: the issuer's
+  // document was resolved above, and nothing here calls out (ADR 0020 §3).
+  const chain =
+    params.delegation === undefined
+      ? undefined
+      : await verifyDelegationChain({
+          chain: params.delegation.chain,
+          requesterDid: agentId,
+          request: { tool, action },
+          issuer: { did: trustedIssuer.did, document: issuerDocument.value },
+          now,
+          limits: params.delegation.limits,
+        });
+  if (chain !== undefined && !chain.ok) {
+    return err({ code: "DELEGATION_DENIED", agentId, reason: chain.error.code });
+  }
+
   // Recorded only once the signature is valid, so nobody but the agent can
   // spend its proof ids. Kept until the proof would be stale anyway.
   const replay = proofOfPossession.replayCache.record(
@@ -177,21 +237,75 @@ export async function issueToolToken(params: {
     return err({ code: "AGENT_REVOKED", agentId });
   }
 
-  // Build plan Phase 4: "simple allowlists per agent × tool". Fail closed:
-  // no grant row means denied.
-  if (!(await isToolAllowed(db, agentId, tool))) {
-    return err({ code: "POLICY_DENIED", agentId, tool });
+  const iat = Math.floor(now.getTime() / 1000);
+  let exp = iat + ttlSeconds;
+  let delegation: IssuedDelegation | undefined;
+
+  if (chain === undefined) {
+    // Build plan Phase 4: "simple allowlists per agent × tool". Fail closed:
+    // no grant row means denied.
+    if (!(await isToolAllowed(db, agentId, tool))) {
+      return err({ code: "POLICY_DENIED", agentId, tool });
+    }
+  } else {
+    // Every delegator becomes known to the revocation view from its own
+    // signed credential, so one that never asked for a token itself is "ok"
+    // or "revoked", never "unknown" (ADR 0020 §4).
+    for (const delegator of chain.value.delegators) {
+      if (!revocation.trackAgent(delegator.did, delegator.credentialStatus, now).ok) {
+        return err({ code: "DELEGATION_DENIED", agentId, reason: "DELEGATOR_STATUS_INVALID" });
+      }
+    }
+    for (const did of chain.value.dids) {
+      if (revocation.verdict(did) !== "ok") {
+        return err({ code: "AGENT_REVOKED", agentId, revokedDid: did });
+      }
+    }
+    // The root: an operator's grant of this tool to the first delegator.
+    // The requester needs no grant of its own.
+    const root = await rootGrantOf(db, chain.value.rootDid, tool);
+    if (root === null) {
+      return err({ code: "DELEGATION_DENIED", agentId, reason: "NO_ROOT_GRANT" });
+    }
+    // The token never outlives a hand-off or a delegator's credential.
+    exp = Math.min(exp, Math.floor(chain.value.expiresAt.getTime() / 1000));
+    if (exp <= iat) {
+      return err({ code: "DELEGATION_DENIED", agentId, reason: "CHAIN_ENDS_NOW" });
+    }
+    const presented = params.delegation!.chain as {
+      handOffs: readonly string[];
+      credentials: readonly unknown[];
+    };
+    delegation = {
+      agentId,
+      chain: chain.value.dids,
+      root,
+      handOffs: presented.handOffs,
+      credentials: presented.credentials,
+      // The chain verified, so it has at least one hand-off.
+      ref: handOffHash(presented.handOffs[presented.handOffs.length - 1]!),
+      checkedAt: now.toISOString(),
+    };
   }
 
-  const iat = Math.floor(now.getTime() / 1000);
-  const exp = iat + ttlSeconds;
   const issued = await issueScopedToken({
-    claims: { sub: agentId, tool, action, iat, exp },
+    claims: {
+      sub: agentId,
+      tool,
+      action,
+      iat,
+      exp,
+      ...(delegation === undefined ? {} : { chain: delegation.chain, dref: delegation.ref }),
+    },
     signer: { sign: (data) => keyProvider.sign(signingKeyId, data) },
   });
   if (!issued.ok) {
     return err({ code: "SIGNING_FAILED", reason: issued.error.reason });
   }
 
-  return ok({ token: issued.value, expiresAt: new Date(exp * 1000).toISOString() });
+  return ok({
+    token: issued.value,
+    expiresAt: new Date(exp * 1000).toISOString(),
+    ...(delegation === undefined ? {} : { delegation }),
+  });
 }

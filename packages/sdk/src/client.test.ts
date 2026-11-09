@@ -2,13 +2,20 @@ import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   generateKeyPair,
+  handOffHash,
   multibaseToPublicKey,
   publicKeyFromSecretKey,
   REGISTRATION_PROOF_TYPE,
   verifyPossessionProof,
+  verify,
   verifyTokenRequestProof,
 } from "@custos/core";
-import { createCustos, type Agent } from "./client.js";
+import {
+  createCustos,
+  DEFAULT_DELEGATION_TTL_SECONDS,
+  type Agent,
+  type Delegation,
+} from "./client.js";
 
 interface Reply {
   readonly status?: number;
@@ -463,5 +470,168 @@ describe("operator key (ADR 0008)", () => {
     const result = await custosAt(url, null).connect(agent, "stripe").call("list-customers");
     expect(result.ok).toBe(false);
     expect(requests.map((request) => request.url)).toEqual(["/tokens"]);
+  });
+});
+
+describe("delegate (ADR 0020)", () => {
+  const DB_QUERY = [{ tool: "mock-database", actions: ["query"] }];
+  const bKey = generateKeyPair();
+  const bCredential = { issuer: "did:web:example", proof: { proofValue: "zB" } };
+  const b: Agent = {
+    id: "b",
+    did: "did:web:example:agents:b",
+    credential: bCredential,
+    secretKey: Buffer.from(bKey.secretKey).toString("hex"),
+  };
+
+  const claimsOf = (handOff: string) =>
+    JSON.parse(Buffer.from(handOff.split(".")[0]!, "base64url").toString("utf8")) as {
+      iss: string;
+      sub: string;
+      grants: unknown;
+      depth: number;
+      prev: string | null;
+      iat: number;
+      exp: number;
+    };
+  const signedBy = (handOff: string, publicKey: Uint8Array) => {
+    const [encoded, signature] = handOff.split(".");
+    return verify(Buffer.from(signature!, "base64url"), Buffer.from(encoded!, "utf8"), publicKey);
+  };
+
+  it("signs a first hand-off locally, with the delegator's credential, sending nothing", async () => {
+    const { url, requests } = await stubServices({});
+    const delegation = custosAt(url, null).delegate(agent, { to: b.did, grants: DB_QUERY });
+
+    expect(requests).toHaveLength(0);
+    expect(delegation.credentials).toEqual([credential]);
+    expect(delegation.handOffs).toHaveLength(1);
+    const claims = claimsOf(delegation.handOffs[0]!);
+    expect(claims).toMatchObject({
+      iss: agent.did,
+      sub: b.did,
+      grants: DB_QUERY,
+      depth: 0,
+      prev: null,
+    });
+    expect(claims.exp - claims.iat).toBe(DEFAULT_DELEGATION_TTL_SECONDS);
+    expect(DEFAULT_DELEGATION_TTL_SECONDS).toBeLessThanOrEqual(3600);
+    expect(signedBy(delegation.handOffs[0]!, agentKey.publicKey)).toBe(true);
+  });
+
+  it("extends a received delegation: linked to it, narrower, shorter-lived, one depth less", async () => {
+    const custos = custosAt("http://127.0.0.1:1", null);
+    const first = custos.delegate(agent, {
+      to: b.did,
+      grants: [{ tool: "mock-database", actions: ["query", "write"] }],
+      depth: 2,
+      ttlSeconds: 300,
+    });
+    const second = custos.delegate(b, {
+      to: "did:web:example:agents:c",
+      grants: DB_QUERY,
+      ttlSeconds: 3600,
+      extending: first,
+    });
+
+    expect(second.credentials).toEqual([credential, b.credential]);
+    expect(second.handOffs[0]).toBe(first.handOffs[0]);
+    const parent = claimsOf(first.handOffs[0]!);
+    const child = claimsOf(second.handOffs[1]!);
+    expect(child).toMatchObject({ iss: b.did, sub: "did:web:example:agents:c", depth: 1 });
+    expect(child.prev).toBe(handOffHash(first.handOffs[0]!));
+    // Asked for an hour; capped at the parent's expiry.
+    expect(child.exp).toBe(parent.exp);
+    expect(signedBy(second.handOffs[1]!, bKey.publicKey)).toBe(true);
+  });
+
+  it.each([
+    [
+      "an agent the delegation was not given to",
+      (first: Delegation) => ({ who: agent, options: { extending: first } }),
+      /only the agent a delegation was given to/,
+    ],
+    [
+      "a depth not below the parent's",
+      (first: Delegation) => ({ who: b, options: { extending: first, depth: 1 } }),
+      /depth must be less than the parent's/,
+    ],
+    [
+      "a tool it was not given",
+      (first: Delegation) => ({
+        who: b,
+        options: { extending: first, grants: [{ tool: "stripe", actions: ["query"] }] },
+      }),
+      /only pass on tools and actions/,
+    ],
+    [
+      "an action it was not given",
+      (first: Delegation) => ({
+        who: b,
+        options: { extending: first, grants: [{ tool: "mock-database", actions: ["write"] }] },
+      }),
+      /only pass on tools and actions/,
+    ],
+    [
+      "an unreadable delegation",
+      () => ({ who: b, options: { extending: { handOffs: ["%%%.x"], credentials: [] } } }),
+      /not a readable hand-off chain/,
+    ],
+    [
+      "an empty delegation",
+      () => ({ who: b, options: { extending: { handOffs: [], credentials: [] } } }),
+      /not a readable hand-off chain/,
+    ],
+  ])("refuses to pass on with %s", (_label, make, message) => {
+    const custos = custosAt("http://127.0.0.1:1", null);
+    const first = custos.delegate(agent, { to: b.did, grants: DB_QUERY, depth: 1 });
+    const { who, options } = make(first);
+    expect(() =>
+      custos.delegate(who, { to: "did:web:example:agents:c", grants: DB_QUERY, ...options }),
+    ).toThrow(message);
+  });
+
+  it("refuses to pass on a delegation whose depth is 0, or that has expired", () => {
+    const custos = custosAt("http://127.0.0.1:1", null);
+    const final = custos.delegate(agent, { to: b.did, grants: DB_QUERY });
+    expect(() =>
+      custos.delegate(b, { to: "did:web:x", grants: DB_QUERY, extending: final }),
+    ).toThrow(/may not be passed on/);
+
+    const encoded = Buffer.from(
+      JSON.stringify({ sub: b.did, grants: DB_QUERY, depth: 1, exp: 1 }),
+    ).toString("base64url");
+    expect(() =>
+      custos.delegate(b, {
+        to: "did:web:x",
+        grants: DB_QUERY,
+        extending: { handOffs: [`${encoded}.sig`], credentials: [] },
+      }),
+    ).toThrow(/has expired/);
+  });
+
+  it("refuses a malformed key or grants before signing anything", () => {
+    const custos = custosAt("http://127.0.0.1:1", null);
+    expect(() =>
+      custos.delegate({ ...agent, secretKey: "nope" }, { to: b.did, grants: DB_QUERY }),
+    ).toThrow(/64 hex characters/);
+    expect(() => custos.delegate(agent, { to: b.did, grants: [] })).toThrow(/grants/);
+  });
+
+  it("sends the delegation with every token request when connected with one", async () => {
+    const { url, requests } = await stubServices({
+      "/tokens": { body: { token: "tok_abc" } },
+      "/call": { body: { result: [] } },
+    });
+    const custos = custosAt(url, null);
+    const delegation = custos.delegate(agent, { to: b.did, grants: DB_QUERY });
+    const db = custos.connect(b, "mock-database", { delegation });
+    await db.call("query", { table: "customers" });
+    await db.call("query", { table: "customers" });
+
+    const tokenBodies = requests
+      .filter((r) => r.url === "/tokens")
+      .map((r) => (r.body as { delegation?: unknown }).delegation);
+    expect(tokenBodies).toEqual([delegation, delegation]);
   });
 });
