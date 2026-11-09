@@ -52,7 +52,7 @@ Interfaces should be designed so these fit later without rework. Implementations
 
 Before any feature code is written, the repository must be a professional project skeleton. This is the first deliverable, not a background task, and nothing else begins until it is complete and green.
 
-The scaffold includes: the full monorepo structure with pnpm workspaces and Turborepo wired up; shared tooling packages (`tooling/tsconfig`, `tooling/eslint-config`, `tooling/vitest-config`) consumed by every package; Docker Compose bringing up Postgres and Redis for local development; the migration runner configured with an initial empty migration; GitHub Actions CI running and passing; pre-commit hooks (Husky + lint-staged) enforcing lint and format; Changesets initialised; and the standard repository files — `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE`, `.github/CODEOWNERS`, `.github/dependabot.yml`, issue and PR templates, `.env.example`, `.gitignore`, `.nvmrc`.
+The scaffold includes: the full monorepo structure with pnpm workspaces and Turborepo wired up; shared tooling packages (`tooling/tsconfig`, `tooling/eslint-config`, `tooling/vitest-config`) consumed by every package; Docker Compose bringing up Postgres and Redis for local development; the migration runner configured with an initial empty migration; GitHub Actions CI running and passing; pre-commit hooks (Husky + lint-staged) enforcing lint and format; and the standard repository files — `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE`, `.github/CODEOWNERS`, `.github/dependabot.yml`, issue and PR templates, `.env.example`, `.gitignore`, `.nvmrc`.
 
 Each package created in the scaffold ships with at least one real passing test, so the test harness is proven working end to end from the first commit rather than assumed.
 
@@ -112,7 +112,7 @@ Decisions recorded as ADRs in `docs/adr/`. Changeable with an ADR, not silently.
 | Tracing / metrics      | OpenTelemetry from the first service                         |
 | Tests                  | Vitest, with coverage thresholds enforced in CI              |
 | Lint / format          | ESLint (flat config) + Prettier                              |
-| Versioning / release   | Changesets, semantic versioning, Conventional Commits        |
+| Versioning / release   | Conventional Commits; Changesets later (ADR 0021)            |
 | CI                     | GitHub Actions                                               |
 | Local environment      | Docker Compose                                               |
 
@@ -128,7 +128,6 @@ Rust for the enforcement engine is a future optimization justified by measuremen
 
 ```
 custos/
-├── .changeset/
 ├── .github/
 │   ├── workflows/            # ci, release, security
 │   ├── ISSUE_TEMPLATE/
@@ -222,7 +221,6 @@ pnpm lint
 pnpm typecheck
 pnpm build
 pnpm migrate
-pnpm changeset        # record a release-worthy change
 ```
 
 These must stay working. A change that breaks any of them is fixed in the same change.
@@ -253,9 +251,8 @@ CI is part of the scaffold, not something added later. It must be green before f
 
 **`.github/workflows/release.yml`** — runs on merge to main:
 
-- Changesets version and changelog generation
-- Build and publish
-- Tagged release with SBOM attached
+- Build, and an SBOM attached to the run
+- Versioning, changelog and publishing are added when packages are first published (ADR 0021); until then nothing is versioned or published
 
 **Branch protection on `main`:** all CI checks must pass, at least one review, no direct pushes, linear history. Do not add workarounds that let failing code merge — if CI is wrong, fix CI in its own change.
 

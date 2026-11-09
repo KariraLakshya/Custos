@@ -23,7 +23,6 @@ infra/mtls/envoy.yaml
 .claude
 .husky
 .github
-.changeset
 **/graphify-out
 graphify-out
 .graphify_*

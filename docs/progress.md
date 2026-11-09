@@ -6,6 +6,23 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-09 — The release robot is switched off until there is something to release
+
+**Commit:** on branch `chore/remove-changesets`, pushed 2026-11-09 as its own pull request.
+
+**What happened:** with the upload fixed, the release robot got one step further, then hit a GitHub rule. Robots may not open pull requests in this repository. GitHub controls this with one switch that also lets robots _approve_ pull requests. Turning it on would let an automated job sign off a change that no person has read, which a security product should not allow.
+
+**Your decision:** remove the release-notes tool (Changesets) until Custos actually publishes a package. Today it only changed version numbers that nobody uses.
+
+**What changed:**
+
+- The tool, its folder and its command are gone. The release job now only builds Custos and records its software parts list (the SBOM). It can no longer change the repository at all.
+- **A side benefit.** The tool was the last thing bringing in a library (`braces`) with a known security flaw that has no fix. That library is now gone from the project, so the security check runs with no exceptions at all.
+
+**Why it matters:** every change still needs your review before it reaches main, and there is one fewer piece of machinery to maintain. When we start publishing, a new decision record will choose a release method that does not need that switch (ADR 0021).
+
+---
+
 ## 2026-11-09 — A fix for the release robot
 
 **Commit:** on branch `fix/release-skip-hooks`, pushed 2026-11-09 as its own pull request.

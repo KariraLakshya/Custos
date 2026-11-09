@@ -4,7 +4,7 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
-  "description": "Custos \u2014 a trust layer for AI agents",
+  "description": "Custos — a trust layer for AI agents",
   "engines": {
     "node": ">=22"
   },
@@ -30,11 +30,9 @@
     "mtls:certs": "node infra/mtls/certs.mjs",
     "mtls:config": "node infra/mtls/render-envoy.mjs",
     "migrate:generate": "drizzle-kit generate --config=infra/migrations/drizzle.config.ts",
-    "changeset": "changeset",
     "prepare": "husky"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.11",
     "@custos/eslint-config": "workspace:*",
     "@types/node": "^22.20.5",
     "@vitest/coverage-v8": "^5.0.4",
@@ -69,11 +67,6 @@
       "shell-quote@>=1.8.4 <1.11.0": "^1.11.0",
       "source-map-js@>=1.0.0 <1.2.2": "^1.2.2",
       "vite@>=7.0.0 <7.3.7": "^7.3.7"
-    },
-    "auditConfig": {
-      "ignoreGhsas": [
-        "GHSA-vfj7-8cjw-p6xm"
-      ]
     }
   }
 }

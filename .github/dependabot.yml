@@ -21,10 +21,6 @@ updates:
       # it does not run on.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # Changesets CLI 3 pairs with changesets/action 2; the release workflow is on
-      # action v1 and CLI 2 (see the comment in release.yml). Upgrade both together.
-      - dependency-name: "@changesets/cli"
-        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7
   # infra/docker holds docker-compose.yml, no Dockerfile: the "docker" ecosystem
@@ -53,10 +49,5 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    ignore:
-      # v2 of the action needs Changesets CLI v3; this project is on v2 (see the
-      # comment in release.yml). Lift this together with the CLI upgrade.
-      - dependency-name: "changesets/action"
-        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7
