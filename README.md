@@ -233,6 +233,18 @@ custos use mock-slack post-message --credential agent.json --input '{"channel":"
 # denied: POLICY_DENIED
 ```
 
+**Let the agent hand part of its access to a helper agent.** Register a second agent, then have the first one pass on just `query` on the database. The first agent signs this note with its own key, and nothing is sent anywhere. Use the helper's `did` from its registration output:
+
+```bash
+custos register --out helper.json --key-out helper.key
+custos delegate mock-database query --to <helper did> --credential agent.json
+# <helper did> may now query on mock-database for this agent; give it delegation.json
+custos use mock-database query --credential helper.json --key helper.key --delegation delegation.json
+# { "result": [ ... ] }
+```
+
+The helper has no grant of its own. It acts on yours, and only for what you passed on. Asking for anything else gets `denied: DELEGATION_DENIED (NOT_COVERED)`. The audit log records the whole chain, from the operator who granted the tool through the first agent to the helper, and `custos audit-log` checks every signature in it again. Revoking the first agent (next step) cuts off the helper as well.
+
 **Revoke the agent.** Use the `id` from registration:
 
 ```bash

@@ -6,6 +6,29 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-09 — Agents can hand work to other agents, and the audit log proves who authorised it (Phase 8, delegation provenance)
+
+**Commits:** on branch `feat/delegation-provenance` (the design and your decisions were committed earlier as `15d41e3` and `fbd76fb`). The work is not pushed yet: it goes up as one pull request, and this entry gets the commit numbers when it does.
+
+**What changed, in plain words:**
+
+- **An agent can pass on part of what it may do.** Say an operator lets agent A query the customer database. A can now give helper agent B permission to run _queries only_, by signing a short permission note with its own key. Nothing is sent to Custos when A does this; Custos first sees the note when B uses it. B needs no permission of its own.
+- **The note can only shrink permission, never grow it.** B cannot use it for another tool, another action, or for longer than A allowed. If B passes it on to C, C gets the same or less. Each note is chained to the one before it, so notes cannot be cut out, swapped or reused by someone else, and the chain is checked entirely on the vault's own machine, with no network call.
+- **Firing anyone in the chain cuts off everyone below them.** Revoke A, and B is refused at its very next request, within the same one second as before. Revoking B leaves A working.
+- **The audit log proves who authorised what.** When B gets access through A, the log records the full proof once: the signed notes, each agent's identity card, and which operator granted the tool in the first place. Every action B then takes is logged with the chain of names and a pointer back to that proof. `custos audit-log` re-checks every signature on its own and prints the chain as _operator → A → B_. A faked or broken chain fails the whole check, just as an edited log entry does. You chose this "record the proof once" design today, over copying it into every entry.
+- **Clearer refusals.** The command line now says why something was refused, for example `denied: DELEGATION_DENIED (NOT_COVERED)`, instead of only the code. That is a first small piece of the usability phase.
+
+**How we know it works:** a test runs the whole story on the real services: an operator grants A, A hands B a query, B queries the database, the audit log is pulled and every signature is checked independently, B is refused when it asks for more, and after A is revoked, a pass B already holds is refused in under a second. Dozens of further tests try forged, unsigned, expired, widened, spliced and oversized chains, and each is refused. Each important check was also switched off on purpose to make sure a test notices; every one was caught.
+
+**Why it matters:** this is what the Indian data-protection law (DPDP) needs from AI agents and what nobody has a settled answer for: proof of which agent acted, under whose authority, through which other agents. Custos can now show that chain to an auditor in a form they can check themselves, instead of asking them to trust our word.
+
+**Limits, stated plainly:**
+
+- **Lost reports can't be repaired.** The proof is recorded once, when B is given access. If that one record were lost (for example, the audit service down at that exact moment), the audit check would flag every action B took with that pass, with no way to repair it.
+- **Delegation across companies** is not in this phase.
+
+---
+
 ## 2026-10-30 — Custos now ships as ready-to-run containers (Phase 7, packaging)
 
 **Commits:** `63ae3e7`, `24e6d58` (the plan and ADR 0018), `c08c79b` (the containers and checks), `7f6cb3e` (docs), `5671e5b` (a Linux fix). Pushed 2026-10-30 as **pull request #118**, all automatic checks green, merged to the main branch the same day. **Phase 7 is closed.**
