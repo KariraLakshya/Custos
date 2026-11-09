@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-09 — Agents can hand work to other agents, and the audit log proves who authorised it (Phase 8, delegation provenance)
 
-**Commits:** on branch `feat/delegation-provenance` (the design and your decisions were committed earlier as `15d41e3` and `fbd76fb`). The work is not pushed yet: it goes up as one pull request, and this entry gets the commit numbers when it does.
+**Commits:** `15d41e3`, `fbd76fb` (the design and your decisions), `bed6d60` (the code and tests), `a3b59a1` (docs). Pushed 2026-11-09 as **pull request #122** against the main branch; Phase 8 closes when it merges with the automatic checks green.
 
 **What changed, in plain words:**
 
