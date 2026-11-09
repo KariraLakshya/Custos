@@ -36,7 +36,7 @@
     "@custos/tsconfig": "workspace:*",
     "@custos/vault": "workspace:*",
     "@custos/vitest-config": "workspace:*",
-    "fastify": "^5.12.7",
+    "fastify": "^5.12.8",
     "typescript": "^5.7.2",
     "vitest": "^5.0.5"
   }
