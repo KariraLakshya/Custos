@@ -35,7 +35,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-09 — Agents can hand work to other agents, and the audit log proves who authorised it (Phase 8, delegation provenance)
 
-**Commits:** `15d41e3`, `fbd76fb` (the design and your decisions), `bed6d60` (the code and tests), `a3b59a1` (docs). Pushed 2026-11-09 as **pull request #122** against the main branch; Phase 8 closes when it merges with the automatic checks green.
+**Commits:** `15d41e3`, `fbd76fb` (the design and your decisions), `bed6d60` (the code and tests), `a3b59a1` (docs). Pushed 2026-11-09 as **pull request #122**; all seven automatic checks green (including the container checks), merged to the main branch the same day as `28f4cde`. **Phase 8 is closed.**
 
 **What changed, in plain words:**
 
