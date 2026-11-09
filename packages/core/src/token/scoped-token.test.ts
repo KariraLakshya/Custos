@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { generateKeyPair, sign } from "../crypto/ed25519.js";
 import { issueScopedToken, verifyScopedToken, type ScopedTokenClaims } from "./scoped-token.js";
 
+const SUB = "did:web:localhost:agents:agent-1";
+
 function claimsAt(now: Date, ttlSeconds = 60): ScopedTokenClaims {
   const iat = Math.floor(now.getTime() / 1000);
   return {
-    sub: "did:web:localhost:agents:agent-1",
+    sub: SUB,
     tool: "stripe",
     action: "list-customers",
     iat,
@@ -115,6 +117,58 @@ describe("issueScopedToken / verifyScopedToken", () => {
 
     const verified = verifyScopedToken({ token, publicKey, now: new Date() });
     expect(verified).toEqual({
+      ok: false,
+      error: { code: "MALFORMED_TOKEN", reason: "claims missing required fields" },
+    });
+  });
+
+  it("carries a delegation chain that ends at its subject (ADR 0020 §4)", async () => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const now = new Date("2026-01-01T00:00:00Z");
+    const base = claimsAt(now);
+    const claims = {
+      ...base,
+      chain: ["did:web:localhost:agents:root", base.sub],
+      dref: "A".repeat(43),
+    };
+    const issued = await issueScopedToken({ claims, signer: signerFor(secretKey) });
+    if (!issued.ok) throw new Error("signing failed");
+    expect(verifyScopedToken({ token: issued.value, publicKey, now })).toEqual({
+      ok: true,
+      value: claims,
+    });
+  });
+
+  const DREF = "A".repeat(43);
+  it.each([
+    ["a chain that is not an array", { chain: "did:web:a", dref: DREF }],
+    ["a chain of only the subject", { chain: [SUB], dref: DREF }],
+    [
+      "a chain not ending at the subject",
+      { chain: [SUB, "did:web:localhost:agents:other"], dref: DREF },
+    ],
+    ["a chain with an empty DID", { chain: ["", SUB], dref: DREF }],
+    ["a chain with a non-string DID", { chain: [7, SUB], dref: DREF }],
+    [
+      "a chain of too many DIDs",
+      { chain: [...Array.from({ length: 16 }, (_, i) => `did:web:x:${i}`), SUB], dref: DREF },
+    ],
+    ["a chain with no dref", { chain: ["did:web:localhost:agents:root", SUB] }],
+    ["a dref with no chain", { dref: DREF }],
+    ["an empty dref", { chain: ["did:web:localhost:agents:root", SUB], dref: "" }],
+    [
+      "a dref too long to be a hash",
+      { chain: ["did:web:localhost:agents:root", SUB], dref: "A".repeat(65) },
+    ],
+    ["a non-string dref", { chain: ["did:web:localhost:agents:root", SUB], dref: 7 }],
+  ])("rejects a signed token with %s", (_label, extra) => {
+    const { publicKey, secretKey } = generateKeyPair();
+    const now = new Date("2026-01-01T00:00:00Z");
+    const encoded = Buffer.from(JSON.stringify({ ...claimsAt(now), ...extra }), "utf8").toString(
+      "base64url",
+    );
+    const token = `${encoded}.${Buffer.from(sign(Buffer.from(encoded, "utf8"), secretKey)).toString("base64url")}`;
+    expect(verifyScopedToken({ token, publicKey, now })).toEqual({
       ok: false,
       error: { code: "MALFORMED_TOKEN", reason: "claims missing required fields" },
     });

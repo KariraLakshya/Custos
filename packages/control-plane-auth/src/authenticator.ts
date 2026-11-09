@@ -10,6 +10,11 @@ export interface Principal {
   readonly id: string;
   readonly name: string;
   readonly scopes: ReadonlySet<Scope>;
+  /**
+   * How an API key was made: by `custos-admin`, or by an SSO login, where
+   * `name` is the person's email (ADR 0010). Absent for mTLS principals.
+   */
+  readonly via?: "custos-admin" | "sso";
 }
 
 /** Why authentication failed — for logs only, never for the response (ADR 0008 §3). */
@@ -82,7 +87,7 @@ export function createApiKeyAuthenticator(options: {
       for (const scope of row.scopes) {
         if (isScope(scope) && scopeAllowedFor(row.kind, scope)) scopes.add(scope);
       }
-      return ok({ kind: row.kind, id: row.id, name: row.name, scopes });
+      return ok({ kind: row.kind, id: row.id, name: row.name, scopes, via: row.createdVia });
     },
   };
 }

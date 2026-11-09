@@ -2,7 +2,13 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { pullAuditLedger, type PullAuditLedgerError, type SealStore } from "@custos/audit-client";
-import { multibaseToPublicKey, type AuditRecord } from "@custos/core";
+import { multibaseToPublicKey, type AuditRecord, type DidWebDocument } from "@custos/core";
+import {
+  checkDelegations,
+  resolvePinnedIssuer,
+  type CheckedDelegation,
+  type DelegationAuditError,
+} from "./delegation-audit.js";
 
 /**
  * Where `audit-log` remembers, per audit log, the newest seal it verified and
@@ -55,6 +61,7 @@ async function readRemembered(path: string): Promise<Remembered> {
 
 export type AuditLogError =
   | PullAuditLedgerError
+  | DelegationAuditError
   /**
    * The audit service publishes a key this machine has not trusted for this
    * log. Compare `current` with the key the service's operator gave you, then
@@ -85,6 +92,8 @@ export type AuditLogResult =
       readonly newestOutsideSeal?: { readonly seq: number; readonly sealedAt: string };
       /** The seal keys trusted for this log after this check. */
       readonly trustedKeys: readonly string[];
+      /** Every delegated entry, its chain re-verified (ADR 0020 §6). */
+      readonly delegations: readonly CheckedDelegation[];
     }
   | { readonly verified: false; readonly error: AuditLogError };
 
@@ -114,6 +123,13 @@ export async function pullAuditLog(params: {
   readonly sealStore?: Pick<SealStore, "list">;
   /** Keys a person has checked and accepts for this log, multibase. */
   readonly acceptKeys?: readonly string[];
+  /**
+   * The identity service's DID, pinned by the auditor: delegated entries'
+   * chains are re-verified against it. Without it, a log with any delegated
+   * entry fails as `DELEGATION_UNCHECKABLE`.
+   */
+  readonly identityIssuerDid?: string;
+  readonly resolveIssuer?: (did: string) => Promise<DidWebDocument>;
 }): Promise<AuditLogResult> {
   const accepted = params.acceptKeys ?? [];
   for (const key of accepted) {
@@ -164,6 +180,22 @@ export async function pullAuditLog(params: {
   }
   if (!pulled.ok) return { verified: false, error: pulled.error };
   const ledger = pulled.value;
+  const records =
+    params.agentDid === undefined
+      ? ledger.records
+      : ledger.records.filter((entry) => entry.record.agentDid === params.agentDid);
+
+  // A chain is checked like a payload: one that does not verify fails the
+  // whole log, before anything is remembered as verified.
+  const delegations = await checkDelegations({
+    records,
+    issuerDid: params.identityIssuerDid ?? "",
+    resolveIssuer:
+      params.identityIssuerDid === undefined
+        ? () => Promise.reject(new Error("no identity issuer DID is pinned"))
+        : (params.resolveIssuer ?? ((did) => resolvePinnedIssuer(did))),
+  });
+  if (!delegations.ok) return { verified: false, error: delegations.error };
   const newest = ledger.newestSeal;
   const known = remembered[ledger.log];
 
@@ -196,15 +228,13 @@ export async function pullAuditLog(params: {
     headSeq: ledger.headSeq,
     sealedThrough: newest?.seq ?? 0,
     unsealedCount: ledger.unsealedCount,
-    records:
-      params.agentDid === undefined
-        ? ledger.records
-        : ledger.records.filter((entry) => entry.record.agentDid === params.agentDid),
+    records,
     outsideSealsChecked: params.sealStore !== undefined,
     ...(outside.length === 0
       ? {}
       : { newestOutsideSeal: sealClaims(outside[outside.length - 1]!) }),
     trustedKeys: trusted,
+    delegations: delegations.checked,
   };
 }
 

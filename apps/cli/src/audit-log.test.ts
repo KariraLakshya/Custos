@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AUDIT_GENESIS_HASH,
   buildDidWebDocument,
@@ -12,6 +12,7 @@ import {
   issueAuditSeal,
   serializeAuditRecord,
   sign,
+  type AuditRecord,
 } from "@custos/core";
 import { pullAuditLog } from "./audit-log.js";
 
@@ -33,7 +34,7 @@ async function fakeAudit(port: number) {
     seal: null as string | null,
     lastUrl: "",
   };
-  const append = (agentDid: string, action: string) => {
+  const append = (agentDid: string, action: string, extra: Partial<AuditRecord> = {}) => {
     const payload = serializeAuditRecord({
       agentDid,
       authorityChain: [agentDid],
@@ -42,6 +43,7 @@ async function fakeAudit(port: number) {
       dataCategories: [],
       policy: { rule: "agent-tool-allowlist", decision: "allow" },
       recordedAt: "2026-10-27T10:00:00.000Z",
+      ...extra,
     });
     const seq = state.entries.length + 1;
     const payloadHash = computeAuditPayloadHash(payload);
@@ -104,6 +106,55 @@ afterEach(async () => {
 });
 
 const sealFileIn = async () => join(await mkdtemp(join(tmpdir(), "custos-audit-")), "seal.json");
+
+describe("pullAuditLog with delegated entries (ADR 0020 §6)", () => {
+  const delegatedCall = { authorityChain: [OTHER, AGENT], delegationRef: "ref" };
+
+  it("lists no delegations for a log without any, and needs no identity issuer for it", async () => {
+    const audit = await fakeAudit(4827);
+    audit.append(AGENT, "plain");
+    await audit.seal();
+    const result = await pullAuditLog({ auditUrl: audit.url, sealFile: await sealFileIn() });
+    expect(result).toMatchObject({ verified: true, delegations: [] });
+  });
+
+  it("fails a log with a delegated entry when no identity issuer is pinned, and remembers nothing", async () => {
+    const audit = await fakeAudit(4828);
+    audit.append(AGENT, "delegated", delegatedCall);
+    await audit.seal();
+    const sealFile = await sealFileIn();
+    expect(await pullAuditLog({ auditUrl: audit.url, sealFile })).toEqual({
+      verified: false,
+      error: { code: "DELEGATION_UNCHECKABLE", reason: "no identity issuer DID is pinned" },
+    });
+    await expect(readFile(sealFile, "utf8")).rejects.toThrow(/ENOENT/);
+  });
+
+  it("fails a delegated call with no issuance entry behind it, against the pinned issuer", async () => {
+    const audit = await fakeAudit(4829);
+    audit.append(AGENT, "plain");
+    audit.append(AGENT, "delegated", delegatedCall);
+    await audit.seal();
+    const issuer = generateKeyPair();
+    const resolveIssuer = vi.fn((did: string) =>
+      Promise.resolve(
+        buildDidWebDocument({ domain: "localhost:4001", publicKey: issuer.publicKey }),
+      ).then((document) => ({ ...document, id: did })),
+    );
+    const result = await pullAuditLog({
+      auditUrl: audit.url,
+      agentDid: AGENT,
+      sealFile: await sealFileIn(),
+      identityIssuerDid: "did:web:localhost%3A4001",
+      resolveIssuer,
+    });
+    expect(result).toEqual({
+      verified: false,
+      error: { code: "DELEGATION_UNLINKED", seq: 2 },
+    });
+    expect(resolveIssuer).toHaveBeenCalledWith("did:web:localhost%3A4001");
+  });
+});
 
 describe("pullAuditLog (ADR 0017)", () => {
   it("verifies the ledger against its seal, and remembers the seal for next time", async () => {

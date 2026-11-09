@@ -1,5 +1,11 @@
 import { open, readFile, rm, writeFile } from "node:fs/promises";
-import { createCustos, type CallDenied, type Custos, type CustosConfig } from "@custos/sdk";
+import {
+  createCustos,
+  type CallDenied,
+  type Custos,
+  type CustosConfig,
+  type Delegation,
+} from "@custos/sdk";
 import { Command } from "commander";
 import { openSealStore } from "@custos/audit-client";
 import { defaultSealFile, pullAuditLog, type AuditLogError } from "./audit-log.js";
@@ -11,6 +17,7 @@ interface AuditLogOptions {
   readonly auditUrl: string;
   readonly sealFile: string;
   readonly acceptKey?: string[];
+  readonly identityIssuer: string;
 }
 
 /** The seal key a failed check is waiting on a person to accept, if that is why it failed. */
@@ -60,6 +67,11 @@ async function operatorCustos(urls: Partial<CustosConfig>): Promise<Custos> {
   return createCustos({ ...DEFAULT_URLS, ...urls, operatorKey });
 }
 
+function wholeNumber(flag: string, value: string): number {
+  if (!/^\d+$/.test(value)) throw new Error(`${flag} must be a whole number, got ${value}`);
+  return Number(value);
+}
+
 /** Reads an agent key file as `register` writes it: 64 hex characters. */
 async function loadAgentKey(path: string): Promise<string> {
   const key = (await readFile(path, "utf8")).trim();
@@ -67,6 +79,45 @@ async function loadAgentKey(path: string): Promise<string> {
     throw new Error(`not an agent key: ${path} (expected 64 hex characters)`);
   }
   return key;
+}
+
+// Matches the vault's own bound on a presented chain (ADR 0020).
+const MAX_DELEGATION_ENTRIES = 16;
+
+/**
+ * Reads a delegation file as `delegate` writes it. Untrusted input: anything
+ * that is not 1 to 16 hand-off strings and as many credential objects is
+ * refused here, before it is sent anywhere.
+ */
+async function loadDelegationFile(path: string): Promise<Delegation> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`no delegation file at ${path}`);
+    }
+    throw new Error(`not a delegation file: ${path} is not JSON`);
+  }
+  const { handOffs, credentials } = (parsed ?? {}) as Record<string, unknown>;
+  const within = (list: unknown): list is unknown[] =>
+    Array.isArray(list) && list.length >= 1 && list.length <= MAX_DELEGATION_ENTRIES;
+  if (
+    !within(handOffs) ||
+    !within(credentials) ||
+    !handOffs.every((h) => typeof h === "string" && h.length > 0) ||
+    !credentials.every(
+      (c) =>
+        typeof c === "object" &&
+        c !== null &&
+        typeof (c as { issuer?: unknown }).issuer === "string",
+    )
+  ) {
+    throw new Error(
+      `not a delegation file: ${path} needs 1 to ${MAX_DELEGATION_ENTRIES} hand-offs and credentials`,
+    );
+  }
+  return { handOffs: handOffs as string[], credentials: credentials as Delegation["credentials"] };
 }
 
 /** The agent is the credential's subject; the issuer is the identity service (ADR 0007). */
@@ -80,7 +131,13 @@ function agentDidOf(credential: { readonly credentialSubject?: unknown }): strin
 
 /** 401/403 are the vault's authorization decisions; anything else is a failure worth its detail. */
 function describeRefusal(refusal: CallDenied): string {
-  if (refusal.status === 401 || refusal.status === 403) return `denied: ${refusal.code}`;
+  if (refusal.status === 401 || refusal.status === 403) {
+    // A delegation refusal says why (NOT_COVERED, NO_ROOT_GRANT, ...); the code alone does not.
+    const reason = (refusal.detail as { error?: { reason?: unknown } } | undefined)?.error?.reason;
+    return typeof reason === "string"
+      ? `denied: ${refusal.code} (${reason})`
+      : `denied: ${refusal.code}`;
+  }
   return `failed: ${refusal.code} (HTTP ${refusal.status}) — ${JSON.stringify(refusal.detail)}`;
 }
 
@@ -188,17 +245,33 @@ export function createCli(): Command {
     )
     .option("--vault-url <url>", "vault service base URL", "http://localhost:4002")
     .option("--input <json>", "JSON input for the action", "{}")
+    .option(
+      "--delegation <path>",
+      "act on permission another agent passed to this one (from `custos delegate`)",
+    )
     .action(
       async (
         tool: string,
         action: string,
-        opts: { credential: string; key: string; vaultUrl: string; input: string },
+        opts: {
+          credential: string;
+          key: string;
+          vaultUrl: string;
+          input: string;
+          delegation?: string;
+        },
       ) => {
         const credential = await loadCredentialFile(opts.credential);
         const secretKey = await loadAgentKey(opts.key);
+        const delegation =
+          opts.delegation === undefined ? undefined : await loadDelegationFile(opts.delegation);
         const input: unknown = JSON.parse(opts.input);
         const outcome = await custos({ vaultUrl: opts.vaultUrl })
-          .connect({ credential, secretKey }, tool)
+          .connect(
+            { credential, secretKey },
+            tool,
+            delegation === undefined ? undefined : { delegation },
+          )
           .call(action, input);
         if (!outcome.ok) {
           process.stderr.write(`${describeRefusal(outcome.error)}\n`);
@@ -206,6 +279,69 @@ export function createCli(): Command {
           return;
         }
         process.stdout.write(`${JSON.stringify({ result: outcome.value }, null, 2)}\n`);
+      },
+    );
+
+  program
+    .command("delegate")
+    .description(
+      "Pass some of this agent's permission to another agent, signed with this agent's key; nothing is sent",
+    )
+    .argument("<tool>", "tool to pass on, e.g. mock-database")
+    .argument("<actions...>", "actions on it the other agent may take, e.g. query")
+    .requiredOption("--to <did>", "the receiving agent's DID")
+    .requiredOption(
+      "--credential <path>",
+      "path to this (delegating) agent's credential file (from `register --out`)",
+    )
+    .option("--key <path>", "path to this agent's private key (from `register`)", "agent.key")
+    .option("--ttl <seconds>", "how long it lasts (default 600; never past what it extends)")
+    .option("--depth <n>", "how many more times it may be passed on (default 0: not at all)")
+    .option("--extending <path>", "a delegation this agent received and is passing on")
+    .option(
+      "--out <path>",
+      "where to write it, for the other agent's `use --delegation` (never overwrites)",
+      "delegation.json",
+    )
+    .action(
+      async (
+        tool: string,
+        actions: string[],
+        opts: {
+          to: string;
+          credential: string;
+          key: string;
+          ttl?: string;
+          depth?: string;
+          extending?: string;
+          out: string;
+        },
+      ) => {
+        const credential = await loadCredentialFile(opts.credential);
+        const secretKey = await loadAgentKey(opts.key);
+        const extending =
+          opts.extending === undefined ? undefined : await loadDelegationFile(opts.extending);
+        const delegation = custos({}).delegate(
+          { did: agentDidOf(credential), credential, secretKey },
+          {
+            to: opts.to,
+            grants: [{ tool, actions }],
+            ...(opts.ttl === undefined ? {} : { ttlSeconds: wholeNumber("--ttl", opts.ttl) }),
+            ...(opts.depth === undefined ? {} : { depth: wholeNumber("--depth", opts.depth) }),
+            ...(extending === undefined ? {} : { extending }),
+          },
+        );
+        try {
+          await writeFile(opts.out, `${JSON.stringify(delegation, null, 2)}\n`, { flag: "wx" });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+            throw new Error(`refusing to overwrite existing file ${opts.out}`);
+          }
+          throw error;
+        }
+        process.stdout.write(
+          `${opts.to} may now ${actions.join(", ")} on ${tool} for this agent; give it ${opts.out}\n`,
+        );
       },
     );
 
@@ -244,6 +380,11 @@ export function createCli(): Command {
       (key: string, previous: string[]) => [...previous, key],
       [] as string[],
     )
+    .option(
+      "--identity-issuer <did>",
+      "the identity service's DID; delegation chains in the log are re-verified against it",
+      "did:web:localhost%3A4001",
+    )
     .action(async (agentDid: string | undefined, opts: AuditLogOptions) => {
       // The seal store's address holds a password, so it comes from the
       // environment only, never a flag (ADR 0017 part 2a). postgres:// or
@@ -256,6 +397,7 @@ export function createCli(): Command {
         ...(agentDid === undefined ? {} : { agentDid }),
         ...(sealStore === undefined ? {} : { sealStore }),
         ...(opts.acceptKey === undefined ? {} : { acceptKeys: opts.acceptKey }),
+        identityIssuerDid: opts.identityIssuer,
       }).finally(() => sealStore?.close());
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       if (!result.verified) {
@@ -265,7 +407,13 @@ export function createCli(): Command {
         const newKey = untrustedKeyOf(result.error);
         if (newKey !== undefined) process.stderr.write(acceptKeyHelp(newKey));
         process.exitCode = 1;
-      } else if (!result.outsideSealsChecked) {
+        return;
+      }
+      for (const delegation of result.delegations) {
+        process.stderr.write(`#${delegation.seq} ${delegation.kind}: ${delegation.chain}
+`);
+      }
+      if (!result.outsideSealsChecked) {
         process.stderr.write(
           "note: no outside seal store was checked (set CUSTOS_AUDIT_SEAL_STORE_URL); the newest entries are protected only by seals this machine remembered\n",
         );

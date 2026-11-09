@@ -17,3 +17,9 @@ export {
   type PossessionProofClaims,
   type RegistrationRequest,
 } from "./proof/possession.js";
+export {
+  buildHandOff,
+  HAND_OFF_TYPE,
+  handOffHash,
+  type DelegatedGrant,
+} from "./delegation/hand-off.js";

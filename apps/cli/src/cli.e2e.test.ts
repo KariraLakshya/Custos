@@ -6,6 +6,7 @@ import {
   createLocalKeyProvider,
   createLocalSecretCipher,
   ok,
+  type AuditRecord,
   type SignedCredential,
 } from "@custos/core";
 import {
@@ -37,7 +38,7 @@ import { verifyCredentialIndependently } from "./verify.js";
 async function provenTokenRequest(
   vaultUrl: string,
   agent: { readonly credential: unknown; readonly secretKey: string },
-  body: { readonly tool: string; readonly action: string },
+  body: { readonly tool: string; readonly action: string; readonly delegation?: unknown },
   now: Date = new Date(),
 ) {
   const tokensUrl = new URL("/tokens", vaultUrl);
@@ -654,3 +655,211 @@ function testRevocationSigningKey() {
     keyId: "signing",
   };
 }
+
+describe("delegation provenance (Phase 8 DONE, ADR 0020)", () => {
+  /** Stores the mock database's credential and grants it to `agent`, as an operator. */
+  async function grantDatabase(vaultUrl: string, agent: { readonly did: string }) {
+    await fetch(new URL("/credentials", vaultUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(operatorKey) },
+      body: JSON.stringify({ tool: "mock-database", secret: "db-fake" }),
+    });
+    await sdkAt({ vaultUrl }).grant(agent, "mock-database");
+  }
+
+  const QUERY = [{ tool: "mock-database", actions: ["query"] }];
+
+  /**
+   * An agent's audit log, pulled and verified as an auditor would (chains
+   * re-checked against the pinned identity issuer), once it holds what
+   * `until` expects. Reports are fire-and-forget, so entries land late and in
+   * any order: a call seen before its issuance entry is retried, and any
+   * other failure fails the test. Waiting also means no report is still in
+   * flight when the services shut down.
+   */
+  async function settledAuditLog(
+    auditUrl: string,
+    identityPort: number,
+    agentDid: string,
+    until: (records: readonly { readonly record: AuditRecord }[]) => boolean,
+  ) {
+    const sealFile = join(await mkdtemp(join(tmpdir(), "custos-audit-")), "seal.json");
+    for (let attempt = 0; ; attempt += 1) {
+      const log = await pullAuditLog({
+        auditUrl,
+        agentDid,
+        sealFile,
+        identityIssuerDid: `did:web:127.0.0.1%3A${identityPort}`,
+      });
+      const pending = !log.verified && log.error.code === "DELEGATION_UNLINKED";
+      if (!pending && !log.verified)
+        throw new Error(`audit log failed: ${JSON.stringify(log.error)}`);
+      if (log.verified && until(log.records)) return log;
+      if (attempt >= 60) throw new Error("audit entries never landed");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  const revocationDenials = (records: readonly { readonly record: AuditRecord }[]) =>
+    records.filter((r) => r.record.policy.rule === "revocation");
+
+  it(
+    "an operator grants A, A hands B a query, B queries; the audit log proves operator → A → B; " +
+      "B cannot widen it; revoking A cuts B off at the next call",
+    async () => {
+      await withPhase4Stack(
+        { identity: 4940, revocation: 4941, vault: 4942, audit: 4943 },
+        [createMockDatabaseConnector()],
+        async ({ identityUrl, revocationUrl, vaultUrl, auditUrl }) => {
+          const a = await sdkAt({ identityUrl }).register();
+          const b = await sdkAt({ identityUrl }).register();
+          await grantDatabase(vaultUrl, a);
+
+          // A signs the hand-off itself; nothing is sent. A never asks the
+          // vault for anything, so the vault first learns of A from B's
+          // request (ADR 0020 §4: A is not "unknown" to revocation).
+          const delegation = sdkAt({}).delegate(a, { to: b.did, grants: QUERY });
+
+          // B has no grant of its own: without the delegation it is refused.
+          const alone = await sdkAt({ vaultUrl })
+            .connect(b, "mock-database")
+            .call("query", { table: "customers" });
+          expect(!alone.ok && alone.error.code).toBe("POLICY_DENIED");
+          const db = sdkAt({ vaultUrl }).connect(b, "mock-database", { delegation });
+          const queried = await db.call("query", { table: "customers" });
+          expect(queried).toEqual({
+            ok: true,
+            value: [
+              { id: 1, name: "Ada Lovelace" },
+              { id: 2, name: "Alan Turing" },
+            ],
+          });
+
+          // B asking for an action A did not hand it is refused, and says why.
+          const widened = await db.call("write", { table: "customers" });
+          expect(widened).toMatchObject({
+            ok: false,
+            error: {
+              stage: "token",
+              code: "DELEGATION_DENIED",
+              detail: { error: { reason: "NOT_COVERED" } },
+            },
+          });
+
+          // The audit log, pulled and verified as an auditor would: B's
+          // issuance entry carries the evidence and is re-checked offline
+          // against the pinned identity issuer; the call links to it. Reports
+          // are fire-and-forget, so the entries may land in any order: retry
+          // while the call is not yet linked, fail on anything else.
+          const log = await settledAuditLog(
+            auditUrl,
+            4940,
+            b.did,
+            (records) => records.filter((r) => r.record.delegationRef !== undefined).length >= 2,
+          );
+          const chain = log.delegations.map((d) => ({ kind: d.kind, chain: d.chain }));
+          expect(chain).toEqual([
+            { kind: "issued", chain: expect.stringMatching(/^.+ \(operator(, \S+)?\) → /) },
+            { kind: "call", chain: expect.any(String) },
+          ]);
+          expect(chain[0]!.chain.endsWith(` → ${a.did} → ${b.did}`)).toBe(true);
+          expect(chain[1]!.chain).toBe(chain[0]!.chain);
+          const issued = log.records.find((r) => r.record.delegation !== undefined)!.record;
+          expect(issued.authorityChain).toEqual([a.did, b.did]);
+          expect(issued.delegation?.root).toMatchObject({
+            kind: "operator",
+            id: operatorKey.split("_")[2],
+          });
+
+          // Revoking A: a token B already holds stops working at the next
+          // /call (the hot path, ADR 0020 §4), and B gets no new one.
+          const held = await provenTokenRequest(vaultUrl, b, {
+            tool: "mock-database",
+            action: "query",
+            delegation,
+          });
+          expect(held.status).toBe(200);
+          const { token } = (await held.json()) as { token: string };
+          const start = Date.now();
+          const revoked = await sdkAt({ revocationUrl }).deprovision(a);
+          expect(revoked.broadcast).toEqual({ delivered: 1, failed: [] });
+          const call = await fetch(new URL("/call", vaultUrl), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token, action: "query", input: { table: "customers" } }),
+          });
+          expect(Date.now() - start).toBeLessThan(1_000);
+          expect(call.status).toBe(403);
+          expect(((await call.json()) as { error: { code: string } }).error.code).toBe(
+            "AGENT_REVOKED",
+          );
+          const after = await db.call("query", { table: "customers" });
+          expect(after).toMatchObject({
+            ok: false,
+            error: { stage: "token", code: "AGENT_REVOKED" },
+          });
+
+          // Both refusals are audited: the hot-path one names the whole chain
+          // and links to the issuance entry; the one at issuance names B and
+          // the revoked delegator. A's own log records its revocation.
+          const final = await settledAuditLog(
+            auditUrl,
+            4940,
+            b.did,
+            (records) => revocationDenials(records).length >= 2,
+          );
+          expect(revocationDenials(final.records).map((r) => r.record)).toEqual([
+            expect.objectContaining({
+              authorityChain: [a.did, b.did],
+              delegationRef: issued.delegationRef,
+              reason: `agent ${a.did} in its delegation chain is revoked`,
+            }),
+            expect.objectContaining({
+              authorityChain: [b.did],
+              reason: `agent ${a.did} in its delegation chain is revoked`,
+            }),
+          ]);
+          await settledAuditLog(auditUrl, 4940, a.did, (records) =>
+            records.some((r) => r.record.action === "agents.revoke"),
+          );
+        },
+      );
+    },
+  );
+
+  it("revoking B leaves A working on its own grant", async () => {
+    await withPhase4Stack(
+      { identity: 4944, revocation: 4945, vault: 4946, audit: 4947 },
+      [createMockDatabaseConnector()],
+      async ({ identityUrl, revocationUrl, vaultUrl, auditUrl }) => {
+        const a = await sdkAt({ identityUrl }).register();
+        const b = await sdkAt({ identityUrl }).register();
+        await grantDatabase(vaultUrl, a);
+        const delegation = sdkAt({}).delegate(a, { to: b.did, grants: QUERY });
+        const asB = sdkAt({ vaultUrl }).connect(b, "mock-database", { delegation });
+        expect((await asB.call("query", { table: "customers" })).ok).toBe(true);
+
+        await sdkAt({ revocationUrl }).deprovision(b);
+
+        expect(await asB.call("query", { table: "customers" })).toMatchObject({
+          ok: false,
+          error: { code: "AGENT_REVOKED" },
+        });
+        const asA = await sdkAt({ vaultUrl })
+          .connect(a, "mock-database")
+          .call("query", { table: "customers" });
+        expect(asA.ok).toBe(true);
+        await settledAuditLog(
+          auditUrl,
+          4944,
+          b.did,
+          (records) =>
+            revocationDenials(records).length >= 1 &&
+            records.some((r) => r.record.action === "agents.revoke"),
+        );
+        await settledAuditLog(auditUrl, 4944, a.did, (records) =>
+          records.some((r) => r.record.policy.rule === "scoped-token"),
+        );
+      },
+    );
+  });
+});

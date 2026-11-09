@@ -318,7 +318,10 @@ describe("custos CLI", () => {
     });
 
     /** A one-entry sealed ledger, served as the audit service would. */
-    async function serveLedger(port: number, options: { tamper?: boolean } = {}) {
+    async function serveLedger(
+      port: number,
+      options: { tamper?: boolean; delegated?: boolean } = {},
+    ) {
       const { publicKey, secretKey } = generateKeyPair();
       const didDocument = buildDidWebDocument({ domain: `127.0.0.1:${port}`, publicKey });
       const agentDid = "did:web:localhost%3A4001:agents:a1";
@@ -330,6 +333,10 @@ describe("custos CLI", () => {
         dataCategories: ["messaging-content"],
         policy: { rule: "agent-tool-allowlist", decision: "allow" },
         recordedAt: "2026-09-12T10:00:00.000Z",
+        // A delegated call with no issuance entry behind it (ADR 0020 §6).
+        ...(options.delegated
+          ? { authorityChain: ["did:web:localhost%3A4001:agents:a0", agentDid], delegationRef: "r" }
+          : {}),
       });
       const payloadHash = computeAuditPayloadHash(payload);
       const issued = await issueAuditSeal({
@@ -386,6 +393,20 @@ describe("custos CLI", () => {
       expect(exitCode).toBeUndefined();
       expect(out).toContain('"verified": true');
       expect(out).toContain('"sealedThrough": 1');
+    });
+
+    it("checks delegation chains against the issuer --identity-issuer pins", async () => {
+      await serveLedger(4861, { delegated: true });
+      // The default pinned issuer (localhost:4001) is not running: the chain
+      // cannot be checked, so the log fails rather than passing unchecked.
+      const unpinned = await runAuditLog(4861);
+      expect(unpinned.exitCode).toBe(1);
+      expect(unpinned.err).toContain("DELEGATION_UNCHECKABLE");
+      // Pinned to a DID that resolves (this stub serves a document for it), the
+      // check runs, and finds the call has no issuance entry.
+      const pinned = await runAuditLog(4861, ["--identity-issuer", "did:web:127.0.0.1%3A4861"]);
+      expect(pinned.exitCode).toBe(1);
+      expect(pinned.err).toContain("DELEGATION_UNLINKED");
     });
 
     it("after a restart on a new key, explains how to check and accept it, then passes with --accept-key", async () => {
@@ -587,7 +608,8 @@ describe("custos CLI", () => {
 
       await runUse(vaultUrl, credentialPath);
 
-      expect(stderr.mock.calls.join("")).toBe("denied: INVALID_TOKEN\n");
+      // The reason says why the token was refused (here: it expired).
+      expect(stderr.mock.calls.join("")).toBe("denied: INVALID_TOKEN (EXPIRED)\n");
       expect(process.exitCode).toBe(1);
     });
 
@@ -648,4 +670,264 @@ describe("custos CLI", () => {
       expect(process.exitCode).toBe(1);
     });
   });
+});
+
+describe("delegation (ADR 0020)", () => {
+  let server: Server | undefined;
+  afterEach(async () => {
+    if (server) await new Promise((resolve) => server?.close(resolve));
+    server = undefined;
+    process.exitCode = undefined;
+    vi.restoreAllMocks();
+  });
+
+  const agentKey = generateKeyPair();
+  const DELEGATOR = "did:web:localhost%3A4001:agents:a";
+  const RECEIVER = "did:web:localhost%3A4001:agents:b";
+
+  /** A delegator's credential and key files, as `register` writes them. */
+  async function delegatorFiles() {
+    const dir = await mkdtemp(join(tmpdir(), "custos-cli-delegate-"));
+    const credentialPath = join(dir, "a.json");
+    await writeFile(
+      credentialPath,
+      JSON.stringify({ issuer: "did:web:localhost%3A4001", credentialSubject: { id: DELEGATOR } }),
+    );
+    const keyPath = join(dir, "a.key");
+    await writeFile(keyPath, `${Buffer.from(agentKey.secretKey).toString("hex")}\n`);
+    return { dir, credentialPath, keyPath };
+  }
+
+  async function run(args: string[]) {
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await runCli(["node", "custos", ...args]);
+    const result = {
+      exitCode: process.exitCode,
+      out: stdout.mock.calls.join(""),
+      err: stderr.mock.calls.join(""),
+    };
+    stdout.mockRestore();
+    stderr.mockRestore();
+    process.exitCode = undefined;
+    return result;
+  }
+
+  const claimsOf = (handOff: string) =>
+    JSON.parse(Buffer.from(handOff.split(".")[0]!, "base64url").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+
+  it("delegate signs a hand-off locally and writes it for the other agent, refusing to overwrite", async () => {
+    const { dir, credentialPath, keyPath } = await delegatorFiles();
+    const out = join(dir, "delegation.json");
+    const args = [
+      "delegate",
+      "mock-database",
+      "query",
+      "--to",
+      RECEIVER,
+      "--credential",
+      credentialPath,
+      "--key",
+      keyPath,
+      "--ttl",
+      "120",
+      "--out",
+      out,
+    ];
+    const first = await run(args);
+    expect(first.exitCode).toBeUndefined();
+    expect(first.out).toContain(`${RECEIVER} may now query on mock-database`);
+    const written = JSON.parse(await readFile(out, "utf8")) as {
+      handOffs: string[];
+      credentials: unknown[];
+    };
+    expect(written.credentials).toEqual([
+      { issuer: "did:web:localhost%3A4001", credentialSubject: { id: DELEGATOR } },
+    ]);
+    const claims = claimsOf(written.handOffs[0]!);
+    expect(claims).toMatchObject({
+      iss: DELEGATOR,
+      sub: RECEIVER,
+      grants: [{ tool: "mock-database", actions: ["query"] }],
+      depth: 0,
+    });
+    expect((claims.exp as number) - (claims.iat as number)).toBe(120);
+
+    const again = await run(args);
+    expect(again.exitCode).toBe(1);
+    expect(again.err).toContain(`refusing to overwrite existing file ${out}`);
+  });
+
+  it("delegate --extending passes on a received delegation, one depth less", async () => {
+    const { dir, credentialPath, keyPath } = await delegatorFiles();
+    const first = join(dir, "first.json");
+    const base = ["--credential", credentialPath, "--key", keyPath];
+    // A delegates to itself only to have something to extend in one test;
+    // the vault, not the CLI, decides whether a chain is acceptable.
+    expect(
+      (
+        await run([
+          "delegate",
+          "mock-database",
+          "query",
+          "--to",
+          DELEGATOR,
+          "--depth",
+          "1",
+          ...base,
+          "--out",
+          first,
+        ])
+      ).exitCode,
+    ).toBeUndefined();
+    const second = join(dir, "second.json");
+    const extended = await run([
+      "delegate",
+      "mock-database",
+      "query",
+      "--to",
+      RECEIVER,
+      "--extending",
+      first,
+      ...base,
+      "--out",
+      second,
+    ]);
+    expect(extended.exitCode).toBeUndefined();
+    const written = JSON.parse(await readFile(second, "utf8")) as { handOffs: string[] };
+    expect(written.handOffs).toHaveLength(2);
+    expect(claimsOf(written.handOffs[1]!)).toMatchObject({ sub: RECEIVER, depth: 0 });
+  });
+
+  it.each([
+    ["a --ttl that is not a whole number", ["--ttl", "soon"], /--ttl must be a whole number/],
+    ["a --depth that is not a whole number", ["--depth", "-1"], /--depth must be a whole number/],
+  ])("delegate refuses %s", async (_label, extra, message) => {
+    const { dir, credentialPath, keyPath } = await delegatorFiles();
+    const { exitCode, err } = await run([
+      "delegate",
+      "mock-database",
+      "query",
+      "--to",
+      RECEIVER,
+      "--credential",
+      credentialPath,
+      "--key",
+      keyPath,
+      "--out",
+      join(dir, "d.json"),
+      ...extra,
+    ]);
+    expect(exitCode).toBe(1);
+    expect(err).toMatch(message);
+  });
+
+  /** A stand-in vault recording what each `/tokens` request carried. */
+  async function recordingVault(tokens: { status: number; body: unknown }) {
+    const bodies: unknown[] = [];
+    server = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (chunk) => (raw += chunk));
+      req.on("end", () => {
+        if (req.url === "/tokens") bodies.push(JSON.parse(raw));
+        const reply = req.url === "/tokens" ? tokens : { status: 200, body: { result: [] } };
+        res.statusCode = reply.status;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(reply.body));
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("expected a port");
+    return { vaultUrl: `http://127.0.0.1:${address.port}`, bodies };
+  }
+
+  async function useWith(vaultUrl: string, delegationPath: string) {
+    const { credentialPath, keyPath } = await delegatorFiles();
+    return run([
+      "use",
+      "mock-database",
+      "query",
+      "--credential",
+      credentialPath,
+      "--key",
+      keyPath,
+      "--vault-url",
+      vaultUrl,
+      "--delegation",
+      delegationPath,
+    ]);
+  }
+
+  const DELEGATION = { handOffs: ["a.b"], credentials: [{ issuer: "did:web:x" }] };
+
+  it("use --delegation sends the delegation with the token request", async () => {
+    const { vaultUrl, bodies } = await recordingVault({ status: 200, body: { token: "t" } });
+    const path = join(await mkdtemp(join(tmpdir(), "custos-cli-d-")), "d.json");
+    await writeFile(path, JSON.stringify(DELEGATION));
+    const { exitCode } = await useWith(vaultUrl, path);
+    expect(exitCode).toBeUndefined();
+    expect(bodies).toEqual([expect.objectContaining({ delegation: DELEGATION })]);
+  });
+
+  it("names why a delegation was refused, not just that it was", async () => {
+    const { vaultUrl } = await recordingVault({
+      status: 403,
+      body: { error: { code: "DELEGATION_DENIED", agentId: RECEIVER, reason: "NOT_COVERED" } },
+    });
+    const path = join(await mkdtemp(join(tmpdir(), "custos-cli-d-")), "d.json");
+    await writeFile(path, JSON.stringify(DELEGATION));
+    const { exitCode, err } = await useWith(vaultUrl, path);
+    expect(exitCode).toBe(1);
+    expect(err).toBe("denied: DELEGATION_DENIED (NOT_COVERED)\n");
+  });
+
+  const json = (value: unknown) => JSON.stringify(value);
+  it.each([
+    ["a missing file", null, /no delegation file at/],
+    ["a file that is not JSON", "{nope", /is not JSON/],
+    ["JSON null", "null", /needs 1 to 16 hand-offs and credentials/],
+    ["no hand-offs", json({ handOffs: [], credentials: [{ issuer: "x" }] }), /needs 1 to 16/],
+    [
+      "a non-string hand-off",
+      json({ handOffs: [7], credentials: [{ issuer: "x" }] }),
+      /needs 1 to 16/,
+    ],
+    [
+      "an empty hand-off",
+      json({ handOffs: [""], credentials: [{ issuer: "x" }] }),
+      /needs 1 to 16/,
+    ],
+    [
+      "a credential with no issuer",
+      json({ handOffs: ["a.b"], credentials: [{}] }),
+      /needs 1 to 16/,
+    ],
+    ["a non-object credential", json({ handOffs: ["a.b"], credentials: ["x"] }), /needs 1 to 16/],
+    [
+      "17 hand-offs",
+      json({ handOffs: Array(17).fill("a.b"), credentials: [{ issuer: "x" }] }),
+      /needs 1 to 16/,
+    ],
+    [
+      "17 credentials",
+      json({ handOffs: ["a.b"], credentials: Array(17).fill({ issuer: "x" }) }),
+      /needs 1 to 16/,
+    ],
+  ])(
+    "use --delegation refuses %s as one line, sending nothing",
+    async (_label, content, message) => {
+      const { vaultUrl, bodies } = await recordingVault({ status: 200, body: { token: "t" } });
+      const path = join(await mkdtemp(join(tmpdir(), "custos-cli-d-")), "d.json");
+      if (content !== null) await writeFile(path, content);
+      const { exitCode, err } = await useWith(vaultUrl, path);
+      expect(exitCode).toBe(1);
+      expect(err).toMatch(message);
+      expect(err.trim().split("\n")).toHaveLength(1);
+      expect(bodies).toHaveLength(0);
+    },
+  );
 });

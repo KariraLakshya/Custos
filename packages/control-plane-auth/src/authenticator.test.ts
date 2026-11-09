@@ -50,7 +50,14 @@ describe("createApiKeyAuthenticator", () => {
       id: row.id,
       name: "lakshya",
       scopes: new Set(["credentials:write", "agents:revoke"]),
+      via: "custos-admin",
     });
+  });
+
+  it("says when a key was made by an SSO login", async () => {
+    const { token, row } = keyFixture({ name: "alice@example.com", createdVia: "sso" });
+    const result = await authenticatorFor(row).authenticate(bearer(token));
+    expect(result.ok && result.value.via).toBe("sso");
   });
 
   it("refuses a request with no authorization header", async () => {
