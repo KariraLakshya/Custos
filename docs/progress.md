@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-13 — The plan for making Custos easy to operate, with a secure dashboard (Phase 8b design)
 
-**Commits:** `b68ad8b`, `b2d1439` (the design, ADR 0022), plus the user-journey plan, on branch `feat/usability`. Pushed 2026-11-13 as a pull request. No code yet: this pull request is the plan.
+**Commits:** `b68ad8b`, `b2d1439` (the design, ADR 0022), plus the user-journey plan, on branch `feat/usability`. Pushed 2026-11-13 as **pull request #132**. No code yet: this pull request is the plan.
 
 **What was decided, in plain words:**
 
