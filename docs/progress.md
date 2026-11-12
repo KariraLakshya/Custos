@@ -6,6 +6,26 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-13 — Every reason Custos can say "no" is now in one list, in plain words
+
+**Commit:** on branch `feat/refusal-catalogue`, pushed 2026-11-13 as its own pull request (Phase 8b, step 2).
+
+**What changed, in plain words:** when Custos refuses something, it answers with a short code such as `POLICY_DENIED`. Until now those codes were scattered across the services, and nothing explained them. They are now collected in one list. Each entry says three things: what the refusal means in ordinary words, what to do next (usually the exact command), and whether it is Custos doing its job (grey) or a real problem (red).
+
+**Examples:**
+
+- "This agent has not been given this tool." Next: an operator grants it. Grey.
+- "This exact request was already used once." Next: run the command again. Grey, as you decided for forged or broken passes.
+- "The vault's list of cut-off agents is out of date, so it is refusing every call until it catches up." Next: check the revocation service. Red.
+
+**The safety net:** if a developer adds a new refusal code to the vault, the identity service or the revocation service and forgets to add it to the list, the project no longer builds. I proved this by deleting two entries on purpose and watching the build fail.
+
+**What it does not do yet:** nothing on screen has changed. The CLI still prints the bare code. The next step makes the CLI print these explanations, and the dashboard will use the same list to decide grey or red.
+
+**One thing found on the way:** if the identity service is down, the vault currently reports it as "bad credential". That is a service problem dressed as a normal refusal. It is written down as a known issue to fix in the next step.
+
+---
+
 ## 2026-11-09 — The release robot is switched off until there is something to release
 
 **Commit:** on branch `chore/remove-changesets`, pushed 2026-11-09 as its own pull request.

@@ -10,6 +10,7 @@ import {
   type DelegationLimits,
   type KeyProvider,
   type SignedCredential,
+  type VerifyPossessionProofError,
 } from "@custos/core";
 import { err, ok, type Result } from "@custos/contracts";
 import { toolCredentialExists } from "../credentials/store.js";
@@ -23,7 +24,10 @@ const DEFAULT_TTL_SECONDS = 60;
 export type IssueToolTokenError =
   | { readonly code: "UNKNOWN_TOOL"; readonly tool: string }
   | { readonly code: "INVALID_AGENT_CREDENTIAL"; readonly reason: string }
-  | { readonly code: "INVALID_PROOF_OF_POSSESSION"; readonly reason: string }
+  | {
+      readonly code: "INVALID_PROOF_OF_POSSESSION";
+      readonly reason: VerifyPossessionProofError["code"] | "REPLAYED" | "REPLAY_CACHE_FULL";
+    }
   /** `revokedDid` is set when the revoked agent is a delegator, not the requester. */
   | { readonly code: "AGENT_REVOKED"; readonly agentId: string; readonly revokedDid?: string }
   | { readonly code: "POLICY_DENIED"; readonly agentId: string; readonly tool: string }
