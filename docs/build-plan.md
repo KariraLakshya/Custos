@@ -210,10 +210,11 @@ Added 2026-11-02 by the founder, after ADR 0018 set Phases 7–11; built after P
 - Every CLI refusal says why in words and names the command that fixes it
 - `custos` with no arguments shows the lifecycle in order; `custos status <agent>` shows what an agent may do, whether it is revoked, and its last actions
 - Command names in the user's words (for example `revoke` for `deprovision`); old names keep working as aliases
+- The dashboard is secured with the existing company sign-in (ADR 0010; founder 2026-11-13, ADR 0022): it reads with the signed-in person's own permissions and shows nothing to someone not signed in. The audit trail and revocation list stop being openly readable (ADR 0008 decision 3)
 
-**DONE =** someone who has never seen Custos, given only the running stack, the dashboard and the CLI (no README): (1) after five seconds on the dashboard, can say whether anything is wrong and which agent was cut off; (2) can grant an agent a tool, revoke it, and show proof in the audit log without help; (3) can say who an agent is acting for from its delegation chain. Each run is written up in `docs/`, with every point where they stopped. Proven by test: every CLI refusal path prints a next step, old command names still work, `custos status` reports grants, revocation and recent actions, and the dashboard's views render from recorded audit fixtures.
+**DONE =** someone who has never seen Custos, given only the running stack, the dashboard and the CLI (no README): (1) after five seconds on the dashboard, can say whether anything is wrong and which agent was cut off; (2) can grant an agent a tool, revoke it, and show proof in the audit log without help; (3) can say who an agent is acting for from its delegation chain. Each run is written up in `docs/`, with every point where they stopped. Proven by test: every CLI refusal path prints a next step, old command names still work, `custos status` reports grants, revocation and recent actions, and the dashboard's views render from recorded audit fixtures. Also proven by test: a signed-out dashboard returns no data; sign-in refuses any return address not on its allow-list; the audit, revocation, grant and agent reads refuse a missing, wrong, expired or under-scoped key.
 
-**Not in this phase:** user accounts or login for the dashboard beyond what exists, editing grants from the dashboard (read-only views), a design system or framework rewrite of `apps/dashboard`, the sidecar.
+**Not in this phase:** new user accounts or a login system of the dashboard's own (it reuses ADR 0010's company sign-in), editing grants from the dashboard (read-only views), a design system or framework rewrite of `apps/dashboard`, the sidecar.
 
 ## Phase 9 — Sidecar
 
