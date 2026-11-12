@@ -1,6 +1,6 @@
 # 0022: Usability — dashboard sign-in, closed reads, agent names, refusal reasons
 
-**Status:** Proposed 2026-11-13. The founder decided on 2026-11-13:
+**Status:** Accepted 2026-11-13 by the founder. The founder decided on 2026-11-13:
 
 - names are given at registration, and shown but never used to choose an agent;
 - forged or broken passes are shown grey but counted;
