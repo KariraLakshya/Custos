@@ -6,6 +6,23 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-13 — The plan for making Custos easy to operate, with a secure dashboard (Phase 8b design)
+
+**Commits:** `b68ad8b`, `b2d1439` (the design, ADR 0022), plus the user-journey plan, on branch `feat/usability`. Pushed 2026-11-13 as **pull request #132**. No code yet: this pull request is the plan.
+
+**What was decided, in plain words:**
+
+- **Agents get names.** You name an agent when you register it ("billing-bot"), and the dashboard and CLI show that name instead of a long code. Names are only shown on screen. Commands still take the agent's id, so two agents with the same name can never get the wrong one cut off.
+- **Refusals stop looking like alarms.** Custos refusing an agent is the product doing its job, so it shows in grey and is counted. That includes forged or broken passes, as you decided. Red is kept for real problems: a service down, out-of-date revocation information, or a tampered audit log.
+- **Every refusal explains itself.** All the reasons Custos can refuse something go into one list, each with plain words and the command that fixes it.
+- **The dashboard is secure.** You sign in with your company login, the same one `custos login` uses. The dashboard can only ever read, even for an admin, so someone who broke into it could look but not change anything. Each person sees what their group is allowed to see. Until you sign in it shows nothing.
+- **The back door closes.** The audit trail and the list of cut-off agents stop being readable by anyone who can reach them. That was left open on 2026-10-02 until the dashboard had sign-in.
+- **A simple path for a newcomer.** `docs/user-journey.md` sets out eight moments, from typing `custos` to proving what happened. Every screen ends with the next command to run. It also lists today's rough edges and what removes each one. Four of those changes need your OK.
+
+**Why it matters:** Phase 8b is passed only when someone who has never seen Custos can, without the README, see what is wrong, cut an agent off, and prove it. This is the plan for getting there. It also closes the last place where Custos's own records were open to anyone, which matters for customers working to DPDP-style audit rules.
+
+---
+
 ## 2026-11-09 — The release robot is switched off until there is something to release
 
 **Commit:** on branch `chore/remove-changesets`, pushed 2026-11-09 as its own pull request.
@@ -35,7 +52,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-09 — Agents can hand work to other agents, and the audit log proves who authorised it (Phase 8, delegation provenance)
 
-**Commits:** `15d41e3`, `fbd76fb` (the design and your decisions), `bed6d60` (the code and tests), `a3b59a1` (docs). Pushed 2026-11-09 as **pull request #122** against the main branch; Phase 8 closes when it merges with the automatic checks green.
+**Commits:** `15d41e3`, `fbd76fb` (the design and your decisions), `bed6d60` (the code and tests), `a3b59a1` (docs). Pushed 2026-11-09 as **pull request #122**; all seven automatic checks green (including the container checks), merged to the main branch the same day as `28f4cde`. **Phase 8 is closed.**
 
 **What changed, in plain words:**
 

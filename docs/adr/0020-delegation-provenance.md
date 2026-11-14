@@ -1,6 +1,6 @@
 # 0020: Delegation provenance — signed hand-offs that only narrow, checked locally by the vault
 
-**Status:** Proposed 2026-11-02 (Phase 8, ADR 0018). The founder answered its four questions the same day, each as recommended (see "Founder decisions"). All six steps built 2026-11-09 on `feat/delegation-provenance`; Accepted when the Phase 8 pull request merges.
+**Status:** Proposed 2026-11-02 (Phase 8, ADR 0018). The founder answered its four questions the same day, each as recommended (see "Founder decisions"). All six steps built 2026-11-09. **Accepted 2026-11-09**: PR #122 merged (`28f4cde`) with every CI check green.
 
 ## Context
 
