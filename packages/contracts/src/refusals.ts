@@ -198,6 +198,21 @@ export const REFUSALS = {
     "The revocation service has not yet confirmed its published list, so it will not answer.",
     "Wait a few seconds and try again; if it lasts, check the revocation service's log.",
   ),
+
+  // --- vault: receiving a revocation from the revocation service ---
+  // Service to service, never a person's request; an alarm, because while
+  // pushes are refused the vault learns of revocations only at its next
+  // resync.
+  INVALID_TOMBSTONE: entry(
+    "alarm",
+    "The vault refused a revocation notice because its signature did not check out.",
+    "Check that the vault and the revocation service agree on the revocation service's signing key.",
+  ),
+  UNVERIFIABLE_ISSUER: entry(
+    "alarm",
+    "The vault could not fetch a Custos service's public key, so it cannot check what that service signs.",
+    "Check that the identity and revocation services are running and reachable from the vault.",
+  ),
 } as const satisfies Record<string, RefusalEntry>;
 
 export type RefusalCode = keyof typeof REFUSALS;

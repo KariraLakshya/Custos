@@ -48,6 +48,8 @@ describe("the refusal catalogue", () => {
       "UNAVAILABLE",
       "SIGNING_FAILED",
       "STATUS_ALLOCATION_FAILED",
+      "INVALID_TOMBSTONE",
+      "UNVERIFIABLE_ISSUER",
     ] as const) {
       expect(REFUSALS[code].severity, code).toBe("alarm");
     }

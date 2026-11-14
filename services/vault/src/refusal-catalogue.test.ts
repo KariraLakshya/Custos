@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { REFUSALS, type RefusalCode, type REFUSAL_REASONS } from "@custos/contracts";
 import { describe, expect, it } from "vitest";
 import type { InvokeToolError } from "./calls/invoke.js";
+import type { AcceptTombstoneError } from "./revocation/cache.js";
 import type { IssueToolTokenError } from "./tokens/issue.js";
 
 type Reasons = typeof REFUSAL_REASONS;
@@ -12,6 +13,12 @@ type ReasonOf<C extends IssueToolTokenError["code"]> = Extract<
 
 // Type-level: these lines compile only while every code has a catalogue
 // entry (ADR 0022 §6). `pnpm typecheck` covers test files.
+//
+// Covered: every route that answers with a typed error (`/tokens`, `/call`,
+// and `POST /revocations`, the revocation service's push). Not covered as
+// reasons: `INVALID_AGENT_CREDENTIAL`'s reason, which is free text from the
+// issuer lookup and the status-list check, so `refusalFor` falls back to
+// the code's entry for it.
 const catalogued = <C extends RefusalCode>(..._codes: C[]): true => true;
 const reasonCatalogued = <C extends keyof Reasons, R extends keyof Reasons[C]>(
   ..._reasons: [C, R][]
@@ -21,6 +28,10 @@ describe("the vault's refusals are all in the catalogue", () => {
   it("every code a token request or a call can be refused with", () => {
     expect(catalogued<IssueToolTokenError["code"]>()).toBe(true);
     expect(catalogued<InvokeToolError["code"]>()).toBe(true);
+  });
+
+  it("every code the revocation push (POST /revocations) can be refused with", () => {
+    expect(catalogued<AcceptTombstoneError["code"]>()).toBe(true);
   });
 
   it("every delegation and proof-of-possession reason", () => {

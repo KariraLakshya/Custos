@@ -6,6 +6,10 @@ import type { LoginFailure } from "./sso/transactions.js";
 
 // Type-level: these lines compile only while every code has a catalogue
 // entry (ADR 0022 §6). `pnpm typecheck` covers test files.
+//
+// Covered: `POST /agents` (`RegisterAgentError`) and the sign-in poll
+// (`LoginFailure`); every other route writes its code as a literal, which
+// the scan below checks.
 const catalogued = <C extends RefusalCode>(..._codes: C[]): true => true;
 
 describe("the identity service's refusals are all in the catalogue", () => {
