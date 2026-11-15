@@ -123,6 +123,9 @@ importers:
       '@custos/audit-client':
         specifier: workspace:*
         version: link:../../packages/audit-client
+      '@custos/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@custos/core':
         specifier: workspace:*
         version: link:../../packages/core

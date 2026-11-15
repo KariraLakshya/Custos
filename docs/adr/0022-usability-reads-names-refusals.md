@@ -92,11 +92,13 @@ There are four read scopes, all operator scopes (`packages/control-plane-auth` `
 - **`normal` (grey, counted)** is the product working as intended: not granted, revoked, wrong tool or action, a delegation that does not cover the request, and a forged or broken pass (bad proof, replay, invalid token), as decided by the founder. `REVOCATION_STATE_UNKNOWN_AGENT` is `normal` too: an agent that has not asked for a token recently and has had no push is refused once, asks again and carries on (`docs/state.md`).
 - **`alarm` (red)** is for real problems: stale revocation state, an unverifiable status list or issuer, a service that is down, a tampered audit log, and a seal copy that failed. A rule that turns a spike of grey refusals red is left for later.
 - The CLI prints `meaning` and `nextStep` for every refusal. Errors it throws itself (missing files, missing operator key, not signed in, bad flags) follow the same shape.
+- **The CLI's format (added 2026-11-16, with the PR that built it).** Three lines on stderr: `Refused: <meaning>` for `normal` or `Problem: <meaning>` for `alarm`, then `Next: <nextStep>`, then `Code: <CODE>` with the reason in brackets when there is one. The code line is for scripts and searching. A code or reason is printed only if it is capital letters, digits and underscores, so a service cannot write control characters to a terminal. The SDK's operator actions throw a `CustosError` carrying the code, so callers do not parse messages.
+- **An identity service the vault cannot reach is `UNVERIFIABLE_ISSUER`, an alarm (founder, 2026-11-15).** A token request used to be refused as `INVALID_AGENT_CREDENTIAL` with the fetch error as its reason, which blamed the agent for a Custos fault. The vault now answers 503 with the code it already used for the revocation issuer's key. It still refuses. `SERVICE_UNREACHABLE` (alarm) is the client-side entry for a service that did not answer the CLI or SDK at all.
 
 ### 7. CLI names in the user's words
 
 - `revoke` replaces `deprovision`, which remains an alias. Old names keep working, and the existing e2e tests keep using `deprovision` to prove it.
-- `custos` with no arguments lists the lifecycle in order: login, register, grant, use, delegate, revoke, audit-log, status.
+- `custos` with no arguments lists the lifecycle in order: login, register, grant, use, delegate, revoke, audit-log, status. `status` joins the list when it is built.
 - `custos status <agent id or DID>` shows the agent's name, its grants (vault), whether it is revoked (revocation) and its recent actions (audit). It needs an operator key with the read scopes.
 
 ## Consequences

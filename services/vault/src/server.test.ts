@@ -261,6 +261,43 @@ describe("vault service", () => {
     expect(response.json()).toEqual({ status: "ok", service: "vault" });
   });
 
+  // ADR 0022 §6: an identity service that cannot be reached is a Custos
+  // fault, so it gets its own code and a 503, not "bad credential" and a 401.
+  it("refuses with 503 UNVERIFIABLE_ISSUER, not a credential error, while the identity service is down", async () => {
+    let registered: SignedCredential | undefined;
+    await withRegisteredAgent(4529, async (credential) => {
+      registered = credential;
+    });
+    if (registered === undefined) throw new Error("setup: no credential");
+    // The identity service has stopped; this vault never fetched its key.
+    const app = await buildServer({
+      controlPlaneAuth: controlPlane.guard,
+      serviceKey: vaultServiceKey,
+      db: vaultDb,
+      cipher,
+      trustedIssuerDid: registered.issuer,
+      revocation: freshEmptyRevocationCache(),
+      connectors: [createMockSlackConnector() as Connector],
+    });
+    const seed = await app.inject({
+      method: "POST",
+      url: "/credentials",
+      headers: bearer(operatorKey),
+      payload: { tool: "mock-slack", secret: "xoxb-fake-bot-token" },
+    });
+    expect(seed.statusCode).toBe(201);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tokens",
+      payload: await tokenRequest(registered, "mock-slack", "post-message"),
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json().error.code).toBe("UNVERIFIABLE_ISSUER");
+    expect(response.json().token).toBeUndefined();
+  });
+
   it("runs the full Phase 2 lifecycle: request a token, call the tool, watch the token expire, request a fresh one", async () => {
     await withRegisteredAgent(4501, async (credential) => {
       const slack = createMockSlackConnector();

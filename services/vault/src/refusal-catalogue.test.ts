@@ -16,9 +16,9 @@ type ReasonOf<C extends IssueToolTokenError["code"]> = Extract<
 //
 // Covered: every route that answers with a typed error (`/tokens`, `/call`,
 // and `POST /revocations`, the revocation service's push). Not covered as
-// reasons: `INVALID_AGENT_CREDENTIAL`'s reason, which is free text from the
-// issuer lookup and the status-list check, so `refusalFor` falls back to
-// the code's entry for it.
+// reasons: `INVALID_AGENT_CREDENTIAL`'s and `UNVERIFIABLE_ISSUER`'s reasons,
+// which can be free text (the status-list check, the issuer lookup), so
+// `refusalFor` falls back to the code's entry for them.
 const catalogued = <C extends RefusalCode>(..._codes: C[]): true => true;
 const reasonCatalogued = <C extends keyof Reasons, R extends keyof Reasons[C]>(
   ..._reasons: [C, R][]

@@ -524,7 +524,9 @@ describe("issueToolToken", () => {
       }),
     });
 
-    expect(result.ok === false && result.error.code).toBe("INVALID_AGENT_CREDENTIAL");
+    // Its own code, not INVALID_AGENT_CREDENTIAL: the agent's credential is
+    // not what is wrong (ADR 0022 §6).
+    expect(result.ok === false && result.error.code).toBe("UNVERIFIABLE_ISSUER");
   });
 
   it("surfaces a signing failure (e.g. the KMS is unreachable) as an error value", async () => {

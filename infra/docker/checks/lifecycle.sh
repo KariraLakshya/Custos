@@ -4,7 +4,7 @@
 # services' network namespace: no host Node, no source mount.
 #   operator key (custos-admin) → store the stand-in tool passwords →
 #   register → verify → use before grant: denied → grant → use: allowed →
-#   other tool: denied → deprovision → use: AGENT_REVOKED
+#   other tool: denied → revoke → use: AGENT_REVOKED
 # The operator key is created, used and revoked inside the container; it is
 # never on a host command line or in this script's output.
 #
@@ -100,10 +100,10 @@ expect_denied() { # step code tool action input
   step=$1 code=$2
   shift 2
   run "$step" custos use "$1" "$2" --credential agent.json --key agent.key --input "$3"
-  if [ "$rc" -ne 0 ] && grep -q "^denied: $code\$" "$step.err" && [ ! -s "$step.out" ]; then
+  if [ "$rc" -ne 0 ] && grep -q "^Code: $code\$" "$step.err" && [ ! -s "$step.out" ]; then
     ok "$step: exit $rc, $(first "$step.err")"
   else
-    bad "$step: expected 'denied: $code', got exit $rc — $(first "$step.out") $(first "$step.err")"
+    bad "$step: expected 'Code: $code', got exit $rc — $(first "$step.out") $(first "$step.err")"
   fi
 }
 
@@ -121,7 +121,7 @@ fi
 
 expect_denied use-other-tool POLICY_DENIED mock-slack post-message '{"channel":"#ops","text":"hi"}'
 
-run deprovision custos deprovision "$agent_id" --reason "images lifecycle check"
+run deprovision custos revoke "$agent_id" --reason "images lifecycle check"
 if [ "$rc" -eq 0 ] && grep -Eq '"delivered": *1' deprovision.out; then
   ok "deprovision: exit 0, broadcast delivered 1"
 else
