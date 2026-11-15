@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-16 — When Custos says "no", it now says why and what to do next
 
-**Commit:** on branch `feat/cli-wording`, pushed 2026-11-16 as **pull request #PRNUM** (Phase 8b, step 3a). Pull request #133 (the list of refusal reasons) was merged the same day.
+**Commit:** on branch `feat/cli-wording`, pushed 2026-11-16 as **pull request #134** (Phase 8b, step 3a). Pull request #133 (the list of refusal reasons) was merged the same day.
 
 **What changed, in plain words:** until now a refused command printed a bare code, for example `denied: POLICY_DENIED`. It now prints three lines:
 
