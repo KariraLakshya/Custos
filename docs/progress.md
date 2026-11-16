@@ -6,6 +6,25 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-16 — The waiting dependency updates are cleared, and two of them were not safe to merge as they came
+
+**Commits and pull requests:** all branched from `main` on 2026-11-16 and pushed the same day. **#136** (Envoy and Keycloak images), **#137** (the web framework, Fastify), **#138** (the test tool, Vitest) and **#139** (a build-pipeline step). They replace six automatic update proposals from GitHub's Dependabot (#113, #115, #128, #129, #130, #131).
+
+**What this is, in plain words:** Dependabot is a robot that proposes small version upgrades of the software Custos is built on. Six of its proposals had been waiting. Updates matter for a security product, because old versions collect known weaknesses, but each one can also break something, so each one has to be tried before it is accepted.
+
+**What I found, and why I did not simply accept them:**
+
+- **Two image upgrades only looked checked.** The robot changed one file, but Custos names its helper programs (the Envoy proxy and the Keycloak company-login stand-in) in three places. The tests use two of them, so the robot's "all green" never started the new versions at all. I changed all three together and ran the real new versions: the proxy tests (22) and the company-login test (3) pass. Left open for you to review (#136).
+- **The Fastify upgrade broke the build.** The new version is stricter about the type of one function in the shared sign-in and permission check that guards every operator action. I changed only that function's declared type, not what it does, and the check's tests for a missing, wrong, expired or under-permissioned key still pass. Merged (#137); it was left for review because it touches the guard.
+- **The two Vitest proposals had to move together.** One is the test tool and the other its coverage meter, and they must be the same version. The robot made two separate proposals that would also have clashed with each other, so I made one. All tests and the coverage minimums pass (#138).
+- **The pipeline-step upgrade (#129)** was fine, but the robot never refreshed it after later changes, so its green marks were out of date. I made the identical change myself so the pipeline runs with the new version before it is accepted (#139). I checked that the exact version it names is the real one.
+
+**One thing you should know:** `CLAUDE.md` says `main` requires reviews and passing checks, but GitHub reports that `main` has no protection set up. Nothing stops a merge except us. It is written in `docs/state.md`; turning protection on is a setting in the repository on GitHub.
+
+**Why it matters:** the project is current on its dependencies, and the check that would have let two unchecked upgrades through is written down for the next person.
+
+---
+
 ## 2026-11-16 — The four command-line simplifications you approved are built
 
 **Commit:** on branch `feat/cli-arguments`, pushed 2026-11-16 as **pull request #135** (Phase 8b, step 3b). Pull request #134 (refusals in plain words) was merged the same day.
