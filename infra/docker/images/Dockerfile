@@ -77,7 +77,7 @@ EXPOSE 4005
 # tools: one-off operator commands, run inside the stack's network.
 #   custos-migrate   apply infra/migrations to DATABASE_URL
 #   custos-admin     API keys (needs DATABASE_URL)
-#   custos           the CLI (README step 4)
+#   custos           the CLI (docs/getting-started.md step 4)
 FROM runtime AS tools
 USER root
 COPY --from=builder /out/admin /opt/custos/admin
