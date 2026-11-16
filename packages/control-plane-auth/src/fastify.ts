@@ -1,6 +1,6 @@
 import { ErrorCode } from "@custos/contracts";
 import { TLSSocket } from "node:tls";
-import type { FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ControlPlaneAuthenticator, Principal } from "./authenticator.js";
 import type { Lockout } from "./lockout.js";
 import type { Scope } from "./scopes.js";
@@ -35,6 +35,16 @@ function refuse(reply: FastifyReply): FastifyReply {
 }
 
 /**
+ * What `requireScope` returns, usable as a route `preHandler`. Written as a
+ * plain function type, not Fastify's `preHandlerAsyncHookHandler`: that type
+ * carries a `this` of one particular Fastify instance, and Fastify 5.12.8
+ * began comparing it against each service's own instance type (their logger
+ * is a pino `Logger`, not `FastifyBaseLogger`), which refused every route.
+ * The guard never uses `this`.
+ */
+export type ScopeGuard = (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
+
+/**
  * Route preHandler: authenticates the caller and requires `scope`, deny by
  * default (ADR 0008 §3). A missing, malformed, unknown, wrong, revoked or
  * expired key, a missing scope, and a locked-out source all get the same
@@ -53,7 +63,7 @@ export function requireScope(options: {
   readonly lockout: Lockout;
   readonly scope: Scope;
   readonly onScopeDenied?: (principal: Principal) => void;
-}): preHandlerAsyncHookHandler {
+}): ScopeGuard {
   return async (request, reply) => {
     const source = request.ip;
     if (options.lockout.isLocked(source)) {
