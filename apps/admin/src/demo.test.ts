@@ -274,6 +274,14 @@ describe("custos-admin demo", () => {
         }
       }
       expect(printed).toMatch(/CUSTOS_OPERATOR_KEY=custos_operator_/);
+      // ADR 0022 §7: the setup line comes first, for both shells, and the
+      // banner points at `custos` itself, not at the README.
+      const alias = printed.indexOf('alias custos="node /repo/apps/cli/dist/bin.js"');
+      expect(alias).toBeGreaterThan(-1);
+      expect(printed).toContain('function custos { node "/repo/apps/cli/dist/bin.js" @args }');
+      expect(alias).toBeLessThan(printed.indexOf("CUSTOS_OPERATOR_KEY="));
+      expect(printed).toContain("3. Type:  custos");
+      expect(printed).not.toContain("README");
       // ADR 0017, key rotation: the audit seal key's public half, to check --accept-key against.
       expect(printed).toMatch(/audit seal key {2}z6Mk\w+/);
       await handle.stop();

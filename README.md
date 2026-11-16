@@ -192,15 +192,15 @@ function custos { node apps/cli/dist/bin.js @args }      # PowerShell
 **Register an agent.** The CLI generates the agent's keypair **on your machine**, proves to the identity service that it holds the private key, and gets back a credential the identity service signs, naming the agent and its public key:
 
 ```bash
-custos register --out agent.json
+custos register
 ```
 
 This writes two files:
 
-- **`agent.key`**: the agent's private key. It never leaves your machine; it isn't sent to Custos and isn't printed. `register` won't overwrite an existing key file.
+- **`agent.key`**: the agent's private key. It never leaves your machine; it isn't sent to Custos and isn't printed. `register` won't overwrite an existing `agent.key` or `agent.json`.
 - **`agent.json`**: the agent's credential.
 
-Note the `"id"` near the top of the output; you'll need it to revoke the agent. Keep `agent.key` private and don't share it; it's gitignored. `agent.json` on its own is useless to anyone who copies it: every access request must be signed with `agent.key`, so without the key the vault refuses (`Code: INVALID_PROOF_OF_POSSESSION`).
+The first line of the output gives the agent's id (`Registered agent <id>.`); you'll need it to grant tools and to revoke the agent. `register`, `grant` and `revoke` take `--json` for machine-readable output. Keep `agent.key` private and don't share it; it's gitignored. `agent.json` on its own is useless to anyone who copies it: every access request must be signed with `agent.key`, so without the key the vault refuses (`Code: INVALID_PROOF_OF_POSSESSION`).
 
 **Check the credential independently.** This fetches the identity service's public identity document fresh and verifies the credential's signature itself, rather than trusting the server's word:
 
@@ -212,17 +212,17 @@ custos verify agent.json
 **Try to use a tool. It's refused.** Custos denies by default: being registered doesn't mean being allowed.
 
 ```bash
-custos use mock-database query --credential agent.json --input '{"table":"customers"}'
+custos use mock-database query --input '{"table":"customers"}'
 # Refused: This agent has not been given this tool.
-# Next: To allow it, an operator runs: custos grant mock-database --credential <agent's credential file>
+# Next: To allow it, an operator runs: custos grant mock-database --to <id>
 # Code: POLICY_DENIED
 ```
 
 **Grant exactly one tool, then try again:**
 
 ```bash
-custos grant mock-database --credential agent.json
-custos use mock-database query --credential agent.json --input '{"table":"customers"}'
+custos grant mock-database --to <id>
+custos use mock-database query --input '{"table":"customers"}'
 # { "result": [ { "id": 1, "name": "Ada Lovelace" }, { "id": 2, "name": "Alan Turing" } ] }
 ```
 
@@ -231,16 +231,16 @@ Behind that one command, the agent showed its credential to the vault, **signed 
 **The grant covers only that tool.** Slack is still refused:
 
 ```bash
-custos use mock-slack post-message --credential agent.json --input '{"channel":"#ops","text":"hi"}'
+custos use mock-slack post-message --input '{"channel":"#ops","text":"hi"}'
 # Refused: This agent has not been given this tool. … Code: POLICY_DENIED
 ```
 
-**Let the agent hand part of its access to a helper agent.** Register a second agent, then have the first one pass on just `query` on the database. The first agent signs this note with its own key, and nothing is sent anywhere. Use the helper's `did` from its registration output:
+**Let the agent hand part of its access to a helper agent.** Register a second agent, then have the first one pass on just `query` on the database. The first agent signs this note with its own key, and nothing is sent anywhere. Use the helper's id from its registration output:
 
 ```bash
 custos register --out helper.json --key-out helper.key
-custos delegate mock-database query --to <helper did> --credential agent.json
-# <helper did> may now query on mock-database for this agent; give it delegation.json
+custos delegate mock-database query --to <helper id>
+# Agent <helper id> may now query on mock-database for this agent. Give it delegation.json.
 custos use mock-database query --credential helper.json --key helper.key --delegation delegation.json
 # { "result": [ ... ] }
 ```
@@ -258,7 +258,7 @@ custos revoke <id> --reason "compromised"
 **Try again. It's refused everywhere:**
 
 ```bash
-custos use mock-database query --credential agent.json --input '{"table":"customers"}'
+custos use mock-database query --input '{"table":"customers"}'
 # Refused: This agent, or an agent it is acting for, has been cut off from every tool.
 # Next: A revoked agent cannot be restored. Register a new one with: custos register
 # Code: AGENT_REVOKED

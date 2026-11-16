@@ -6,6 +6,40 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-16 — The four command-line simplifications you approved are built
+
+**Commit:** on branch `feat/cli-arguments`, pushed 2026-11-16 as **pull request #135** (Phase 8b, step 3b). Pull request #134 (refusals in plain words) was merged the same day.
+
+**What changed, in plain words:** the main path through Custos now needs no file names and no flags. Before and after:
+
+| Step        | Before                                                   | Now                                          |
+| ----------- | -------------------------------------------------------- | -------------------------------------------- |
+| Register    | `custos register --out agent.json`                       | `custos register`                            |
+| Give a tool | `custos grant mock-database --credential agent.json`     | `custos grant mock-database --to <agent id>` |
+| Use it      | `custos use mock-database query --credential agent.json` | `custos use mock-database query`             |
+| Cut off     | `custos deprovision <id>`                                | `custos revoke <id>`                         |
+
+**The four changes:**
+
+1. **Grant by agent id.** The operator used to need a copy of the agent's credential file just to give it a tool. Now they name the agent by its id.
+2. **Id or full address, everywhere.** Every command that names an agent accepts either its short id or its full address (its DID). An agent's name is never accepted, because two agents can share a name and a typo could cut off the wrong one.
+3. **No flags for `use`.** `register` saves the agent's two files (`agent.json` and `agent.key`) and `use` finds them by itself. `register` refuses to overwrite either file, so an existing agent can't be wiped by accident.
+4. **The demo tells you how to start.** When `pnpm demo` starts, it prints the one line that makes the `custos` command work, then says to type `custos`, which lists the steps. It no longer sends you to the README.
+
+**Also in this step:**
+
+- Successful commands answer in a sentence and end with what to do next, for example: "Registered agent 3f2b…. Next: custos grant <tool> --to 3f2b…". Scripts that want the old machine-readable output add `--json`.
+- When the audit record fails its check, the command now says which of three things happened: **Tampered** (entries were changed, removed or rewritten, with the entry number), **Cannot check** (a service did not answer; nothing is known to be wrong), or **Needs a person** (a new seal key to compare). Before, it printed a bare code for all three, so an outage and a tampered record looked alike. The dashboard's Proof screen will use the same three.
+- The command's own mistakes (not signed in, a missing file) also end with a `Next:` line.
+
+**One deliberate safety choice:** `grant` has no default agent. You must say which agent gets the tool. Otherwise an operator sitting in a folder with some agent's files could give a tool to the wrong agent without noticing.
+
+**Why it matters:** this is most of the command-line half of "a stranger can run Custos without the README". Moments 1 to 5 and 7 of the user journey now work as written, apart from names.
+
+**What is not done yet:** agents still show as ids, not names (the next step adds `register --name`), `custos status` does not exist yet, and the audit record still prints as raw data when it passes; its plain sentences come with the dashboard's Proof screen so both use the same wording.
+
+---
+
 ## 2026-11-16 — When Custos says "no", it now says why and what to do next
 
 **Commit:** on branch `feat/cli-wording`, pushed 2026-11-16 as **pull request #134** (Phase 8b, step 3a). Pull request #133 (the list of refusal reasons) was merged the same day.
