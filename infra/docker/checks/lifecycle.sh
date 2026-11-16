@@ -76,7 +76,8 @@ done
 
 # The main path, with no flags: register saves agent.json and agent.key, and
 # use reads them (ADR 0022 §7). --json is for this script to read the id.
-run register custos register --json
+# --name is shown only; every later command still names the agent by id/DID.
+run register custos register --name lifecycle-bot --json
 agent_id=$(node -e 'const a = JSON.parse(require("fs").readFileSync("register.out", "utf8")); process.stdout.write(String(a.id ?? ""))' 2>/dev/null)
 agent_did=$(node -e 'const a = JSON.parse(require("fs").readFileSync("register.out", "utf8")); process.stdout.write(String(a.did ?? ""))' 2>/dev/null)
 if [ "$rc" -eq 0 ] && [ -n "$agent_id" ] && [ -s agent.json ] && [ -s agent.key ]; then
@@ -89,6 +90,8 @@ case "$agent_did" in
   did:web:localhost%3A4001:agents:*) ok "register: agent DID is under did:web:localhost%3A4001" ;;
   *) bad "register: unexpected agent DID '$agent_did'" ;;
 esac
+agent_name=$(node -e 'const a = JSON.parse(require("fs").readFileSync("register.out", "utf8")); process.stdout.write(String(a.name ?? ""))' 2>/dev/null)
+if [ "$agent_name" = "lifecycle-bot" ]; then ok "register: name stored and returned"; else bad "register: name '$agent_name', expected lifecycle-bot"; fi
 if grep -q "$(cat agent.key)" register.out register.err; then bad "register: private key printed"; else ok "register: private key not printed"; fi
 
 run verify custos verify agent.json

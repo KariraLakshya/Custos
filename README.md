@@ -200,7 +200,7 @@ This writes two files:
 - **`agent.key`**: the agent's private key. It never leaves your machine; it isn't sent to Custos and isn't printed. `register` won't overwrite an existing `agent.key` or `agent.json`.
 - **`agent.json`**: the agent's credential.
 
-The first line of the output gives the agent's id (`Registered agent <id>.`); you'll need it to grant tools and to revoke the agent. `register`, `grant` and `revoke` take `--json` for machine-readable output. Keep `agent.key` private and don't share it; it's gitignored. `agent.json` on its own is useless to anyone who copies it: every access request must be signed with `agent.key`, so without the key the vault refuses (`Code: INVALID_PROOF_OF_POSSESSION`).
+The first line of the output gives the agent's id (`Registered agent <id>.`); you'll need it to grant tools and to revoke the agent. Add `--name billing-bot` to give the agent a name (`Registered billing-bot (id <id>).`). A name is only shown beside the agent: names don't have to be unique, so commands still take the id. `register`, `grant` and `revoke` take `--json` for machine-readable output. Keep `agent.key` private and don't share it; it's gitignored. `agent.json` on its own is useless to anyone who copies it: every access request must be signed with `agent.key`, so without the key the vault refuses (`Code: INVALID_PROOF_OF_POSSESSION`).
 
 **Check the credential independently.** This fetches the identity service's public identity document fresh and verifies the credential's signature itself, rather than trusting the server's word:
 

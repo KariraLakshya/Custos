@@ -14,6 +14,10 @@ export const agents = pgTable("agents", {
   // replayed registration request fail instead of minting a duplicate agent.
   // Null only for rows registered before ADR 0007.
   publicKeyMultibase: text("public_key_multibase").unique(),
+  // Display name given at registration (ADR 0022 §2). Not unique, never used
+  // to pick an agent, and not in the credential or the audit log. Null for
+  // agents registered without one, and for every agent before migration 0014.
+  name: text("name"),
   didDocument: jsonb("did_document").notNull(),
   credential: jsonb("credential").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
