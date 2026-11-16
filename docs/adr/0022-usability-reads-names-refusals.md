@@ -29,6 +29,7 @@ In Phase 8b (`docs/build-plan.md`) the dashboard and the CLI must answer three q
 - Validation: 1 to 64 characters, `^[A-Za-z0-9][A-Za-z0-9 ._-]*$`. Anything else gets `400 INVALID_INPUT`. **Names are not unique and never pick an agent.** Every command keeps taking the agent's id or DID and prints the name beside it, so two agents called `billing-bot` cannot cause the wrong one to be revoked. An agent with no name is shown as "unnamed" plus a short form of its DID.
 - New identity route `GET /agents` (optionally `?id=` or `?did=`) returns id, DID, name, registration time and registering principal. It needs the new scope `agents:read`.
 - The name is **not** written into audit records. That would change the hashed ledger format (ADR 0017). The dashboard and CLI look names up from identity when they display them.
+- _Implementation note (2026-11-16, step 4):_ the rule lives once, in `@custos/contracts` `agentNameSchema`. It is checked by identity before anything is allocated, by the CLI before any file or request, and by the CLI again before printing a name it got back. The name is also kept out of the credential and the DID document. `GET /agents` is not built with names: it ships with `agents:read` in the read-scopes step, so it is never open (§3). Identity does not yet store who registered an agent. Whether `GET /agents` gets that from new `registered_by_*` columns (like the vault's `granted_by_*`) or from the audit log is decided in that step.
 
 ### 3. Every read of agent data needs a key; the open reads close
 
