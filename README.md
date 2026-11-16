@@ -12,14 +12,14 @@ MCP and A2A define how agents talk to tools and to each other. Custos decides wh
 
 Custos answers six questions on every agent request:
 
-| Question                       | Built? | How                                                                                                                                                                                                       |
-| ------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Who are you?** (identity)    | Yes    | Each agent gets a key pair and a signed credential: a digital ID card that anyone can check without contacting Custos.                                                                                    |
-| **Can I trust you?** (authn)   | Yes    | Every request is signed with the agent's private key, which never leaves its machine. The agent then gets a pass that lasts 60 seconds and covers one tool.                                               |
-| **What may you do?** (authz)   | Yes    | Deny by default. An operator grants an agent specific tools. An agent can hand part of its access to a helper agent, and the audit log records the whole chain.                                           |
-| **What data may you receive?** | No     | Not built yet. The audit log records which kinds of data each tool touches, but nothing filters or masks data.                                                                                            |
-| **Can I revoke you?**          | Yes    | One command cuts an agent off from every tool. The signed notice is pushed to the vault immediately, so the vault does not wait to poll for it.                                                           |
-| **Can I prove what happened?** | Yes    | Every allow and refusal is written to an audit log. Each entry is linked to the one before it, and the log is signed every 10 seconds, so any edit or deletion is detected. `custos audit-log` checks it. |
+| Question                                     | Built? | How                                                                                                                                                                                                       |
+| -------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Who are you?** (identity)                  | Yes    | Each agent gets a key pair and a signed credential: a digital ID card that anyone can check without contacting Custos.                                                                                    |
+| **Can I trust you?** (authentication)        | Yes    | Every request is signed with the agent's private key, which never leaves its machine. The agent then gets a pass that lasts 60 seconds and covers one tool.                                               |
+| **What may you do?** (authorization)         | Yes    | Deny by default. An operator grants an agent specific tools. An agent can hand part of its access to a helper agent, and the audit log records the whole chain.                                           |
+| **What data may you receive?** (data policy) | No     | Not built yet. The audit log records which kinds of data each tool touches, but nothing filters or masks data.                                                                                            |
+| **Can I revoke you?** (revocation)           | Yes    | One command cuts an agent off from every tool. The signed notice is pushed to the vault immediately, so the vault does not wait to poll for it.                                                           |
+| **Can I prove what happened?** (audit)       | Yes    | Every allow and refusal is written to an audit log. Each entry is linked to the one before it, and the log is signed every 10 seconds, so any edit or deletion is detected. `custos audit-log` checks it. |
 
 Also built, as optional setups: services proving who they are to each other with certificates, administrators signing in with a company account (OpenID Connect), one organisation accepting another's agents even while the issuer is offline (tested on one machine so far), and keeping the identity, revocation and audit signing keys in AWS KMS. The vault's own keys are not in KMS yet.
 
@@ -32,7 +32,7 @@ Also built, as optional setups: services proving who they are to each other with
 
 ## Quickstart
 
-From the repository root:
+Clone the repository, then run everything from its root:
 
 ```bash
 git clone https://github.com/KariraLakshya/Custos.git
@@ -51,7 +51,7 @@ Then, in that new terminal, walk an agent through its life:
 ```bash
 custos register                     # prints "Registered agent <id>." and writes agent.json + agent.key
 custos use mock-database query --input '{"table":"customers"}'
-# Refused: This agent has not been given this tool.   Code: POLICY_DENIED
+# Refused: This agent has not been given this tool. ... Code: POLICY_DENIED
 
 custos grant mock-database --to <id>
 custos use mock-database query --input '{"table":"customers"}'
