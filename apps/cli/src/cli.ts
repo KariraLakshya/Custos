@@ -1,6 +1,8 @@
 import { open, readFile, rm, writeFile } from "node:fs/promises";
+import { refusalFor } from "@custos/contracts";
 import {
   createCustos,
+  CustosError,
   type CallDenied,
   type Custos,
   type CustosConfig,
@@ -53,7 +55,7 @@ function custos(urls: Partial<CustosConfig>): Custos {
 }
 
 /**
- * For operator commands (`register`, `grant`, `deprovision`). The key comes
+ * For operator commands (`register`, `grant`, `revoke`). The key comes
  * from the environment only, never a flag, so it stays out of shell history
  * and process listings (ADR 0008).
  */
@@ -129,23 +131,65 @@ function agentDidOf(credential: { readonly credentialSubject?: unknown }): strin
   return subject.id;
 }
 
-/** 401/403 are the vault's authorization decisions; anything else is a failure worth its detail. */
-function describeRefusal(refusal: CallDenied): string {
-  if (refusal.status === 401 || refusal.status === 403) {
-    // A delegation refusal says why (NOT_COVERED, NO_ROOT_GRANT, ...); the code alone does not.
-    const reason = (refusal.detail as { error?: { reason?: unknown } } | undefined)?.error?.reason;
-    return typeof reason === "string"
-      ? `denied: ${refusal.code} (${reason})`
-      : `denied: ${refusal.code}`;
-  }
-  return `failed: ${refusal.code} (HTTP ${refusal.status}) — ${JSON.stringify(refusal.detail)}`;
+// Codes and reasons come off the wire. Only this shape is printed as-is, so a
+// service cannot write control characters to the terminal.
+const CODE_SHAPE = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+/**
+ * A refusal in words (ADR 0022 §6): what it means, what to do next, and the
+ * code for scripts and searching. "Refused" is Custos working; "Problem" is
+ * something actually wrong. `tool` fills the `<tool>` in a next step.
+ */
+function explainRefusal(code: unknown, reason: unknown, tool?: string): string {
+  const entry = refusalFor(code, reason);
+  const next = tool === undefined ? entry.nextStep : entry.nextStep.replaceAll("<tool>", tool);
+  const shownCode = typeof code === "string" && CODE_SHAPE.test(code) ? code : "UNKNOWN";
+  const shownReason = typeof reason === "string" && CODE_SHAPE.test(reason) ? ` (${reason})` : "";
+  return [
+    `${entry.severity === "alarm" ? "Problem" : "Refused"}: ${entry.meaning}`,
+    `Next: ${next}`,
+    `Code: ${shownCode}${shownReason}`,
+    "",
+  ].join("\n");
 }
+
+/** 401/403 are the vault's authorization decisions; anything else is a failure worth its detail. */
+function describeRefusal(refusal: CallDenied, tool: string): string {
+  const reason = (refusal.detail as { error?: { reason?: unknown } } | undefined)?.error?.reason;
+  const explained = explainRefusal(refusal.code, reason, tool);
+  if (refusal.status === 401 || refusal.status === 403) return explained;
+  // JSON.stringify escapes control characters.
+  return `${explained}Detail: HTTP ${refusal.status} ${JSON.stringify(refusal.detail)}\n`;
+}
+
+const LIFECYCLE = `Custos: a trust layer for AI agents. The steps, in order:
+
+  1. Sign in                      custos login
+  2. Register an agent            custos register --out agent.json
+  3. Give it a tool               custos grant <tool> --credential agent.json
+  4. Let it act                   custos use <tool> <action> --credential agent.json
+  5. Pass work to another agent   custos delegate <tool> <actions...> --to <DID> --credential agent.json
+  6. Cut it off                   custos revoke <agent id>
+  7. Check the record             custos audit-log
+
+Next: custos login
+Details of any step: custos help <command>
+`;
 
 export function createCli(): Command {
   const program = new Command()
     .name("custos")
     .description("Custos — a trust layer for AI agents")
-    .version("0.0.0");
+    .version("0.0.0")
+    // `custos` alone: the lifecycle in order, not commander's alphabetical help.
+    .action(() => {
+      // A root action also receives a mistyped command: refuse it as before.
+      const [unknown] = program.args;
+      if (unknown !== undefined) {
+        program.error(`error: unknown command '${unknown}'. Run custos to see the steps.`);
+      }
+      process.stdout.write(LIFECYCLE);
+    });
 
   program
     .command("login")
@@ -274,7 +318,7 @@ export function createCli(): Command {
           )
           .call(action, input);
         if (!outcome.ok) {
-          process.stderr.write(`${describeRefusal(outcome.error)}\n`);
+          process.stderr.write(describeRefusal(outcome.error, tool));
           process.exitCode = 1;
           return;
         }
@@ -421,11 +465,13 @@ export function createCli(): Command {
     });
 
   program
-    .command("deprovision")
-    .description("Revoke an agent's identity — cuts it off from every tool it can reach")
+    .command("revoke")
+    // The old name keeps working.
+    .alias("deprovision")
+    .description("Cut an agent off from every tool it can reach; this cannot be undone")
     .argument("<agentId>", "agent id, from `custos register`'s output")
     .option("--revocation-url <url>", "revocation service base URL", "http://localhost:4003")
-    .option("--reason <text>", "why this agent is being deprovisioned")
+    .option("--reason <text>", "why this agent is being cut off")
     .action(async (agentId: string, opts: { revocationUrl: string; reason?: string }) => {
       const result = await (
         await operatorCustos({ revocationUrl: opts.revocationUrl })
@@ -440,15 +486,19 @@ export function createCli(): Command {
 }
 
 /**
- * Runs the CLI for real: a failed command (a denied call, an unreachable
- * service) is reported as one line on stderr with exit code 1, not an
- * unhandled rejection's stack trace.
+ * Runs the CLI for real: a failed command is reported on stderr with exit
+ * code 1, not an unhandled rejection's stack trace. A service's refusal, or a
+ * service that did not answer, is explained in words with a next step.
  */
 export async function runCli(argv: readonly string[]): Promise<void> {
   try {
     await createCli().parseAsync(argv);
   } catch (error: unknown) {
-    process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(
+      error instanceof CustosError
+        ? explainRefusal(error.code, error.reason)
+        : `error: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
     process.exitCode = 1;
   }
 }

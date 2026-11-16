@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { CustosError } from "@custos/sdk";
 import { restrictToOwner } from "./key-file.js";
 
 /** Where `custos login` keeps the operator key an SSO login issued (ADR 0010). */
@@ -113,11 +114,8 @@ export async function login(
     if (polled.status === 401) {
       const body = (await polled.json()) as { error?: { code?: string } };
       const code = body.error?.code ?? "UNKNOWN";
-      throw new Error(
-        code === "NO_MAPPED_GROUP"
-          ? "signed in, but your account isn't in a group allowed to administer Custos"
-          : `sign-in refused (${code})`,
-      );
+      // Explained in words by `runCli`, from the refusal catalogue (ADR 0022 §6).
+      throw new CustosError(`sign-in refused (${code})`, { code, status: 401 });
     }
     if (polled.status !== 202) {
       throw new Error(`login expired or unknown (identity service returned ${polled.status})`);

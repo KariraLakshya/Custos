@@ -15,6 +15,7 @@ import {
   sign,
   type UnsignedCredential,
 } from "@custos/core";
+import { REFUSALS } from "@custos/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCli, runCli } from "./cli.js";
 
@@ -450,40 +451,44 @@ describe("custos CLI", () => {
       vi.restoreAllMocks();
     });
 
-    it("revokes the agent against the revocation service and prints the result", async () => {
-      let received: { url?: string; body: unknown } | undefined;
-      server = createServer((req, res) => {
-        let raw = "";
-        req.on("data", (chunk) => (raw += chunk));
-        req.on("end", () => {
-          received = { url: req.url, body: JSON.parse(raw) };
-          res.setHeader("content-type", "application/json");
-          res.end(
-            JSON.stringify({
-              agentId: "abc",
-              agentDid: "did:web:example:agents:abc",
-              statusListIndex: 7,
-              revokedAt: "2026-09-09T00:00:00.000Z",
-              alreadyRevoked: false,
-              broadcast: { delivered: 1, failed: [] },
-            }),
-          );
+    // `revoke` is the name; `deprovision` is the old one and must keep working (ADR 0022 §7).
+    it.each(["revoke", "deprovision"])(
+      "%s cuts the agent off and prints the result",
+      async (name) => {
+        let received: { url?: string; body: unknown } | undefined;
+        server = createServer((req, res) => {
+          let raw = "";
+          req.on("data", (chunk) => (raw += chunk));
+          req.on("end", () => {
+            received = { url: req.url, body: JSON.parse(raw) };
+            res.setHeader("content-type", "application/json");
+            res.end(
+              JSON.stringify({
+                agentId: "abc",
+                agentDid: "did:web:example:agents:abc",
+                statusListIndex: 7,
+                revokedAt: "2026-09-09T00:00:00.000Z",
+                alreadyRevoked: false,
+                broadcast: { delivered: 1, failed: [] },
+              }),
+            );
+          });
         });
-      });
-      await new Promise<void>((resolve) => server?.listen(4306, "127.0.0.1", resolve));
-      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        await new Promise<void>((resolve) => server?.listen(4306, "127.0.0.1", resolve));
+        const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-      await createCli().parseAsync(
-        ["deprovision", "abc", "--revocation-url", "http://127.0.0.1:4306", "--reason", "test"],
-        { from: "user" },
-      );
+        await createCli().parseAsync(
+          [name, "abc", "--revocation-url", "http://127.0.0.1:4306", "--reason", "test"],
+          { from: "user" },
+        );
 
-      expect(received).toEqual({
-        url: "/revocations",
-        body: { agentId: "abc", reason: "test" },
-      });
-      expect(stdout.mock.calls.join("")).toContain('"alreadyRevoked": false');
-    });
+        expect(received).toEqual({
+          url: "/revocations",
+          body: { agentId: "abc", reason: "test" },
+        });
+        expect(stdout.mock.calls.join("")).toContain('"alreadyRevoked": false');
+      },
+    );
   });
 
   describe("use", () => {
@@ -582,7 +587,7 @@ describe("custos CLI", () => {
       expect(process.exitCode).toBeUndefined();
     });
 
-    it("reports a denial as one readable line — the code, not a JSON dump — and exit code 1", async () => {
+    it("explains a denial in words, with the next step and the code, and exit code 1", async () => {
       const { vaultUrl, credentialPath } = await vaultReplying({
         tokens: {
           status: 403,
@@ -594,8 +599,91 @@ describe("custos CLI", () => {
 
       await runUse(vaultUrl, credentialPath);
 
-      expect(stderr.mock.calls.join("")).toBe("denied: AGENT_REVOKED\n");
+      expect(stderr.mock.calls.join("")).toBe(
+        [
+          "Refused: This agent, or an agent it is acting for, has been cut off from every tool.",
+          "Next: A revoked agent cannot be restored. Register a new one with: custos register",
+          "Code: AGENT_REVOKED",
+          "",
+        ].join("\n"),
+      );
       expect(stdout).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("fills the tool's name into the next step", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 403, body: { error: { code: "POLICY_DENIED", agentId: "x" } } },
+      });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      expect(stderr.mock.calls.join("")).toContain("custos grant mock-database ");
+    });
+
+    // ADR 0022 §6: a Custos fault is a problem, not a refusal of the agent.
+    it("calls an unreachable identity service a problem, not a bad credential", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: {
+          status: 503,
+          body: { error: { code: "UNVERIFIABLE_ISSUER", reason: "http://x: fetch failed" } },
+        },
+      });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      const written = stderr.mock.calls.join("");
+      expect(written).toMatch(/^Problem: .*The agent is not at fault\.\nNext: /);
+      expect(written).toContain("\nCode: UNVERIFIABLE_ISSUER\n");
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("calls a vault that does not answer a problem, with a next step", async () => {
+      const { credentialPath } = await vaultReplying({ tokens: { status: 200, body: {} } });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      // Port 1: nothing listens there.
+      await runUse("http://127.0.0.1:1", credentialPath);
+
+      const written = stderr.mock.calls.join("");
+      expect(written).toMatch(/^Problem: A Custos service did not answer\.\nNext: /);
+      expect(written).toContain("\nCode: SERVICE_UNREACHABLE\n");
+      expect(written).not.toMatch(/\n\s+at /);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("explains a code it does not know, and never prints what a service sent as a code", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: {
+          status: 403,
+          body: { error: { code: "\u001b[2JOWNED", reason: "\u001b]0;title\u0007" } },
+        },
+      });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      const written = stderr.mock.calls.join("");
+      expect(written).toMatch(/^Refused: .*does not recognise\.\nNext: .+\nCode: UNKNOWN\n$/);
+      expect(written).not.toContain("\u001b");
+      expect(written).not.toContain("\u0007");
+      expect(process.exitCode).toBe(1);
+    });
+
+    // Phase 8b DONE: every refusal path prints a next step.
+    it.each(Object.keys(REFUSALS))("%s is explained with a next step", async (code) => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 403, body: { error: { code } } },
+      });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      expect(stderr.mock.calls.join("")).toMatch(
+        new RegExp(`^(Refused|Problem): .+\\nNext: .+\\nCode: ${code}\\n$`),
+      );
       expect(process.exitCode).toBe(1);
     });
 
@@ -609,7 +697,9 @@ describe("custos CLI", () => {
       await runUse(vaultUrl, credentialPath);
 
       // The reason says why the token was refused (here: it expired).
-      expect(stderr.mock.calls.join("")).toBe("denied: INVALID_TOKEN (EXPIRED)\n");
+      expect(stderr.mock.calls.join("")).toMatch(
+        /^Refused: .+\nNext: Run the command again to get a new token\.\nCode: INVALID_TOKEN \(EXPIRED\)\n$/,
+      );
       expect(process.exitCode).toBe(1);
     });
 
@@ -625,9 +715,10 @@ describe("custos CLI", () => {
 
       await runUse(vaultUrl, credentialPath);
 
-      expect(stderr.mock.calls.join("")).toBe(
-        `failed: UPSTREAM_ERROR (HTTP 502) — ${JSON.stringify(upstream)}\n`,
-      );
+      const written = stderr.mock.calls.join("");
+      expect(written).toMatch(/^Refused: Custos allowed the call, but the tool itself answered/);
+      expect(written).toContain("\nCode: UPSTREAM_ERROR\n");
+      expect(written.endsWith(`Detail: HTTP 502 ${JSON.stringify(upstream)}\n`)).toBe(true);
       expect(process.exitCode).toBe(1);
     });
   });
@@ -644,7 +735,29 @@ describe("custos CLI", () => {
 
     // Regression: a failed command (e.g. a denied call) surfaced as an
     // unhandled rejection with a full Node stack trace instead of one line.
-    it("reports a failed command as one line on stderr and exit code 1, no stack trace", async () => {
+    it("prints the lifecycle in order when run with no command", async () => {
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      await runCli(["node", "custos"]);
+
+      const written = stdout.mock.calls.join("");
+      const order = ["custos login", "custos register", "custos grant", "custos use"];
+      order.push("custos delegate", "custos revoke", "custos audit-log");
+      const positions = order.map((command) => written.indexOf(command));
+      expect(positions.every((at) => at >= 0)).toBe(true);
+      expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+      expect(written).toContain("\nNext: custos login\n");
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("still refuses a command that does not exist", async () => {
+      const program = createCli()
+        .exitOverride()
+        .configureOutput({ writeErr: () => {} });
+      await expect(program.parseAsync(["no-such-command"], { from: "user" })).rejects.toThrow();
+    });
+
+    it("explains a refused operator command in words, no stack trace, exit code 1", async () => {
       server = createServer((_req, res) => {
         res.statusCode = 403;
         res.setHeader("content-type", "application/json");
@@ -665,7 +778,7 @@ describe("custos CLI", () => {
       ]);
 
       const written = stderr.mock.calls.map(([chunk]) => String(chunk)).join("");
-      expect(written).toMatch(/^error: deprovision failed: .*403.*AGENT_REVOKED.*\n$/);
+      expect(written).toMatch(/^Refused: .+\nNext: .+\nCode: AGENT_REVOKED\n$/);
       expect(written).not.toMatch(/\n\s+at /);
       expect(process.exitCode).toBe(1);
     });
@@ -882,7 +995,14 @@ describe("delegation (ADR 0020)", () => {
     await writeFile(path, JSON.stringify(DELEGATION));
     const { exitCode, err } = await useWith(vaultUrl, path);
     expect(exitCode).toBe(1);
-    expect(err).toBe("denied: DELEGATION_DENIED (NOT_COVERED)\n");
+    expect(err).toBe(
+      [
+        "Refused: The permission passed on does not include this tool or action.",
+        "Next: Ask the agent that passed it on to include it: custos delegate mock-database <actions...> --to <agent>",
+        "Code: DELEGATION_DENIED (NOT_COVERED)",
+        "",
+      ].join("\n"),
+    );
   });
 
   const json = (value: unknown) => JSON.stringify(value);

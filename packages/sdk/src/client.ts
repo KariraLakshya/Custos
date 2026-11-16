@@ -159,6 +159,32 @@ const deprovisionSchema = z.object({
   broadcast: z.object({ delivered: z.number(), failed: z.array(z.string()) }),
 });
 
+/**
+ * Thrown by the operator actions (`register`, `grant`, `deprovision`) when a
+ * service refuses, and by any call when a service does not answer. `code` is
+ * the service's error code (`UNAUTHORIZED`, `UNKNOWN_AGENT`, ...), or
+ * `SERVICE_UNREACHABLE`; look it up with `refusalFor` in `@custos/contracts`
+ * for what it means and what to do next (ADR 0022 §6).
+ */
+export class CustosError extends Error {
+  readonly code: string;
+  /** The finer reason under `code`, when the service sent one. */
+  readonly reason: string | undefined;
+  /** The HTTP status; undefined when no service answered. */
+  readonly status: number | undefined;
+
+  constructor(
+    message: string,
+    details: { code: string; reason?: string; status?: number; cause?: unknown },
+  ) {
+    super(message, details.cause === undefined ? undefined : { cause: details.cause });
+    this.name = "CustosError";
+    this.code = details.code;
+    this.reason = details.reason;
+    this.status = details.status;
+  }
+}
+
 interface JsonResponse {
   readonly status: number;
   readonly ok: boolean;
@@ -169,11 +195,17 @@ async function postJson(url: URL, body?: unknown, operatorKey?: string): Promise
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["content-type"] = "application/json";
   if (operatorKey !== undefined) headers.authorization = `Bearer ${operatorKey}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  } catch (cause) {
+    // Only the origin: a path or query could carry an identifier.
+    throw new CustosError(`could not reach ${url.origin}`, { code: "SERVICE_UNREACHABLE", cause });
+  }
   const text = await response.text();
   let parsed: unknown;
   try {
@@ -193,6 +225,14 @@ function errorCode(body: unknown): string {
     return typeof error.code === "string" ? error.code : "UNKNOWN";
   }
   return "UNKNOWN";
+}
+
+/** The finer reason beside the code, when the service sent one as `{ error: { reason } }`. */
+function errorReason(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null || !("error" in body)) return undefined;
+  const { error } = body;
+  if (typeof error !== "object" || error === null || !("reason" in error)) return undefined;
+  return typeof error.reason === "string" ? error.reason : undefined;
 }
 
 interface ParentClaims {
@@ -234,8 +274,14 @@ function parseSecretKey(hex: string): Uint8Array {
 
 function expectOk(what: string, service: string, response: JsonResponse): void {
   if (!response.ok) {
-    throw new Error(
+    const reason = errorReason(response.body);
+    throw new CustosError(
       `${what} failed: ${service} returned ${response.status} — ${JSON.stringify(response.body)}`,
+      {
+        code: errorCode(response.body),
+        status: response.status,
+        ...(reason === undefined ? {} : { reason }),
+      },
     );
   }
 }
@@ -251,7 +297,8 @@ function parseOrThrow<T>(what: string, schema: z.ZodType<T>, body: unknown): T {
 /**
  * Control-plane operations (`register`, `grant`, `deprovision`) throw on
  * failure — they are operator actions, and a failure is an infrastructure
- * problem to surface. `call` returns a Result instead: a denial is an
+ * problem to surface. A refusal is thrown as a {@link CustosError} carrying
+ * the service's code. `call` returns a Result instead: a denial is an
  * expected, security-meaningful outcome, not an exception (CLAUDE.md §7).
  * It still throws on transport failure or a malformed success response —
  * nothing counts as allowed unless the vault's answer validates.

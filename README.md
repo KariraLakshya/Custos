@@ -177,7 +177,7 @@ pnpm --filter @custos/vault seed mock-slack any-placeholder-secret
 
 ### 4. Walk through an agent's life with the CLI
 
-Stay in the terminal from step 3: `register`, `grant` and `deprovision` read your operator key from `CUSTOS_OPERATOR_KEY`. (They read it only from the environment, never a command-line flag, so it stays out of your shell history.) Using a tool doesn't need it: an agent never holds an operator key.
+Stay in the terminal from step 3: `register`, `grant` and `revoke` read your operator key from `CUSTOS_OPERATOR_KEY`. (They read it only from the environment, never a command-line flag, so it stays out of your shell history.) Using a tool doesn't need it: an agent never holds an operator key.
 
 Make `custos` a shortcut for this terminal:
 
@@ -200,7 +200,7 @@ This writes two files:
 - **`agent.key`**: the agent's private key. It never leaves your machine; it isn't sent to Custos and isn't printed. `register` won't overwrite an existing key file.
 - **`agent.json`**: the agent's credential.
 
-Note the `"id"` near the top of the output; you'll need it to revoke the agent. Keep `agent.key` private and don't share it; it's gitignored. `agent.json` on its own is useless to anyone who copies it: every access request must be signed with `agent.key`, so without the key the vault refuses (`denied: INVALID_PROOF_OF_POSSESSION`).
+Note the `"id"` near the top of the output; you'll need it to revoke the agent. Keep `agent.key` private and don't share it; it's gitignored. `agent.json` on its own is useless to anyone who copies it: every access request must be signed with `agent.key`, so without the key the vault refuses (`Code: INVALID_PROOF_OF_POSSESSION`).
 
 **Check the credential independently.** This fetches the identity service's public identity document fresh and verifies the credential's signature itself, rather than trusting the server's word:
 
@@ -213,7 +213,9 @@ custos verify agent.json
 
 ```bash
 custos use mock-database query --credential agent.json --input '{"table":"customers"}'
-# denied: POLICY_DENIED
+# Refused: This agent has not been given this tool.
+# Next: To allow it, an operator runs: custos grant mock-database --credential <agent's credential file>
+# Code: POLICY_DENIED
 ```
 
 **Grant exactly one tool, then try again:**
@@ -230,7 +232,7 @@ Behind that one command, the agent showed its credential to the vault, **signed 
 
 ```bash
 custos use mock-slack post-message --credential agent.json --input '{"channel":"#ops","text":"hi"}'
-# denied: POLICY_DENIED
+# Refused: This agent has not been given this tool. … Code: POLICY_DENIED
 ```
 
 **Let the agent hand part of its access to a helper agent.** Register a second agent, then have the first one pass on just `query` on the database. The first agent signs this note with its own key, and nothing is sent anywhere. Use the helper's `did` from its registration output:
@@ -243,12 +245,12 @@ custos use mock-database query --credential helper.json --key helper.key --deleg
 # { "result": [ ... ] }
 ```
 
-The helper has no grant of its own. It acts on yours, and only for what you passed on. Asking for anything else gets `denied: DELEGATION_DENIED (NOT_COVERED)`. The audit log records the whole chain, from the operator who granted the tool through the first agent to the helper, and `custos audit-log` checks every signature in it again. Revoking the first agent (next step) cuts off the helper as well.
+The helper has no grant of its own. It acts on yours, and only for what you passed on. Asking for anything else is refused with `Code: DELEGATION_DENIED (NOT_COVERED)`. The audit log records the whole chain, from the operator who granted the tool through the first agent to the helper, and `custos audit-log` checks every signature in it again. Revoking the first agent (next step) cuts off the helper as well.
 
 **Revoke the agent.** Use the `id` from registration:
 
 ```bash
-custos deprovision <id> --reason "compromised"
+custos revoke <id> --reason "compromised"
 ```
 
 `"broadcast": { "delivered": 1 }` in the output means the signed revocation notice was pushed straight to the vault; nobody has to wait for it to check. The dashboard shows the agent as cut off.
@@ -257,7 +259,9 @@ custos deprovision <id> --reason "compromised"
 
 ```bash
 custos use mock-database query --credential agent.json --input '{"table":"customers"}'
-# denied: AGENT_REVOKED
+# Refused: This agent, or an agent it is acting for, has been cut off from every tool.
+# Next: A revoked agent cannot be restored. Register a new one with: custos register
+# Code: AGENT_REVOKED
 ```
 
 **Pull the audit trail.** Every attempt above, allowed or refused, was recorded. The audit log is a ledger: each entry is linked to the one before it, and every 10 seconds the newest entry is sealed with the audit service's key (ADR 0017). The CLI checks the whole chain against that seal, and against the newest seal it remembered from its last check (in `~/.custos/audit-seal.json`), and exits non-zero if anything was edited, removed or rewritten:
@@ -402,7 +406,7 @@ Then, in your own terminal:
 custos login      # opens the sign-in page; demo user alice / alice-dev-password
 ```
 
-`custos login` saves a key that lasts 8 hours (`SSO_SESSION_HOURS`) to `~/.custos/operator.key`, owner-only, and never prints it. `register`, `grant` and `deprovision` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Only people in a group listed in `SSO_GROUP_SCOPES` can sign in: the demo user `bob` is in none, so he's refused. Everything they do appears in the audit log under their email. The demo realm's passwords and client secret are for local use only.
+`custos login` saves a key that lasts 8 hours (`SSO_SESSION_HOURS`) to `~/.custos/operator.key`, owner-only, and never prints it. `register`, `grant` and `revoke` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Only people in a group listed in `SSO_GROUP_SCOPES` can sign in: the demo user `bob` is in none, so he's refused. Everything they do appears in the audit log under their email. The demo realm's passwords and client secret are for local use only.
 
 ### Optional: trust another organisation's agents (federation)
 
@@ -452,7 +456,7 @@ It registers two agents at A, has B accept them, stops A's services and makes A'
 | `set CUSTOS_OPERATOR_KEY to an operator key`                                                 | Paste the `CUSTOS_OPERATOR_KEY` line from `dev-keys` into this terminal.                                                                                                                                                                                                                                                                       |
 | A command fails with `401` and `UNAUTHORIZED`                                                | The operator key was refused: mistyped, revoked, expired, or from another database. Every reason gives the same answer on purpose. Check `pnpm custos-admin key list`; after 10 failures in 5 minutes your address is also locked out for 15 minutes.                                                                                          |
 | `custos register` fails with `refusing to overwrite existing key file`                       | An `agent.key` from an earlier registration is in the way. Move it, or pass `--key-out <path>` for the new agent.                                                                                                                                                                                                                              |
-| Every call denied with `INVALID_AGENT_CREDENTIAL` after restarting identity                  | Identity was restarted with a **different** `IDENTITY_ISSUER_SEED`, so earlier credentials no longer verify. Restart it with the original seed, or register agents again.                                                                                                                                                                      |
+| Every call refused with `INVALID_AGENT_CREDENTIAL` after restarting identity                 | Identity was restarted with a **different** `IDENTITY_ISSUER_SEED`, so earlier credentials no longer verify. Restart it with the original seed, or register agents again.                                                                                                                                                                      |
 | `use` denied with `INVALID_PROOF_OF_POSSESSION`                                              | Either the key doesn't match the credential (the wrong `agent.key` for this `agent.json`), or the vault's `VAULT_PUBLIC_URL` isn't the address you're calling. Requests are signed for the exact URL used, so `localhost` and `127.0.0.1` count as different. Use `--vault-url` matching `VAULT_PUBLIC_URL` (default `http://localhost:4002`). |
 | `use` fails with `ENOENT … agent.key`                                                        | Run `use` from the directory where you registered, or pass `--key <path>`.                                                                                                                                                                                                                                                                     |
 | `custos register` fails with a 502                                                           | The revocation service isn't running. Identity needs it to reserve the agent's revocation slot, and refuses to create an agent that couldn't be revoked.                                                                                                                                                                                       |

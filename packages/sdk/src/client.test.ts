@@ -12,6 +12,7 @@ import {
 } from "@custos/core";
 import {
   createCustos,
+  CustosError,
   DEFAULT_DELEGATION_TTL_SECONDS,
   type Agent,
   type Delegation,
@@ -422,6 +423,41 @@ describe("deprovision", () => {
       "/revocations": { status: 404, body: { error: { code: "UNKNOWN_AGENT" } } },
     });
     await expect(custosAt(url).deprovision(agent)).rejects.toThrow(/deprovision failed.*404/);
+  });
+
+  // ADR 0022 §6: a caller can look the refusal up without parsing the message.
+  it("throws a CustosError carrying the service's code, reason and status", async () => {
+    const { url } = await stubServices({
+      "/revocations": { status: 404, body: { error: { code: "UNKNOWN_AGENT", reason: "GONE" } } },
+      "/policies": { status: 401, body: { error: "UNAUTHORIZED" } },
+      "/agents": { status: 500, body: "not json" },
+    });
+    await expect(custosAt(url).deprovision(agent)).rejects.toMatchObject({
+      name: "CustosError",
+      code: "UNKNOWN_AGENT",
+      reason: "GONE",
+      status: 404,
+    });
+    await expect(custosAt(url).grant(agent, "stripe")).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+      reason: undefined,
+      status: 401,
+    });
+    await expect(custosAt(url).register()).rejects.toMatchObject({ code: "UNKNOWN", status: 500 });
+  });
+
+  it("throws SERVICE_UNREACHABLE, naming only the origin, when no service answers", async () => {
+    const custos = createCustos({
+      identityUrl: "http://127.0.0.1:1",
+      vaultUrl: "http://127.0.0.1:1",
+      revocationUrl: "http://127.0.0.1:1",
+      operatorKey: "custos_operator_test",
+    });
+    const error: unknown = await custos.deprovision(agent).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CustosError);
+    expect(error).toMatchObject({ code: "SERVICE_UNREACHABLE", status: undefined });
+    expect((error as Error).message).toBe("could not reach http://127.0.0.1:1");
+    expect((error as Error).message).not.toContain("custos_operator_test");
   });
 
   it("throws on a malformed success response rather than reporting a revocation that may not have happened", async () => {

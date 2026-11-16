@@ -6,6 +6,38 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-16 — When Custos says "no", it now says why and what to do next
+
+**Commit:** on branch `feat/cli-wording`, pushed 2026-11-16 as **pull request #134** (Phase 8b, step 3a). Pull request #133 (the list of refusal reasons) was merged the same day.
+
+**What changed, in plain words:** until now a refused command printed a bare code, for example `denied: POLICY_DENIED`. It now prints three lines:
+
+```
+Refused: This agent has not been given this tool.
+Next: To allow it, an operator runs: custos grant mock-database --credential <agent's credential file>
+Code: POLICY_DENIED
+```
+
+The first line says what happened, the second says what to run, and the third keeps the code for scripts and for searching. The words come from the one list built in the previous step, so the command line and the future dashboard will always say the same thing.
+
+**Refused versus Problem:** a normal refusal starts with "Refused", because that is Custos doing its job. Something actually wrong starts with "Problem". This is the command-line version of grey and red on the dashboard.
+
+**The outage label you chose (option A):** if the vault cannot reach the identity service, it used to say the agent's pass was not valid. It now says "Problem: the vault could not fetch a Custos service's public key… The agent is not at fault", and tells you to check the services. The agent is still refused either way; only the explanation changed. If the `custos` command cannot reach a service at all, it says so in the same way, where before it printed a raw network error.
+
+**Smaller things:**
+
+- `custos revoke` is the new name for cutting an agent off. The old name, `deprovision`, still works.
+- Typing `custos` on its own lists the steps in order: sign in, register, give a tool, use it, pass work on, cut off, check the record.
+- A hostile or broken service cannot use its error text to write control characters to your terminal; only plain codes are printed.
+
+**Why it matters:** this is the first change a new operator will actually see. Phase 8b is finished only when a stranger can run Custos without the README, and a bare code was the first place they would have stopped.
+
+**What is not done yet (step 3b, next):** the four simplifications you approved on 15 November (grant by agent id, id or DID everywhere, no flags for `use`, the demo printing its setup line), sentences in place of JSON for successful commands, and plain words for `custos audit-log` failures.
+
+**Dashboard, decided this week:** it will match the landing page's look, "recent" means one hour for refusals and 24 hours for cut-offs, and a person with no agents gets a welcome screen with the four steps. The first clickable preview was rejected as too AI-looking, so the look will be redone when the page is built. An assistant that registers an agent from a plain-language description is approved as an idea for after this phase.
+
+---
+
 ## 2026-11-13 — Every reason Custos can say "no" is now in one list, in plain words
 
 **Commit:** on branch `feat/refusal-catalogue`, pushed 2026-11-13 as **pull request #133** (Phase 8b, step 2).

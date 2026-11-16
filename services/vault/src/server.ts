@@ -120,6 +120,8 @@ function statusFor(code: string): number {
     return 403;
   }
   if (code === "REVOCATION_STATE_STALE" || code === "REVOCATION_STATE_UNKNOWN_AGENT") return 503;
+  // The identity service's key could not be fetched: refused, and not the agent's fault.
+  if (code === "UNVERIFIABLE_ISSUER") return 503;
   if (code === "UNKNOWN_ACTION" || code === "INVALID_INPUT") return 400;
   return 502;
 }

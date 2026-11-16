@@ -24,6 +24,11 @@ const DEFAULT_TTL_SECONDS = 60;
 export type IssueToolTokenError =
   | { readonly code: "UNKNOWN_TOOL"; readonly tool: string }
   | { readonly code: "INVALID_AGENT_CREDENTIAL"; readonly reason: string }
+  /**
+   * The identity service's key could not be fetched, so no credential can be
+   * checked. A fault in Custos, not in the agent (ADR 0022 §6).
+   */
+  | { readonly code: "UNVERIFIABLE_ISSUER"; readonly reason: string }
   | {
       readonly code: "INVALID_PROOF_OF_POSSESSION";
       readonly reason: VerifyPossessionProofError["code"] | "REPLAYED" | "REPLAY_CACHE_FULL";
@@ -154,7 +159,7 @@ export async function issueToolToken(params: {
 
   const issuerDocument = await trustedIssuer.resolveDidDocument();
   if (!issuerDocument.ok) {
-    return err({ code: "INVALID_AGENT_CREDENTIAL", reason: issuerDocument.error });
+    return err({ code: "UNVERIFIABLE_ISSUER", reason: issuerDocument.error });
   }
 
   const verified = await verifyCredential({

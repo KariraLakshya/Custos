@@ -53,6 +53,13 @@ export const REFUSALS = {
     "Check the command's arguments with: custos help <command>",
   ),
 
+  // --- the custos command or SDK itself, when no service answered ---
+  SERVICE_UNREACHABLE: entry(
+    "alarm",
+    "A Custos service did not answer.",
+    "Check that Custos is running (pnpm demo) and that the service address is right.",
+  ),
+
   // --- vault: asking for a token (`custos use`, first half) ---
   POLICY_DENIED: entry(
     "normal",
@@ -208,9 +215,11 @@ export const REFUSALS = {
     "The vault refused a revocation notice because its signature did not check out.",
     "Check that the vault and the revocation service agree on the revocation service's signing key.",
   ),
+  // Also answered to a token request (`custos use`) when the vault cannot
+  // fetch the identity service's key: every agent is refused until it can.
   UNVERIFIABLE_ISSUER: entry(
     "alarm",
-    "The vault could not fetch a Custos service's public key, so it cannot check what that service signs.",
+    "The vault could not fetch a Custos service's public key, so it cannot check what that service signs. The agent is not at fault.",
     "Check that the identity and revocation services are running and reachable from the vault.",
   ),
 } as const satisfies Record<string, RefusalEntry>;

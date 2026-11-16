@@ -87,18 +87,19 @@ describe("custos login (ADR 0010)", () => {
   });
 
   it.each([
-    [{ error: { code: "NO_MAPPED_GROUP" } }, /isn't in a group allowed to administer Custos/],
-    [{ error: { code: "TOKEN_REJECTED" } }, /sign-in refused \(TOKEN_REJECTED\)/],
-    [{}, /sign-in refused \(UNKNOWN\)/],
-  ])("reports a refused sign-in (%j) and writes no key", async (body, message) => {
+    [{ error: { code: "NO_MAPPED_GROUP" } }, "NO_MAPPED_GROUP"],
+    [{ error: { code: "TOKEN_REJECTED" } }, "TOKEN_REJECTED"],
+    [{}, "UNKNOWN"],
+  ])("reports a refused sign-in (%j) by its code and writes no key", async (body, code) => {
     const { fetchImpl } = identity([{ status: 401, body }]);
     const file = await keyFile();
+    // The code is what `runCli` explains in words (ADR 0022 §6).
     await expect(
       login(
         { identityUrl: "http://identity.test", keyFile: file, browser: false },
         { fetchImpl, sleep: async () => {}, out: () => {} },
       ),
-    ).rejects.toThrow(message);
+    ).rejects.toMatchObject({ name: "CustosError", code });
     await expect(readFile(file, "utf8")).rejects.toThrow(/ENOENT/);
   });
 

@@ -2,6 +2,7 @@ export const SDK_VERSION = "0.0.0";
 
 export {
   createCustos,
+  CustosError,
   DEFAULT_DELEGATION_TTL_SECONDS,
   type Agent,
   type AgentCredential,
