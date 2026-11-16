@@ -99,6 +99,14 @@ There are four read scopes, all operator scopes (`packages/control-plane-auth` `
 
 - `revoke` replaces `deprovision`, which remains an alias. Old names keep working, and the existing e2e tests keep using `deprovision` to prove it.
 - `custos` with no arguments lists the lifecycle in order: login, register, grant, use, delegate, revoke, audit-log, status. `status` joins the list when it is built.
+- **Arguments and defaults (founder, 2026-11-15; built in PR #135).** These change what commands accept, so they are recorded here:
+  - **An agent is named by its id or its DID, everywhere, and never by its name.** `grant --to`, `delegate --to`, `revoke` and `audit-log` take either. A Custos agent DID is `<issuer DID>:agents:<id>`, so an id becomes a DID under `--identity-issuer` (default `did:web:localhost%3A4001`, the same default `audit-log` already had), and a DID carries its id. Anything else is refused by the CLI before a request is sent.
+  - **`grant <tool> --to <agent>`.** The operator no longer needs the agent's credential file. `--credential` still works. Exactly one of the two must be given: `grant` has no default agent, so an operator cannot give a tool to whichever agent's files happen to be in the directory.
+  - **`register` saves the credential to `agent.json`** as well as the key to `agent.key`, and overwrites neither. Both files are claimed before the agent is registered and both are removed if registration fails. `use` and `delegate` read `agent.json` and `agent.key` unless told otherwise.
+  - **Words by default, `--json` on request,** for `register`, `grant` and `revoke`. Each prints a sentence and a `Next:` line. `use` still prints the tool's result as JSON, because that is the data, and `audit-log` still prints its full result as JSON until the event sentences are built with the dashboard's Proof view.
+  - **The CLI's own errors** (not signed in, a missing or existing file, a value that is not an id) print `error: <what>` and `Next: <what to do>`.
+  - **`custos audit-log` failures in words,** in three kinds that match the Proof view: `Tampered`, `Cannot check` and `Needs a person` (`apps/cli/src/audit-words.ts`). Free-text reasons from a service are never printed; they stay in the JSON.
+  - **The `pnpm demo` banner** gives the line that makes the `custos` command work first, for bash and PowerShell, then the operator key, then says to type `custos`. It no longer points at the README.
 - `custos status <agent id or DID>` shows the agent's name, its grants (vault), whether it is revoked (revocation) and its recent actions (audit). It needs an operator key with the read scopes.
 
 ## Consequences

@@ -55,14 +55,14 @@ describe("custos CLI", () => {
       vi.restoreAllMocks();
     });
 
-    it("registers against the identity service and prints the result", async () => {
+    it("registers, saves the credential and the key, and says what to do next", async () => {
       server = createServer((_req, res) => {
         res.setHeader("content-type", "application/json");
         res.end(
           JSON.stringify({
-            id: "abc",
-            did: "did:web:example:agents:abc",
-            credential: { issuer: "did:web:example:agents:abc" },
+            id: "3f2b8c1e-1111-4111-8111-111111111111",
+            did: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+            credential: { issuer: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111" },
           }),
         );
       });
@@ -71,13 +71,31 @@ describe("custos CLI", () => {
       const keyPath = join(await mkdtemp(join(tmpdir(), "custos-cli-key-")), "agent.key");
 
       await createCli().parseAsync(
-        ["register", "--identity-url", "http://127.0.0.1:4303", "--key-out", keyPath],
+        [
+          "register",
+          "--identity-url",
+          "http://127.0.0.1:4303",
+          "--key-out",
+          keyPath,
+          "--out",
+          join(dirname(keyPath), "agent.json"),
+        ],
         { from: "user" },
       );
 
       const printed = stdout.mock.calls.join("");
-      expect(printed).toContain('"id": "abc"');
-      expect(printed).toContain(`"keyFile": ${JSON.stringify(keyPath)}`);
+      const credentialPath = join(dirname(keyPath), "agent.json");
+      expect(printed).toBe(
+        [
+          "Registered agent 3f2b8c1e-1111-4111-8111-111111111111.",
+          `Its credential is in ${credentialPath} and its private key in ${keyPath}. Keep the key secret.`,
+          "Next: custos grant <tool> --to 3f2b8c1e-1111-4111-8111-111111111111",
+          "",
+        ].join("\n"),
+      );
+      expect(JSON.parse(await readFile(credentialPath, "utf8"))).toEqual({
+        issuer: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+      });
       // The private key is written to its own file and never printed.
       const secretKey = (await readFile(keyPath, "utf8")).trim();
       expect(secretKey).toMatch(/^[0-9a-f]{64}$/);
@@ -96,7 +114,15 @@ describe("custos CLI", () => {
 
       await expect(
         createCli().parseAsync(
-          ["register", "--identity-url", "http://127.0.0.1:4305", "--key-out", keyPath],
+          [
+            "register",
+            "--identity-url",
+            "http://127.0.0.1:4305",
+            "--key-out",
+            keyPath,
+            "--out",
+            join(dirname(keyPath), "agent.json"),
+          ],
           { from: "user" },
         ),
       ).rejects.toThrow(/refusing to overwrite/);
@@ -115,12 +141,99 @@ describe("custos CLI", () => {
 
       await expect(
         createCli().parseAsync(
-          ["register", "--identity-url", "http://127.0.0.1:4306", "--key-out", keyPath],
+          [
+            "register",
+            "--identity-url",
+            "http://127.0.0.1:4306",
+            "--key-out",
+            keyPath,
+            "--out",
+            join(dirname(keyPath), "agent.json"),
+          ],
           { from: "user" },
         ),
       ).rejects.toThrow(/register failed/);
 
       await expect(readFile(keyPath)).rejects.toThrow(/ENOENT/);
+      await expect(readFile(join(dirname(keyPath), "agent.json"))).rejects.toThrow(/ENOENT/);
+    });
+
+    it("refuses to overwrite an existing credential file, and leaves no key behind", async () => {
+      let requests = 0;
+      server = createServer((_req, res) => {
+        requests += 1;
+        res.end();
+      });
+      await new Promise<void>((resolve) => server?.listen(4317, "127.0.0.1", resolve));
+      const dir = await mkdtemp(join(tmpdir(), "custos-cli-key-"));
+      const outPath = join(dir, "agent.json");
+      await writeFile(outPath, "an existing agent's credential");
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runCli([
+        "node",
+        "custos",
+        "register",
+        "--identity-url",
+        "http://127.0.0.1:4317",
+        "--key-out",
+        join(dir, "agent.key"),
+        "--out",
+        outPath,
+      ]);
+
+      expect(stderr.mock.calls.join("")).toMatch(
+        /^error: refusing to overwrite existing credential file .+\nNext: .+--out <path>/,
+      );
+      expect(process.exitCode).toBe(1);
+      process.exitCode = undefined;
+      expect(await readFile(outPath, "utf8")).toBe("an existing agent's credential");
+      await expect(readFile(join(dir, "agent.key"))).rejects.toThrow(/ENOENT/);
+      expect(requests).toBe(0);
+    });
+
+    it("saves to agent.json and agent.key unless told otherwise", () => {
+      const register = createCli().commands.find((command) => command.name() === "register");
+      expect(register?.opts()).toMatchObject({ out: "agent.json", keyOut: "agent.key" });
+      const use = createCli().commands.find((command) => command.name() === "use");
+      expect(use?.opts()).toMatchObject({ credential: "agent.json", key: "agent.key" });
+    });
+
+    it("--json prints the old machine-readable result, never the key", async () => {
+      server = createServer((_req, res) => {
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            id: "3f2b8c1e-1111-4111-8111-111111111111",
+            did: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+            credential: { issuer: "did:web:example" },
+          }),
+        );
+      });
+      await new Promise<void>((resolve) => server?.listen(4318, "127.0.0.1", resolve));
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const dir = await mkdtemp(join(tmpdir(), "custos-cli-key-"));
+
+      await createCli().parseAsync(
+        [
+          "register",
+          "--identity-url",
+          "http://127.0.0.1:4318",
+          "--json",
+          "--key-out",
+          join(dir, "agent.key"),
+          "--out",
+          join(dir, "agent.json"),
+        ],
+        { from: "user" },
+      );
+
+      const printed = stdout.mock.calls.join("");
+      expect(JSON.parse(printed)).toMatchObject({
+        id: "3f2b8c1e-1111-4111-8111-111111111111",
+        keyFile: join(dir, "agent.key"),
+      });
+      expect(printed).not.toContain((await readFile(join(dir, "agent.key"), "utf8")).trim());
     });
 
     it("writes the credential to --out when given", async () => {
@@ -128,8 +241,8 @@ describe("custos CLI", () => {
         res.setHeader("content-type", "application/json");
         res.end(
           JSON.stringify({
-            id: "abc",
-            did: "did:web:example:agents:abc",
+            id: "3f2b8c1e-1111-4111-8111-111111111111",
+            did: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
             credential: { issuer: "did:web:example" },
           }),
         );
@@ -180,16 +293,31 @@ describe("custos CLI", () => {
       const url = "http://127.0.0.1:4310";
 
       for (const args of [
-        ["register", "--identity-url", url, "--key-out", keyPath],
+        ["register", "--identity-url", url, "--key-out", keyPath, "--out", `${keyPath}.json`],
         ["grant", "mock-slack", "--credential", credentialPath, "--vault-url", url],
         ["deprovision", "0f8f6a1e-9c2b-4a3d-8f1e-1b2c3d4e5f60", "--revocation-url", url],
       ]) {
         await expect(createCli().parseAsync(args, { from: "user" })).rejects.toThrow(
-          /sign in with `custos login`, or set CUSTOS_OPERATOR_KEY/,
+          /you are not signed in as an operator/,
         );
       }
       expect(requests).toBe(0);
       await expect(readFile(keyPath, "utf8")).rejects.toThrow(/ENOENT/);
+      await expect(readFile(`${keyPath}.json`, "utf8")).rejects.toThrow(/ENOENT/);
+    });
+
+    it("tells someone who is not signed in to run custos login", async () => {
+      vi.stubEnv("CUSTOS_OPERATOR_KEY", "");
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runCli(["node", "custos", "revoke", "3f2b8c1e-1111-4111-8111-111111111111"]);
+
+      expect(stderr.mock.calls.join("")).toMatch(
+        /^error: you are not signed in as an operator\nNext: custos login/,
+      );
+      expect(process.exitCode).toBe(1);
+      process.exitCode = undefined;
+      vi.restoreAllMocks();
     });
   });
 
@@ -270,7 +398,7 @@ describe("custos CLI", () => {
       vi.restoreAllMocks();
     });
 
-    it("grants an agent access to a tool via the vault and prints the result", async () => {
+    it("grants by credential file (the older way) and says what to do next", async () => {
       let received: { url?: string; body: unknown } | undefined;
       server = createServer((req, res) => {
         let raw = "";
@@ -279,7 +407,12 @@ describe("custos CLI", () => {
           received = { url: req.url, body: JSON.parse(raw) };
           res.statusCode = 201;
           res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify({ agentId: "did:web:example:agents:abc", tool: "stripe" }));
+          res.end(
+            JSON.stringify({
+              agentId: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+              tool: "stripe",
+            }),
+          );
         });
       });
       await new Promise<void>((resolve) => server?.listen(4307, "127.0.0.1", resolve));
@@ -291,7 +424,7 @@ describe("custos CLI", () => {
         path,
         JSON.stringify({
           issuer: "did:web:example",
-          credentialSubject: { id: "did:web:example:agents:abc" },
+          credentialSubject: { id: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111" },
         }),
       );
       const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -303,9 +436,118 @@ describe("custos CLI", () => {
 
       expect(received).toEqual({
         url: "/policies",
-        body: { agentId: "did:web:example:agents:abc", tool: "stripe" },
+        body: {
+          agentId: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+          tool: "stripe",
+        },
       });
-      expect(stdout.mock.calls.join("")).toContain('"tool": "stripe"');
+      expect(stdout.mock.calls.join("")).toBe(
+        [
+          "Agent 3f2b8c1e-1111-4111-8111-111111111111 may now use stripe.",
+          "Next, as the agent: custos use stripe <action>",
+          "",
+        ].join("\n"),
+      );
+    });
+
+    /** A stand-in vault that records what `grant` sent. */
+    async function grantingVault(port: number): Promise<{ bodies: unknown[] }> {
+      const bodies: unknown[] = [];
+      server = createServer((req, res) => {
+        let raw = "";
+        req.on("data", (chunk) => (raw += chunk));
+        req.on("end", () => {
+          const body = JSON.parse(raw) as { agentId: string; tool: string };
+          bodies.push(body);
+          res.statusCode = 201;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ agentId: body.agentId, tool: body.tool }));
+        });
+      });
+      await new Promise<void>((resolve) => server?.listen(port, "127.0.0.1", resolve));
+      return { bodies };
+    }
+
+    // ADR 0022 §7: the operator names the agent; no credential file needed.
+    it.each([
+      [
+        "its id",
+        "3f2b8c1e-1111-4111-8111-111111111111",
+        "did:web:localhost%3A4001:agents:3f2b8c1e-1111-4111-8111-111111111111",
+      ],
+      [
+        "its DID",
+        "did:web:other.example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+        "did:web:other.example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+      ],
+    ])("grants --to an agent named by %s", async (_how, to, did) => {
+      const { bodies } = await grantingVault(4319);
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      await createCli().parseAsync(
+        ["grant", "stripe", "--to", to, "--vault-url", "http://127.0.0.1:4319", "--json"],
+        { from: "user" },
+      );
+
+      expect(bodies).toEqual([{ agentId: did, tool: "stripe" }]);
+      expect(JSON.parse(stdout.mock.calls.join(""))).toEqual({ agentId: did, tool: "stripe" });
+    });
+
+    it("turns an id into a DID under --identity-issuer", async () => {
+      const { bodies } = await grantingVault(4319);
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      await createCli().parseAsync(
+        [
+          "grant",
+          "stripe",
+          "--to",
+          "3f2b8c1e-1111-4111-8111-111111111111",
+          "--identity-issuer",
+          "did:web:id.company.example",
+          "--vault-url",
+          "http://127.0.0.1:4319",
+        ],
+        { from: "user" },
+      );
+
+      expect(bodies).toEqual([
+        {
+          agentId: "did:web:id.company.example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+          tool: "stripe",
+        },
+      ]);
+    });
+
+    it.each([
+      ["a name", ["--to", "billing-bot"], /not an agent id or DID/],
+      [
+        "a DID with something after the id",
+        ["--to", "did:web:x:agents:3f2b8c1e-1111-4111-8111-111111111111/../admin"],
+        /not an agent id or DID/,
+      ],
+      [
+        "an id with a newline",
+        ["--to", "3f2b8c1e-1111-4111-8111-111111111111\n"],
+        /not an agent id or DID/,
+      ],
+      ["neither --to nor --credential", [], /say which agent/],
+      [
+        "both --to and --credential",
+        ["--to", "3f2b8c1e-1111-4111-8111-111111111111", "--credential", "x.json"],
+        /say which agent/,
+      ],
+    ])("refuses %s, sending nothing", async (_what, flags, message) => {
+      const { bodies } = await grantingVault(4319);
+
+      await expect(
+        createCli().parseAsync(
+          ["grant", "stripe", ...flags, "--vault-url", "http://127.0.0.1:4319"],
+          { from: "user" },
+        ),
+      ).rejects.toThrow(message);
+
+      expect(bodies).toEqual([]);
     });
   });
 
@@ -325,7 +567,7 @@ describe("custos CLI", () => {
     ) {
       const { publicKey, secretKey } = generateKeyPair();
       const didDocument = buildDidWebDocument({ domain: `127.0.0.1:${port}`, publicKey });
-      const agentDid = "did:web:localhost%3A4001:agents:a1";
+      const agentDid = "did:web:localhost%3A4001:agents:3f2b8c1e-1111-4111-8111-111111111111";
       const payload = serializeAuditRecord({
         agentDid,
         authorityChain: [agentDid],
@@ -427,7 +669,11 @@ describe("custos CLI", () => {
       // Repeatable, not variadic: an agent DID after it stays the DID.
       const accepted = await runAuditLog(
         4816,
-        ["--accept-key", newKey!, "did:web:localhost%3A4001:agents:a1"],
+        [
+          "--accept-key",
+          newKey!,
+          "did:web:localhost%3A4001:agents:3f2b8c1e-1111-4111-8111-111111111111",
+        ],
         sealFile,
       );
       expect(accepted.exitCode).toBeUndefined();
@@ -464,8 +710,8 @@ describe("custos CLI", () => {
             res.setHeader("content-type", "application/json");
             res.end(
               JSON.stringify({
-                agentId: "abc",
-                agentDid: "did:web:example:agents:abc",
+                agentId: "3f2b8c1e-1111-4111-8111-111111111111",
+                agentDid: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
                 statusListIndex: 7,
                 revokedAt: "2026-09-09T00:00:00.000Z",
                 alreadyRevoked: false,
@@ -478,17 +724,89 @@ describe("custos CLI", () => {
         const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
         await createCli().parseAsync(
-          [name, "abc", "--revocation-url", "http://127.0.0.1:4306", "--reason", "test"],
+          [
+            name,
+            "3f2b8c1e-1111-4111-8111-111111111111",
+            "--revocation-url",
+            "http://127.0.0.1:4306",
+            "--reason",
+            "test",
+          ],
           { from: "user" },
         );
 
         expect(received).toEqual({
           url: "/revocations",
-          body: { agentId: "abc", reason: "test" },
+          body: { agentId: "3f2b8c1e-1111-4111-8111-111111111111", reason: "test" },
         });
-        expect(stdout.mock.calls.join("")).toContain('"alreadyRevoked": false');
+        expect(stdout.mock.calls.join("")).toBe(
+          [
+            "Agent 3f2b8c1e-1111-4111-8111-111111111111 is cut off from every tool. This cannot be undone.",
+            "Vaults told now: 1.",
+            "Next: custos audit-log   (the record shows the cut-off)",
+            "",
+          ].join("\n"),
+        );
       },
     );
+
+    it("takes the agent's DID as well as its id, and sends only the id", async () => {
+      const bodies: unknown[] = [];
+      server = createServer((req, res) => {
+        let raw = "";
+        req.on("data", (chunk) => (raw += chunk));
+        req.on("end", () => {
+          bodies.push(JSON.parse(raw));
+          res.setHeader("content-type", "application/json");
+          res.end(
+            JSON.stringify({
+              agentId: "3f2b8c1e-1111-4111-8111-111111111111",
+              agentDid: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+              statusListIndex: 7,
+              revokedAt: "2026-09-09T00:00:00.000Z",
+              alreadyRevoked: true,
+              broadcast: { delivered: 0, failed: ["http://vault-2"] },
+            }),
+          );
+        });
+      });
+      await new Promise<void>((resolve) => server?.listen(4306, "127.0.0.1", resolve));
+      const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+      await createCli().parseAsync(
+        [
+          "revoke",
+          "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+          "--revocation-url",
+          "http://127.0.0.1:4306",
+        ],
+        { from: "user" },
+      );
+
+      expect(bodies).toEqual([{ agentId: "3f2b8c1e-1111-4111-8111-111111111111" }]);
+      const printed = stdout.mock.calls.join("");
+      expect(printed).toContain("was already cut off");
+      // A vault that could not be told is said plainly, not hidden in JSON.
+      expect(printed).toMatch(/\nProblem: 1 vault\(s\) could not be told now\./);
+      expect(printed).not.toContain("vault-2");
+    });
+
+    it("refuses something that is not an id or DID, sending nothing", async () => {
+      let requests = 0;
+      server = createServer((_req, res) => {
+        requests += 1;
+        res.end();
+      });
+      await new Promise<void>((resolve) => server?.listen(4306, "127.0.0.1", resolve));
+
+      await expect(
+        createCli().parseAsync(
+          ["revoke", "billing-bot", "--revocation-url", "http://127.0.0.1:4306"],
+          { from: "user" },
+        ),
+      ).rejects.toThrow(/not an agent id or DID/);
+      expect(requests).toBe(0);
+    });
   });
 
   describe("use", () => {
@@ -517,7 +835,10 @@ describe("custos CLI", () => {
       if (address === null || typeof address === "string") throw new Error("expected a port");
       const dir = await mkdtemp(join(tmpdir(), "custos-cli-use-"));
       const credentialPath = join(dir, "agent.json");
-      await writeFile(credentialPath, JSON.stringify({ issuer: "did:web:example:agents:abc" }));
+      await writeFile(
+        credentialPath,
+        JSON.stringify({ issuer: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111" }),
+      );
       // As `register` writes it: hex and a trailing newline.
       await writeFile(join(dir, "agent.key"), `${"11".repeat(32)}\n`);
       return { vaultUrl: `http://127.0.0.1:${address.port}`, credentialPath };
@@ -591,7 +912,12 @@ describe("custos CLI", () => {
       const { vaultUrl, credentialPath } = await vaultReplying({
         tokens: {
           status: 403,
-          body: { error: { code: "AGENT_REVOKED", agentId: "did:web:example:agents:abc" } },
+          body: {
+            error: {
+              code: "AGENT_REVOKED",
+              agentId: "did:web:example:agents:3f2b8c1e-1111-4111-8111-111111111111",
+            },
+          },
         },
       });
       const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -619,7 +945,42 @@ describe("custos CLI", () => {
 
       await runUse(vaultUrl, credentialPath);
 
-      expect(stderr.mock.calls.join("")).toContain("custos grant mock-database ");
+      expect(stderr.mock.calls.join("")).toContain("custos grant mock-database --to <agent id>");
+    });
+
+    it("fills the agent's own id into the next step when its credential names it", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 403, body: { error: { code: "POLICY_DENIED", agentId: "x" } } },
+      });
+      const id = "3f2b8c1e-1111-4111-8111-111111111111";
+      await writeFile(
+        credentialPath,
+        JSON.stringify({
+          issuer: "did:web:example",
+          credentialSubject: { id: `did:web:example:agents:${id}` },
+        }),
+      );
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, credentialPath);
+
+      expect(stderr.mock.calls.join("")).toContain(
+        `\nNext: To allow it, an operator runs: custos grant mock-database --to ${id}\n`,
+      );
+    });
+
+    it("says where the credential should be when agent.json is missing", async () => {
+      const { vaultUrl, credentialPath } = await vaultReplying({
+        tokens: { status: 200, body: { token: "t" } },
+      });
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+      await runUse(vaultUrl, join(dirname(credentialPath), "missing.json"));
+
+      expect(stderr.mock.calls.join("")).toMatch(
+        /^error: no agent credential at .+missing\.json\nNext: .+--credential <path>/,
+      );
+      expect(process.exitCode).toBe(1);
     });
 
     // ADR 0022 §6: a Custos fault is a problem, not a refusal of the agent.
@@ -772,7 +1133,7 @@ describe("custos CLI", () => {
         "node",
         "custos",
         "deprovision",
-        "abc",
+        "3f2b8c1e-1111-4111-8111-111111111111",
         "--revocation-url",
         `http://127.0.0.1:${address.port}`,
       ]);
@@ -795,8 +1156,8 @@ describe("delegation (ADR 0020)", () => {
   });
 
   const agentKey = generateKeyPair();
-  const DELEGATOR = "did:web:localhost%3A4001:agents:a";
-  const RECEIVER = "did:web:localhost%3A4001:agents:b";
+  const DELEGATOR = "did:web:localhost%3A4001:agents:3f2b8c1e-1111-4111-8111-111111111111";
+  const RECEIVER = "did:web:localhost%3A4001:agents:7a9d4e20-2222-4222-8222-222222222222";
 
   /** A delegator's credential and key files, as `register` writes them. */
   async function delegatorFiles() {
@@ -852,7 +1213,12 @@ describe("delegation (ADR 0020)", () => {
     ];
     const first = await run(args);
     expect(first.exitCode).toBeUndefined();
-    expect(first.out).toContain(`${RECEIVER} may now query on mock-database`);
+    expect(first.out).toContain(
+      "Agent 7a9d4e20-2222-4222-8222-222222222222 may now query on mock-database",
+    );
+    expect(first.out).toMatch(
+      /\nNext, as that agent: custos use mock-database query --delegation /,
+    );
     const written = JSON.parse(await readFile(out, "utf8")) as {
       handOffs: string[];
       credentials: unknown[];
@@ -872,6 +1238,44 @@ describe("delegation (ADR 0020)", () => {
     const again = await run(args);
     expect(again.exitCode).toBe(1);
     expect(again.err).toContain(`refusing to overwrite existing file ${out}`);
+    expect(again.err).toContain("\nNext: pass --out <path>");
+
+    // ADR 0022 §7: the receiver named by its id gives the very same hand-off target.
+    const byId = join(dir, "by-id.json");
+    const third = await run([
+      "delegate",
+      "mock-database",
+      "query",
+      "--to",
+      "7a9d4e20-2222-4222-8222-222222222222",
+      "--credential",
+      credentialPath,
+      "--key",
+      keyPath,
+      "--out",
+      byId,
+    ]);
+    expect(third.exitCode).toBeUndefined();
+    const { handOffs } = JSON.parse(await readFile(byId, "utf8")) as { handOffs: string[] };
+    expect(claimsOf(handOffs[0]!).sub).toBe(RECEIVER);
+
+    // A name is not a way to pick an agent: names can repeat.
+    const byName = await run([
+      "delegate",
+      "mock-database",
+      "query",
+      "--to",
+      "helper-bot",
+      "--credential",
+      credentialPath,
+      "--key",
+      keyPath,
+      "--out",
+      join(dir, "by-name.json"),
+    ]);
+    expect(byName.exitCode).toBe(1);
+    expect(byName.err).toMatch(/^error: that is not an agent id or DID\nNext: /);
+    await expect(readFile(join(dir, "by-name.json"))).rejects.toThrow(/ENOENT/);
   });
 
   it("delegate --extending passes on a received delegation, one depth less", async () => {
@@ -998,7 +1402,7 @@ describe("delegation (ADR 0020)", () => {
     expect(err).toBe(
       [
         "Refused: The permission passed on does not include this tool or action.",
-        "Next: Ask the agent that passed it on to include it: custos delegate mock-database <actions...> --to <agent>",
+        "Next: Ask the agent that passed it on to include it: custos delegate mock-database <actions...> --to 3f2b8c1e-1111-4111-8111-111111111111",
         "Code: DELEGATION_DENIED (NOT_COVERED)",
         "",
       ].join("\n"),

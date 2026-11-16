@@ -24,7 +24,8 @@ import { buildServer as buildAuditServer, createDb as createAuditDb } from "@cus
 import { mutableClock } from "@custos/testing";
 import { buildServer as buildVaultServer, createDb as createVaultDb } from "@custos/vault";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createCli } from "./cli.js";
 import { buildTokenRequestProof } from "@custos/core";
 import { createCustos, type CustosConfig } from "@custos/sdk";
 import { pullAuditLog } from "./audit-log.js";
@@ -346,6 +347,58 @@ describe("custos use (Phase 2: request a scoped token, call the tool, watch it e
           .call("query", { table: "customers" });
 
         expect(outcome.ok && outcome.value).toHaveLength(2);
+      },
+    );
+  });
+
+  // ADR 0022 §7: against the real identity service and vault, an id under the
+  // issuer's DID is the very DID the credential names, so a grant by id works.
+  it("grants by agent id through the CLI, refused before the grant and allowed after", async () => {
+    await withPhase3Stack(
+      { identity: 4961, revocation: 4962, vault: 4963 },
+      [createMockDatabaseConnector()],
+      async ({ identityUrl, vaultUrl }) => {
+        const registered = await sdkAt({ identityUrl }).register();
+        expect(registered.did).toBe(`${registered.credential.issuer}:agents:${registered.id}`);
+        await fetch(new URL("/credentials", vaultUrl), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...bearer(operatorKey) },
+          body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
+        });
+        const call = () =>
+          sdkAt({ vaultUrl })
+            .connect(registered, "mock-database")
+            .call("query", { table: "customers" });
+
+        const before = await call();
+        expect(before.ok === false && before.error.code).toBe("POLICY_DENIED");
+
+        vi.stubEnv("CUSTOS_OPERATOR_KEY", operatorKey);
+        const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        try {
+          await createCli().parseAsync(
+            [
+              "grant",
+              "mock-database",
+              "--to",
+              registered.id,
+              "--identity-issuer",
+              registered.credential.issuer,
+              "--vault-url",
+              vaultUrl,
+            ],
+            { from: "user" },
+          );
+          expect(stdout.mock.calls.join("")).toContain(
+            `Agent ${registered.id} may now use mock-database.`,
+          );
+        } finally {
+          stdout.mockRestore();
+          vi.unstubAllEnvs();
+        }
+
+        const after = await call();
+        expect(after.ok && after.value).toHaveLength(2);
       },
     );
   });
