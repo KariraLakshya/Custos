@@ -20,7 +20,7 @@
     "@custos/kms": "workspace:*",
     "@custos/observability": "workspace:*",
     "drizzle-orm": "^0.45.4",
-    "fastify": "^5.12.7",
+    "fastify": "^5.12.8",
     "openid-client": "6.8.9",
     "pg": "^8.23.1",
     "zod": "^4.6.7"
@@ -32,6 +32,6 @@
     "@custos/vitest-config": "workspace:*",
     "@types/pg": "^8.11.10",
     "typescript": "^5.7.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   }
 }

@@ -64,7 +64,7 @@ export const REFUSALS = {
   POLICY_DENIED: entry(
     "normal",
     "This agent has not been given this tool.",
-    "To allow it, an operator runs: custos grant <tool> --credential <agent's credential file>",
+    "To allow it, an operator runs: custos grant <tool> --to <agent>",
   ),
   AGENT_REVOKED: entry(
     "normal",
@@ -79,7 +79,7 @@ export const REFUSALS = {
   INVALID_AGENT_CREDENTIAL: entry(
     "normal",
     "The agent's identity credential was not accepted.",
-    "Check that --credential points at the file `custos register` wrote for this agent.",
+    "Check that agent.json (or the file given to --credential) is the one `custos register` wrote for this agent.",
   ),
   INVALID_PROOF_OF_POSSESSION: entry(
     "normal",
@@ -260,7 +260,7 @@ export const REFUSAL_REASONS = {
     NO_ROOT_GRANT: entry(
       "normal",
       "The first agent in the chain was not given this tool by an operator.",
-      "An operator grants it first: custos grant <tool> --credential <first agent's credential file>",
+      "An operator grants it first: custos grant <tool> --to <the first agent's id>",
     ),
     TOO_MANY_LINKS: entry(
       "normal",

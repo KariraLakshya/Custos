@@ -74,7 +74,9 @@ for tool in mock-database mock-slack; do
   case "$status" in 2??) ok "store credential $tool: HTTP $status" ;; *) bad "store credential $tool: $status" ;; esac
 done
 
-run register custos register --out agent.json --key-out agent.key
+# The main path, with no flags: register saves agent.json and agent.key, and
+# use reads them (ADR 0022 §7). --json is for this script to read the id.
+run register custos register --json
 agent_id=$(node -e 'const a = JSON.parse(require("fs").readFileSync("register.out", "utf8")); process.stdout.write(String(a.id ?? ""))' 2>/dev/null)
 agent_did=$(node -e 'const a = JSON.parse(require("fs").readFileSync("register.out", "utf8")); process.stdout.write(String(a.did ?? ""))' 2>/dev/null)
 if [ "$rc" -eq 0 ] && [ -n "$agent_id" ] && [ -s agent.json ] && [ -s agent.key ]; then
@@ -99,7 +101,7 @@ fi
 expect_denied() { # step code tool action input
   step=$1 code=$2
   shift 2
-  run "$step" custos use "$1" "$2" --credential agent.json --key agent.key --input "$3"
+  run "$step" custos use "$1" "$2" --input "$3"
   if [ "$rc" -ne 0 ] && grep -q "^Code: $code\$" "$step.err" && [ ! -s "$step.out" ]; then
     ok "$step: exit $rc, $(first "$step.err")"
   else
@@ -109,10 +111,10 @@ expect_denied() { # step code tool action input
 
 expect_denied use-before-grant POLICY_DENIED mock-database query '{"table":"customers"}'
 
-run grant custos grant mock-database --credential agent.json
+run grant custos grant mock-database --to "$agent_did"
 if [ "$rc" -eq 0 ]; then ok "grant mock-database: exit 0"; else bad "grant: exit $rc — $(first grant.err)"; fi
 
-run use-allowed custos use mock-database query --credential agent.json --key agent.key --input '{"table":"customers"}'
+run use-allowed custos use mock-database query --input '{"table":"customers"}'
 if [ "$rc" -eq 0 ] && grep -q '"result"' use-allowed.out && grep -q 'Ada Lovelace' use-allowed.out && grep -q 'Alan Turing' use-allowed.out; then
   ok "use mock-database after grant: allowed, result has Ada Lovelace and Alan Turing"
 else
@@ -121,7 +123,7 @@ fi
 
 expect_denied use-other-tool POLICY_DENIED mock-slack post-message '{"channel":"#ops","text":"hi"}'
 
-run deprovision custos revoke "$agent_id" --reason "images lifecycle check"
+run deprovision custos revoke "$agent_id" --json --reason "images lifecycle check"
 if [ "$rc" -eq 0 ] && grep -Eq '"delivered": *1' deprovision.out; then
   ok "deprovision: exit 0, broadcast delivered 1"
 else
