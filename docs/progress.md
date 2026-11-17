@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-18 — A new warning about a lint tool is set aside, on the record, until it is fixed
 
-**Commit:** on branch `ci/ignore-picomatch-redos`, pushed 2026-11-18 as a pull request.
+**Commit:** on branch `ci/ignore-picomatch-redos`, pushed 2026-11-18 as **pull request #143**.
 
 **What happened:** on 2026-11-17 a weakness was published in `picomatch`, a small library that matches file names. The automatic security check (`pnpm audit`) started failing on every pull request, including ones that had nothing to do with it. No fixed version exists yet.
 
