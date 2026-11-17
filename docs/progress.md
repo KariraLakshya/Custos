@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-18 — A new warning about a lint tool is set aside, on the record, until it is fixed
+
+**Commit:** on branch `ci/ignore-picomatch-redos`, pushed 2026-11-18 as **pull request #143**.
+
+**What happened:** on 2026-11-17 a weakness was published in `picomatch`, a small library that matches file names. The automatic security check (`pnpm audit`) started failing on every pull request, including ones that had nothing to do with it. No fixed version exists yet.
+
+**What I did, in plain words:** `picomatch` is only used by the tools that check and test the code on a developer's machine and in CI. It is not in any part of Custos that runs for a customer (no service, container image or SDK). The weakness needs an attacker to supply the file-name patterns, and here the patterns are the project's own. So I told the security check to skip this one warning, wrote down why in `docs/state.md`, and noted that the exception comes out as soon as a fix ships. Every other warning still fails the check.
+
+**Why it matters:** pull requests can merge again without anyone getting used to ignoring a red check. The exception is deliberate, narrow and has an exit.
+
+---
+
 ## 2026-11-16 — The waiting dependency updates are cleared, and two of them were not safe to merge as they came
 
 **Commits and pull requests:** all branched from `main` on 2026-11-16, and all four are now merged: **#136** (Envoy and Keycloak images), **#137** (the web framework, Fastify), **#138** (the test tool, Vitest) and **#139** (a build-pipeline step). They replace Dependabot's proposals #113, #128, #129, #130 and #131. One Dependabot proposal, **#115** (a newer build of the Keycloak image), is still open. You said to fix it later; the steps are in `docs/state.md`.
