@@ -15,7 +15,9 @@ import {
 import type { AuditEvent, AuditReporter } from "@custos/audit-client";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { createDb } from "./db/client.js";
+import { agents } from "./db/schema.js";
 import { buildServer } from "./server.js";
 import type { StatusAllocator } from "./agents/status-allocator.js";
 
@@ -407,6 +409,86 @@ describe("identity service", () => {
 
   it("uses REGISTRATION_PROOF_TYPE for registration proofs", () => {
     expect(REGISTRATION_PROOF_TYPE).toBe("custos-registration-proof");
+  });
+});
+
+describe("agent names (ADR 0022 §2)", () => {
+  async function storedName(id: string): Promise<string | null | undefined> {
+    const [row] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, id));
+    return row?.name;
+  }
+
+  it("stores and returns a name given at registration", async () => {
+    const app = await buildTestServer();
+    const request = await validRequest();
+
+    const response = await register(app, { ...request.body, name: "billing-bot" });
+
+    expect(response.statusCode).toBe(201);
+    const registered = response.json() as { id: string; name: unknown };
+    expect(registered.name).toBe("billing-bot");
+    expect(await storedName(registered.id)).toBe("billing-bot");
+  });
+
+  it("registers an agent with no name as null", async () => {
+    const app = await buildTestServer();
+
+    const response = await register(app, (await validRequest()).body);
+
+    expect(response.statusCode).toBe(201);
+    const registered = response.json() as { id: string; name: unknown };
+    expect(registered.name).toBeNull();
+    expect(await storedName(registered.id)).toBeNull();
+  });
+
+  it("lets two agents share a name: names never pick an agent", async () => {
+    const app = await buildTestServer();
+
+    const first = await register(app, { ...(await validRequest()).body, name: "twin" });
+    const second = await register(app, { ...(await validRequest()).body, name: "twin" });
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(first.json().id).not.toBe(second.json().id);
+  });
+
+  // The credential and DID document are signed formats; the audit payload is
+  // hashed into the ledger (ADR 0017). A name in any of them changes a format.
+  it("keeps the name out of the credential, the DID document and the audit event", async () => {
+    const events: AuditEvent[] = [];
+    const app = await buildTestServer({ auditReporter: { report: (event) => events.push(event) } });
+    const name = "unique-marker-name";
+
+    const response = await register(app, { ...(await validRequest()).body, name });
+
+    expect(response.statusCode).toBe(201);
+    const registered = response.json() as { credential: unknown; didDocument: unknown };
+    expect(JSON.stringify(registered.credential)).not.toContain(name);
+    expect(JSON.stringify(registered.didDocument)).not.toContain(name);
+    expect(events).toHaveLength(1);
+    expect(JSON.stringify(events)).not.toContain(name);
+  });
+
+  it.each([
+    ["empty", ""],
+    ["65 characters", "x".repeat(65)],
+    ["a leading space", " bot"],
+    ["a leading dot", ".bot"],
+    ["a leading dash", "-bot"],
+    ["a newline", "bot\nRefused: fake"],
+    ["a non-ASCII character", "bøt"],
+    ["a number", 42],
+    ["null", null],
+    ["an array", ["bot"]],
+  ])("refuses a name that is %s, before allocating a status list index", async (_label, name) => {
+    const allocator = fakeStatusAllocator();
+    const app = await buildTestServer({ statusAllocator: allocator });
+
+    const response = await register(app, { ...(await validRequest()).body, name });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: { code: "INVALID_INPUT" } });
+    expect(allocator.allocations).toBe(0);
   });
 });
 

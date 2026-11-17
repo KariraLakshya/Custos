@@ -5,6 +5,7 @@ import {
   type AuditEvent,
   type AuditReporter,
 } from "@custos/audit-client";
+import { agentNameSchema } from "@custos/contracts";
 import { principalOf, requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { buildDidWebDocument, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
@@ -24,9 +25,11 @@ export { createDb } from "./db/client.js";
 const agentIdParamsSchema = z.object({ id: z.string().uuid() });
 
 // Bounded: a multibase Ed25519 key is under 64 characters, a proof a few hundred.
+// A bad name is refused here, before anything is allocated or signed.
 const registerAgentSchema = z.object({
   publicKey: z.string().min(1).max(64),
   proof: z.string().min(1).max(4096),
+  name: agentNameSchema.optional(),
 });
 
 function statusFor(code: RegisterAgentError["code"]): number {

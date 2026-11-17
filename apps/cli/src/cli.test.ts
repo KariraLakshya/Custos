@@ -192,6 +192,165 @@ describe("custos CLI", () => {
       expect(requests).toBe(0);
     });
 
+    describe("--name (ADR 0022 §2)", () => {
+      const ID = "3f2b8c1e-1111-4111-8111-111111111111";
+
+      /** Answers every registration with `reply`; records what was sent. */
+      async function identityAnswering(reply: Record<string, unknown>) {
+        const bodies: unknown[] = [];
+        server = createServer((req, res) => {
+          let raw = "";
+          req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
+          req.on("end", () => {
+            bodies.push(raw === "" ? undefined : JSON.parse(raw));
+            res.setHeader("content-type", "application/json");
+            res.statusCode = 201;
+            res.end(
+              JSON.stringify({
+                id: ID,
+                did: `did:web:example:agents:${ID}`,
+                credential: { issuer: "did:web:example" },
+                ...reply,
+              }),
+            );
+          });
+        });
+        await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+        const address = server.address();
+        if (address === null || typeof address === "string") throw new Error("expected a port");
+        return { url: `http://127.0.0.1:${address.port}`, bodies };
+      }
+
+      async function files() {
+        const dir = await mkdtemp(join(tmpdir(), "custos-cli-name-"));
+        return { dir, out: join(dir, "agent.json"), key: join(dir, "agent.key") };
+      }
+
+      it("sends the name and prints it beside the id", async () => {
+        const { url, bodies } = await identityAnswering({ name: "billing-bot" });
+        const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        const { out, key } = await files();
+
+        await createCli().parseAsync(
+          [
+            "register",
+            "--name",
+            "billing-bot",
+            "--identity-url",
+            url,
+            "--out",
+            out,
+            "--key-out",
+            key,
+          ],
+          { from: "user" },
+        );
+
+        expect((bodies[0] as { name?: unknown }).name).toBe("billing-bot");
+        expect(stdout.mock.calls.join("").split("\n")[0]).toBe(
+          `Registered billing-bot (id ${ID}).`,
+        );
+        // The credential file holds the signed credential only, never the name.
+        expect(await readFile(out, "utf8")).not.toContain("billing-bot");
+      });
+
+      it("includes the name in --json output", async () => {
+        const { url } = await identityAnswering({ name: "billing-bot" });
+        const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        const { out, key } = await files();
+
+        await createCli().parseAsync(
+          [
+            "register",
+            "--name",
+            "billing-bot",
+            "--json",
+            "--identity-url",
+            url,
+            "--out",
+            out,
+            "--key-out",
+            key,
+          ],
+          { from: "user" },
+        );
+
+        expect(JSON.parse(stdout.mock.calls.join(""))).toMatchObject({
+          id: ID,
+          name: "billing-bot",
+        });
+      });
+
+      it("sends no name without --name", async () => {
+        const { url, bodies } = await identityAnswering({ name: null });
+        const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        const { out, key } = await files();
+
+        await createCli().parseAsync(
+          ["register", "--identity-url", url, "--out", out, "--key-out", key],
+          {
+            from: "user",
+          },
+        );
+
+        expect(bodies[0]).not.toHaveProperty("name");
+        expect(stdout.mock.calls.join("").split("\n")[0]).toBe(`Registered agent ${ID}.`);
+      });
+
+      it.each([
+        ["empty", ""],
+        ["too long", "x".repeat(65)],
+        ["starting with a dash", "-bot"],
+        ["holding a newline", "bot\nRefused: fake"],
+        ["non-ASCII", "bøt"],
+      ])("refuses a name that is %s, before any file or request", async (_label, name) => {
+        const { url, bodies } = await identityAnswering({});
+        const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+        const { out, key } = await files();
+
+        await runCli([
+          "node",
+          "custos",
+          "register",
+          "--name",
+          name,
+          "--identity-url",
+          url,
+          "--out",
+          out,
+          "--key-out",
+          key,
+        ]);
+
+        expect(stderr.mock.calls.join("")).toMatch(
+          /^error: that name cannot be used\nNext: use 1 to 64 letters/,
+        );
+        expect(process.exitCode).toBe(1);
+        process.exitCode = undefined;
+        expect(bodies).toHaveLength(0);
+        await expect(readFile(out)).rejects.toThrow(/ENOENT/);
+        await expect(readFile(key)).rejects.toThrow(/ENOENT/);
+      });
+
+      // Trust boundary: a name off the wire is not printed unless it passes the rule.
+      it("does not print a returned name that breaks the rule", async () => {
+        const { url } = await identityAnswering({ name: "evil\u001b[2J\nRefused: fake" });
+        const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        const { out, key } = await files();
+
+        await createCli().parseAsync(
+          ["register", "--identity-url", url, "--out", out, "--key-out", key],
+          {
+            from: "user",
+          },
+        );
+
+        const printed = stdout.mock.calls.join("");
+        expect(printed.split("\n")[0]).toBe(`Registered agent ${ID}.`);
+        expect(printed).not.toContain("evil");
+      });
+    });
+
     it("saves to agent.json and agent.key unless told otherwise", () => {
       const register = createCli().commands.find((command) => command.name() === "register");
       expect(register?.opts()).toMatchObject({ out: "agent.json", keyOut: "agent.key" });

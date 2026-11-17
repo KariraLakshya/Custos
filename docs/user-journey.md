@@ -52,7 +52,7 @@ _The path a person new to Custos takes from a running stack to "I cut an agent o
 | The first `custos audit-log` after `pnpm demo` stops with `KEY_CHANGED`. | It looks like an error, but it is the safety check doing its job.       | Plain message: "First time checking this record. Its seal key is X. If `pnpm demo` printed the same key, run: `custos audit-log --accept-key X`."        | in ADR 0022 §6                     |
 | The `custos` command needs an alias set by hand.                         | A step before the journey even starts.                                  | The `pnpm demo` banner prints the exact line to make the `custos` command work, for bash and for PowerShell.                                             | built, PR #135                     |
 
-The four changes marked built were agreed by the founder on 2026-11-15 and are recorded in ADR 0022 §7. Names (`register --name`) and `custos status` are later steps, so moments 3 and 7 show ids until then.
+The four changes marked built were agreed by the founder on 2026-11-15 and are recorded in ADR 0022 §7. `register --name` is built (moment 3); other commands show the name once identity's `GET /agents` lands with the read scopes. `custos status` is a later step, so moment 7 shows ids until then.
 
 ## What a stranger run records
 

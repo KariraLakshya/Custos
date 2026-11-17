@@ -27,6 +27,12 @@ export interface Agent {
   readonly id: string;
   readonly did: string;
   readonly credential: AgentCredential;
+  /**
+   * Display name (ADR 0022 §2): set by `register`, null when none was given.
+   * Absent on an agent loaded from its credential file, which holds no name.
+   * Shown only; never use it to pick an agent.
+   */
+  readonly name?: string | null;
   /** Hex-encoded 32-byte Ed25519 private key. Secret. */
   readonly secretKey: string;
 }
@@ -111,9 +117,10 @@ export interface Custos {
   /**
    * Registers a new agent: generates its keypair locally, proves possession
    * of it to the identity service, and returns the issued credential together
-   * with the private key, which never left this process.
+   * with the private key, which never left this process. `name` is shown
+   * beside the agent; it is not unique and does not identify it.
    */
-  register(): Promise<Agent>;
+  register(options?: { readonly name?: string }): Promise<Agent>;
   /** Operator action: allowlists `tool` for `agent`. Without it every call is denied. */
   grant(agent: Pick<Agent, "did">, tool: string): Promise<GrantResult>;
   /**
@@ -145,6 +152,8 @@ export interface Custos {
 const agentSchema = z.object({
   id: z.string().min(1),
   did: z.string().min(1),
+  // An identity service from before names answers without the field.
+  name: z.string().nullable().default(null),
   credential: z.looseObject({ issuer: z.string().min(1) }),
 });
 const tokenSchema = z.object({ token: z.string().min(1) });
@@ -318,7 +327,7 @@ export function createCustos(config: CustosConfig): Custos {
   }
 
   return {
-    async register() {
+    async register(options = {}) {
       const key = operatorKey("register");
       const request = await buildRegistrationRequest({
         // The proof names the identity service it is for: its did:web DID,
@@ -326,7 +335,9 @@ export function createCustos(config: CustosConfig): Custos {
         audience: didWebFromDomain(identityUrl.host),
         now: new Date(),
       });
-      const response = await postJson(new URL("/agents", identityUrl), request.body, key);
+      const body =
+        options.name === undefined ? request.body : { ...request.body, name: options.name };
+      const response = await postJson(new URL("/agents", identityUrl), body, key);
       expectOk("register", "identity service", response);
       const registered = parseOrThrow("register", agentSchema, response.body);
       return { ...registered, secretKey: Buffer.from(request.secretKey).toString("hex") };
