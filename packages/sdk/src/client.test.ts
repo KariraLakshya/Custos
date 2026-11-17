@@ -129,6 +129,34 @@ describe("register", () => {
     expect(registered.credential).toEqual(credential);
   });
 
+  it("sends a name when given one and returns the name the service stored", async () => {
+    const { url, requests } = await stubServices({
+      "/agents": {
+        status: 201,
+        body: { id: "abc", did: "did:web:example:agents:abc", name: "billing-bot", credential },
+      },
+    });
+
+    const registered = await custosAt(url).register({ name: "billing-bot" });
+
+    expect((requests[0]?.body as { name?: unknown }).name).toBe("billing-bot");
+    expect(registered.name).toBe("billing-bot");
+  });
+
+  it("sends no name when given none, and reads a missing name as null", async () => {
+    const { url, requests } = await stubServices({
+      "/agents": {
+        status: 201,
+        body: { id: "abc", did: "did:web:example:agents:abc", credential },
+      },
+    });
+
+    const registered = await custosAt(url).register();
+
+    expect(requests[0]?.body).not.toHaveProperty("name");
+    expect(registered.name).toBeNull();
+  });
+
   it("generates the agent's key locally and sends only its public key and a proof of possession", async () => {
     const { url, requests } = await stubServices({
       "/agents": {

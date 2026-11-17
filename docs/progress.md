@@ -30,6 +30,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-16 — Agents can be given a name when they are registered
+
+**Commit:** `b07a875` on branch `feat/agent-names` (Phase 8b, step 4), pushed 2026-11-18 as **pull request #141**.
+
+**What shipped:** `custos register --name billing-bot` now answers "Registered billing-bot (id 3f2b…)." instead of only a long id. The name is kept by the identity service, the part of Custos that issues each agent its identity.
+
+**How it works, in plain words:** a name is a label, not an identity. Two agents may share a name, so every command that acts on an agent (grant, revoke, audit) still takes its exact id. That way a typo or a reused name can never cut off the wrong agent. Names are kept short and plain: letters, digits, spaces, dots, dashes and underscores. A name that tries to sneak in hidden terminal characters is refused before anything is created. The name is also kept out of the agent's signed credential and out of the tamper-evident audit log, so adding names changed neither format.
+
+**Why it matters:** this is the first piece of "show people and agents by name" from the usability phase. The dashboard and `custos status` will show these names. The list of agents with their names (`GET /agents`) is held back to the next step, because it must ship already locked behind a permission. Shipping it open, even briefly, would undo what this phase is closing.
+
+---
+
 ## 2026-11-16 — The waiting dependency updates are cleared, and two of them were not safe to merge as they came
 
 **Commits and pull requests:** all branched from `main` on 2026-11-16, and all four are now merged: **#136** (Envoy and Keycloak images), **#137** (the web framework, Fastify), **#138** (the test tool, Vitest) and **#139** (a build-pipeline step). They replace Dependabot's proposals #113, #128, #129, #130 and #131. One Dependabot proposal, **#115** (a newer build of the Keycloak image), is still open. You said to fix it later; the steps are in `docs/state.md`.

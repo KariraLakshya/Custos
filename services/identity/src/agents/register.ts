@@ -23,6 +23,8 @@ import type { AllocateStatusError, StatusAllocator } from "./status-allocator.js
 export interface RegisteredAgent {
   readonly id: string;
   readonly did: string;
+  /** Display name, or null when registered without one (ADR 0022 §2). */
+  readonly name: string | null;
   readonly didDocument: DidWebDocument;
   readonly credential: SignedCredential;
 }
@@ -63,7 +65,8 @@ export async function registerAgent(params: {
   readonly statusAllocator: StatusAllocator;
   readonly domain: string;
   readonly agentId: string;
-  readonly request: { readonly publicKey: string; readonly proof: string };
+  /** `name` is already validated by the route; it is stored and shown only. */
+  readonly request: { readonly publicKey: string; readonly proof: string; readonly name?: string };
   readonly now: Date;
   readonly proofMaxSkewSeconds: number;
 }): Promise<Result<RegisteredAgent, RegisterAgentError>> {
@@ -130,6 +133,7 @@ export async function registerAgent(params: {
       id: agentId,
       did,
       publicKeyMultibase: request.publicKey,
+      name: request.name ?? null,
       didDocument,
       credential: issued.value,
     });
@@ -139,7 +143,13 @@ export async function registerAgent(params: {
     throw error;
   }
 
-  return ok({ id: agentId, did, didDocument, credential: issued.value });
+  return ok({
+    id: agentId,
+    did,
+    name: request.name ?? null,
+    didDocument,
+    credential: issued.value,
+  });
 }
 
 const PUBLIC_KEY_UNIQUE_CONSTRAINT = "agents_public_key_multibase_unique";

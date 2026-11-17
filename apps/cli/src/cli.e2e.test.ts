@@ -313,6 +313,23 @@ describe("custos register + verify (end-to-end lifecycle)", () => {
     expect(outcome).toEqual({ verified: true });
   });
 
+  it("registers a named agent: the real service stores and returns the name, outside the credential", async () => {
+    const outcome = await withRunningIdentityService(4103, async (identityUrl) => {
+      const registered = await sdkAt({ identityUrl }).register({ name: "billing-bot" });
+      return {
+        name: registered.name,
+        inCredential: JSON.stringify(registered.credential).includes("billing-bot"),
+        verified: await verifyCredentialIndependently(registered.credential as SignedCredential),
+      };
+    });
+
+    expect(outcome).toEqual({
+      name: "billing-bot",
+      inCredential: false,
+      verified: { verified: true },
+    });
+  });
+
   it("rejects a credential tampered with after registration", async () => {
     const outcome = await withRunningIdentityService(4102, async (identityUrl) => {
       const registered = await sdkAt({ identityUrl }).register();

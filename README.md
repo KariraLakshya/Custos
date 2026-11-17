@@ -49,7 +49,7 @@ The keys the demo generates stay in memory and in the database, never on disk. I
 Then, in that new terminal, walk an agent through its life:
 
 ```bash
-custos register                     # prints "Registered agent <id>." and writes agent.json + agent.key
+custos register --name billing-bot  # prints "Registered billing-bot (id <id>)." and writes agent.json + agent.key
 custos use mock-database query --input '{"table":"customers"}'
 # Refused: This agent has not been given this tool. ... Code: POLICY_DENIED
 

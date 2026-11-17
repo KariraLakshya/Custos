@@ -1,5 +1,5 @@
 import { open, readFile, rm, writeFile } from "node:fs/promises";
-import { refusalFor } from "@custos/contracts";
+import { AGENT_NAME_MAX_LENGTH, agentNameSchema, refusalFor } from "@custos/contracts";
 import {
   createCustos,
   CustosError,
@@ -291,6 +291,10 @@ Next: custos register
     .description("Register a new agent and issue its identity credential")
     .option("--identity-url <url>", "identity service base URL", "http://localhost:4001")
     .option(
+      "--name <name>",
+      "a name to show beside the agent; not unique, and commands still take its id",
+    )
+    .option(
       "--out <path>",
       "where to write the agent's credential (never overwrites an existing file)",
       "agent.json",
@@ -301,60 +305,82 @@ Next: custos register
       "agent.key",
     )
     .option("--json", "print the result as JSON")
-    .action(async (opts: { identityUrl: string; out: string; keyOut: string; json?: boolean }) => {
-      // Before any file is claimed: a missing operator key leaves nothing behind.
-      const operator = await operatorCustos({ identityUrl: opts.identityUrl });
-      // Claim both files before registering: "wx" fails if one exists, so an
-      // existing agent's key or credential is never overwritten. 0o600 keeps
-      // the key owner-only (POSIX; Windows ignores the mode, so
-      // restrictToOwner sets the ACL, before the key exists to be read).
-      const claim = async (path: string, what: string, flag: string, mode?: number) => {
-        try {
-          return await open(path, "wx", mode);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    .action(
+      async (opts: {
+        identityUrl: string;
+        name?: string;
+        out: string;
+        keyOut: string;
+        json?: boolean;
+      }) => {
+        // Refused here, before any file or request, with the rule in words.
+        if (opts.name !== undefined && !agentNameSchema.safeParse(opts.name).success) {
           throw new CliError(
-            `refusing to overwrite existing ${what} ${path}`,
-            `run this in an empty directory, or pass ${flag} <path> for the new agent`,
+            "that name cannot be used",
+            `use 1 to ${AGENT_NAME_MAX_LENGTH} letters, digits, spaces, dots, dashes or underscores, starting with a letter or digit, for example --name billing-bot`,
           );
         }
-      };
-      const keyFile = await claim(opts.keyOut, "key file", "--key-out", 0o600);
-      let credentialFile;
-      try {
-        credentialFile = await claim(opts.out, "credential file", "--out");
-      } catch (error) {
-        await keyFile.close();
-        await rm(opts.keyOut, { force: true });
-        throw error;
-      }
-      try {
-        await restrictToOwner(opts.keyOut);
-        const { secretKey, ...agent } = await operator.register();
-        await keyFile.writeFile(`${secretKey}\n`);
-        await keyFile.close();
-        await credentialFile.writeFile(JSON.stringify(agent.credential, null, 2));
-        await credentialFile.close();
-        // The private key is never printed — stdout ends up in logs.
-        process.stdout.write(
-          opts.json
-            ? `${JSON.stringify({ ...agent, keyFile: opts.keyOut, credentialFile: opts.out }, null, 2)}\n`
-            : [
-                `Registered agent ${agent.id}.`,
-                `Its credential is in ${opts.out} and its private key in ${opts.keyOut}. Keep the key secret.`,
-                `Next: custos grant <tool> --to ${agent.id}`,
-                "",
-              ].join("\n"),
-        );
-      } catch (error) {
-        // No agent was registered for these files: leave nothing behind.
-        await keyFile.close();
-        await credentialFile.close();
-        await rm(opts.keyOut, { force: true });
-        await rm(opts.out, { force: true });
-        throw error;
-      }
-    });
+        // Before any file is claimed: a missing operator key leaves nothing behind.
+        const operator = await operatorCustos({ identityUrl: opts.identityUrl });
+        // Claim both files before registering: "wx" fails if one exists, so an
+        // existing agent's key or credential is never overwritten. 0o600 keeps
+        // the key owner-only (POSIX; Windows ignores the mode, so
+        // restrictToOwner sets the ACL, before the key exists to be read).
+        const claim = async (path: string, what: string, flag: string, mode?: number) => {
+          try {
+            return await open(path, "wx", mode);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            throw new CliError(
+              `refusing to overwrite existing ${what} ${path}`,
+              `run this in an empty directory, or pass ${flag} <path> for the new agent`,
+            );
+          }
+        };
+        const keyFile = await claim(opts.keyOut, "key file", "--key-out", 0o600);
+        let credentialFile;
+        try {
+          credentialFile = await claim(opts.out, "credential file", "--out");
+        } catch (error) {
+          await keyFile.close();
+          await rm(opts.keyOut, { force: true });
+          throw error;
+        }
+        try {
+          await restrictToOwner(opts.keyOut);
+          const { secretKey, ...agent } = await operator.register(
+            opts.name === undefined ? {} : { name: opts.name },
+          );
+          await keyFile.writeFile(`${secretKey}\n`);
+          await keyFile.close();
+          await credentialFile.writeFile(JSON.stringify(agent.credential, null, 2));
+          await credentialFile.close();
+          // The name comes back off the wire: printed only if it passes the
+          // same rule, so a service cannot write control characters to the terminal.
+          const shownName = agentNameSchema.safeParse(agent.name);
+          // The private key is never printed — stdout ends up in logs.
+          process.stdout.write(
+            opts.json
+              ? `${JSON.stringify({ ...agent, keyFile: opts.keyOut, credentialFile: opts.out }, null, 2)}\n`
+              : [
+                  shownName.success
+                    ? `Registered ${shownName.data} (id ${agent.id}).`
+                    : `Registered agent ${agent.id}.`,
+                  `Its credential is in ${opts.out} and its private key in ${opts.keyOut}. Keep the key secret.`,
+                  `Next: custos grant <tool> --to ${agent.id}`,
+                  "",
+                ].join("\n"),
+          );
+        } catch (error) {
+          // No agent was registered for these files: leave nothing behind.
+          await keyFile.close();
+          await credentialFile.close();
+          await rm(opts.keyOut, { force: true });
+          await rm(opts.out, { force: true });
+          throw error;
+        }
+      },
+    );
 
   program
     .command("verify")
