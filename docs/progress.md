@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-16 — Agents can be given a name when they are registered
 
-**Commit:** `b07a875` on branch `feat/agent-names` (Phase 8b, step 4). Not pushed yet.
+**Commit:** `b07a875` on branch `feat/agent-names` (Phase 8b, step 4), pushed 2026-11-18 as **pull request #141**.
 
 **What shipped:** `custos register --name billing-bot` now answers "Registered billing-bot (id 3f2b…)." instead of only a long id. The name is kept by the identity service, the part of Custos that issues each agent its identity.
 
