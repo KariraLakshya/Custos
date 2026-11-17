@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-18 — The README is short enough to hand to an outsider
 
-**Commits:** `d4ae863`, `acf029c` on branch `docs/readme-outsider`, pushed 2026-11-18 as a pull request.
+**Commits:** `d4ae863`, `acf029c` on branch `docs/readme-outsider`, pushed 2026-11-18 as **pull request #142**.
 
 **What shipped:** the front page of the repository (`README.md`) went from 544 lines to 124. In about two minutes it now tells someone new what Custos is, why it exists, which of its six checks are built (and that data filtering is not), how to run the demo, and where everything lives. Nothing was thrown away. The step-by-step setup moved to `docs/getting-started.md`, the optional extras (company sign-in, certificates between services, cross-company federation, AWS keys) to `docs/optional-setups.md`, and the fixes for common problems to `docs/troubleshooting.md`.
 
