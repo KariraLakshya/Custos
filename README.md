@@ -406,7 +406,7 @@ Then, in your own terminal:
 custos login      # opens the sign-in page; demo user alice / alice-dev-password
 ```
 
-`custos login` saves a key that lasts 8 hours (`SSO_SESSION_HOURS`) to `~/.custos/operator.key`, owner-only, and never prints it. `register`, `grant` and `revoke` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Only people in a group listed in `SSO_GROUP_SCOPES` can sign in: the demo user `bob` is in none, so he's refused. Everything they do appears in the audit log under their email. The demo realm's passwords and client secret are for local use only.
+`custos login` saves a key that lasts 8 hours (`SSO_SESSION_HOURS`) to `~/.custos/operator.key`, owner-only, and never prints it. `register`, `grant`, `revoke` and `audit-log` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Only people in a group listed in `SSO_GROUP_SCOPES` can sign in: the demo user `bob` is in none, so he's refused. Everything they do appears in the audit log under their email. The demo realm's passwords and client secret are for local use only.
 
 ### Optional: trust another organisation's agents (federation)
 
