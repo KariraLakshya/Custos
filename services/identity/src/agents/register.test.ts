@@ -64,6 +64,7 @@ async function registerWith(
     domain: DOMAIN,
     agentId,
     request: body,
+    registeredBy: { kind: "operator", id: "test-operator", name: "test" },
     now: new Date(),
     proofMaxSkewSeconds: 60,
   });
