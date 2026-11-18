@@ -230,7 +230,13 @@ describe("custos-admin dev-keys", () => {
         return true;
       });
       await runAdminCli(["node", "custos-admin", "dev-keys", "--check"], {
-        store,
+        // --check only reads: a create would fail the run.
+        store: {
+          ...store,
+          create: async () => {
+            throw new Error("dev-keys --check created a key");
+          },
+        },
         clock,
         out: (line) => lines.push(line),
         env,
@@ -242,7 +248,6 @@ describe("custos-admin dev-keys", () => {
 
     it("passes a fresh set, prints no key and creates nothing", async () => {
       const keys = Object.fromEntries(await devKeys());
-      const before = (await store.list()).length;
       const { lines, stderr, exitCode } = await check(keys);
       expect(exitCode).toBeUndefined();
       expect(lines).toEqual([
@@ -251,7 +256,6 @@ describe("custos-admin dev-keys", () => {
         "# REVOCATION_SERVICE_KEY: ok",
         "# VAULT_SERVICE_KEY: ok",
       ]);
-      expect((await store.list()).length).toBe(before);
       for (const token of Object.values(keys)) {
         expect(lines.join("\n") + stderr).not.toContain(token);
       }
