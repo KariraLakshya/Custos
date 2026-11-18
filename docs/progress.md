@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-18 — Four "read" permissions, and two new ways to ask Custos what it knows
 
-**Commits:** on branch `feat/read-scopes` (Phase 8b, step 5a). **Not pushed yet**; the lead reviews it first.
+**Commits:** on branch `feat/read-scopes` (Phase 8b, step 5a). Pushed 2026-11-18 as **pull request #148**.
 
 **What shipped:** four new permissions an operator's key can carry: read the audit log, read the revocation list, read who may use which tool, and read the list of agents. Two new questions Custos can now answer: "which agents exist, what are they called, and who registered them?" (from the identity service) and "which agent may use which tool, and who allowed it?" (from the vault, the part of Custos that keeps tool passwords). Both answers are locked from the first day: without a key that carries the matching read permission, Custos says only "unauthorized".
 
