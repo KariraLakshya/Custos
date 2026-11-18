@@ -7,6 +7,7 @@ import {
 } from "@custos/core";
 import type { Connector } from "@custos/connectors";
 import { principalOf, requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
+import { didSchema, PAGE_LIMIT_DEFAULT, pageLimitSchema } from "@custos/contracts";
 import { createLogger } from "@custos/observability";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -16,6 +17,7 @@ import { createInMemoryReplayCache } from "./tokens/replay-cache.js";
 import { createTrustedIssuer } from "./tokens/trusted-issuer.js";
 import { invokeTool } from "./calls/invoke.js";
 import { grantToolAccess } from "./policy/policy.js";
+import { decodeGrantCursor, listGrants } from "./policy/list.js";
 import { createRevocationCache, type RevocationCache } from "./revocation/cache.js";
 import {
   controlPlaneEvent,
@@ -59,6 +61,14 @@ const callSchema = z.object({
 const grantPolicySchema = z.object({
   agentId: z.string().min(1),
   tool: z.string().min(1),
+});
+
+// `GET /policies` (ADR 0022 §1). Strict: an unknown parameter is refused, and
+// a repeated one arrives as an array and fails its string check.
+const listGrantsQuerySchema = z.strictObject({
+  agent: didSchema.optional(),
+  limit: pageLimitSchema.optional(),
+  cursor: z.string().min(1).optional(),
 });
 
 const tombstoneSchema = z.object({
@@ -363,6 +373,29 @@ export async function buildServer(options: {
     );
     reply.code(201);
     return { agentId: body.data.agentId, tool: body.data.tool };
+  });
+
+  // Reads grants back (ADR 0022 §1): the vault is the only reliable source, as
+  // a grant can exist with no audit entry. Guarded from its first commit and
+  // never open (§3); not audited, since a read changes nothing. It reads
+  // `agent_policies` only and never returns a tool credential. The error is
+  // `{ error: { code } }`, the shape the guard's own 401 has.
+  const policiesReadGuard = requireScope({ ...options.controlPlaneAuth, scope: "policies:read" });
+  app.get("/policies", { preHandler: policiesReadGuard }, async (request, reply) => {
+    const query = listGrantsQuerySchema.safeParse(request.query);
+    const after =
+      query.success && query.data.cursor !== undefined
+        ? decodeGrantCursor(query.data.cursor)
+        : undefined;
+    if (!query.success || after === null) {
+      reply.code(400);
+      return { error: { code: "INVALID_INPUT" } };
+    }
+    return listGrants(db, {
+      ...(query.data.agent === undefined ? {} : { agentDid: query.data.agent }),
+      ...(after === undefined ? {} : { after }),
+      limit: query.data.limit ?? PAGE_LIMIT_DEFAULT,
+    });
   });
 
   app.post("/tokens", async (request, reply) => {
