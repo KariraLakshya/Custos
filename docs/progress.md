@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-18 — Custos gets a documentation website
 
-**Commit:** on branch `docs/site` (see the commit list in git). **Not pushed yet.**
+**Commits:** `159ec6e` (the site package, its tooling and ADR 0023), `15889c0` (the pages), plus this log entry, on branch `docs/site`. **Not pushed yet.**
 
 **What shipped:** a proper documentation website, in the style of the LangChain and LangGraph docs, built from the repository with one command (`pnpm docs:dev` to read it on your own machine, `pnpm docs:build` to produce the finished site). It has a left-hand menu, a search box, and five kinds of page: an introduction, a "get started" walkthrough (install, run, take one agent from registration to revocation, then the same from code), one page per idea (identity, the vault, revocation, the audit log, delegation, federation and so on), step-by-step guides for the optional set-ups, and a complete reference for every command, every web address the services answer, and every setting.
 

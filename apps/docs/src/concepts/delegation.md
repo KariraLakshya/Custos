@@ -44,10 +44,11 @@ The SDK refuses to build a hand-off the vault would refuse anyway (widening, pas
 
 ## Passing it on again
 
-If a hand-off allows it (`--depth 1` or more), the receiver can pass on part of it with `--extending`:
+If a hand-off allows it (the first agent made it with `--depth 1` or more), the receiver can pass on part of it with `--extending`, signing as itself:
 
 ```bash
-custos delegate mock-database query --to <third agent id> --extending delegation.json --out delegation-2.json
+# As the helper:
+custos delegate mock-database query --to <third agent id> --extending delegation.json \n  --credential helper.json --key helper.key --out delegation-2.json
 ```
 
 ## Revoking

@@ -8,6 +8,7 @@
 **/coverage
 **/.turbo
 **/*.tsbuildinfo
+**/.vitepress/cache
 
 # Secrets and per-machine credentials: never in any layer
 .env*

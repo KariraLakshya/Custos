@@ -62,7 +62,7 @@ Keep this to what the next session must act on before anything else. Clear items
 - [ ] **Demo status (2026-10-22): one company can be shown live; the two-company story can be run but not yet watched.** One company: `pnpm dev` then `pnpm demo` starts all five services and the dashboard at http://localhost:4005 (live allow/deny feed, revoked-agents panel, "cut off" toast); then README step 4 in a second terminal (register, grant, allowed, other tool denied, revoke, refused within about a second). Two companies: `pnpm demo:federation` runs the story live, Enter to step, with the dashboard's "Across organisations" panel; `pnpm --filter @custos/admin test:e2e` runs it as a test with A's database off too. Caveats: only dry-run by Claude on this machine, not by a stranger (Phase 5's check is still owed); Docker/Postgres must be up first, and Windows may have reserved ports after a Docker restart (`netsh int ipv4 show excludedportrange protocol=tcp`, then the elevated `net stop winnat` / `net start winnat`).
 
 **Current phase:** Phase 8b — Usability. Steps 1 to 3b are merged (ADR, refusal catalogue #133, CLI wording #134, CLI arguments #135); step 4, names at register (migration 0014), is on branch `feat/agent-names`. Next: read scopes + `GET /agents` + `custos status`. Before it: Phase 8 — Delegation provenance (ADR 0020), closed 2026-11-09 (PR #122, `28f4cde`). Before it: Phase 7 — Packaging, closed 2026-10-30 (PR #118).
-**Last updated:** 2026-11-16 (Phase 8b step 4, agent names at register, on `feat/agent-names`)
+**Last updated:** 2026-11-18 (documentation site, ADR 0023, on `docs/site`; not pushed)
 
 ## Implemented, by phase
 
