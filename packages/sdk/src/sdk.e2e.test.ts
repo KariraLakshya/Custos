@@ -28,6 +28,10 @@ beforeAll(async () => {
     "policies:write",
     "agents:revoke",
     "agents:register",
+    "audit:read",
+    "revocations:read",
+    "policies:read",
+    "agents:read",
   ]);
   identityServiceKey = await controlPlane.key("service", ["status:allocate", "audit:write"]);
   revocationServiceKey = await controlPlane.key("service", ["audit:write"]);

@@ -537,6 +537,17 @@ describe("audit POST /records authentication (ADR 0008)", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["access-control-allow-origin"]).toBe("*");
   });
+
+  // ADR 0022 §3: callers send an audit:read key before these routes close; a
+  // key sent to a still-open route does no harm.
+  it("still answers GET /records and GET /seals/status when a caller sends an audit:read key", async () => {
+    const app = await build();
+    const key = await controlPlane.key("operator", ["audit:read"]);
+    for (const url of ["/records", "/seals/status"]) {
+      const response = await app.inject({ method: "GET", url, headers: bearer(key) });
+      expect(response.statusCode).toBe(200);
+    }
+  });
 });
 
 describe("audit control-plane records (ADR 0008 §7)", () => {

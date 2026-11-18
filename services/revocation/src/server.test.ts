@@ -278,6 +278,14 @@ describe("revocation service", () => {
       expect(response.statusCode).toBe(200);
       const body = response.json() as { tombstones: string[]; asOf: string };
       expect(body.asOf).toBe("2026-09-07T10:00:00.000Z");
+      // ADR 0022 §3: a revocations:read key sent before the route closes does no harm.
+      const keyed = await app.inject({
+        method: "GET",
+        url: "/revocations",
+        headers: bearer(await controlPlane.key("operator", ["revocations:read"])),
+      });
+      expect(keyed.statusCode).toBe(200);
+      expect(keyed.json()).toEqual(body);
 
       const didResponse = await app.inject({ method: "GET", url: "/.well-known/did.json" });
       const publicKey = publicKeyFrom(didResponse.json() as DidWebDocument);

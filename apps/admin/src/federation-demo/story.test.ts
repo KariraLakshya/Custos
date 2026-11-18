@@ -41,6 +41,8 @@ interface Stack {
   readonly revocationDomain: string;
   readonly operatorKey: string;
   readonly bAuditKey: string;
+  /** Reads B's audit log (ADR 0022 §3: audit:read). */
+  readonly auditReadKey: string;
   readonly workDir: string;
   readonly stopA: () => Promise<void>;
   readonly aIsRunning: () => boolean;
@@ -58,6 +60,7 @@ async function startStack(): Promise<Stack> {
   const operatorKey = await controlPlane.key("operator", ["agents:register"]);
   const identityServiceKey = await controlPlane.key("service", ["status:allocate"]);
   const bAuditKey = await controlPlane.key("service", ["audit:write"]);
+  const auditReadKey = await controlPlane.key("operator", ["audit:read"]);
 
   const [identityPort, revocationPort, auditPort, hostPort] = await Promise.all([
     freePort(),
@@ -126,6 +129,7 @@ async function startStack(): Promise<Stack> {
     revocationDomain,
     operatorKey,
     bAuditKey,
+    auditReadKey,
     workDir,
     stopA,
     aIsRunning: () => aRunning,
@@ -142,6 +146,7 @@ describe("runFederationStory", () => {
       revocationDomain,
       operatorKey,
       bAuditKey,
+      auditReadKey,
       workDir,
       stopA,
       aIsRunning,
@@ -215,7 +220,10 @@ describe("runFederationStory", () => {
 
     // The dashboard's source: B's audit ledger, with verified foreign: records.
     await vi.waitFor(async () => {
-      const pulled = await pullAuditLedger({ auditUrl: `http://127.0.0.1:${auditPort}` });
+      const pulled = await pullAuditLedger({
+        auditUrl: `http://127.0.0.1:${auditPort}`,
+        apiKey: auditReadKey,
+      });
       if (!pulled.ok) throw new Error(`audit ledger: ${pulled.error.code}`);
       const reasons = pulled.value.records
         .map((entry) => entry.record)

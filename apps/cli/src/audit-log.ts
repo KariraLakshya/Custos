@@ -130,6 +130,8 @@ export async function pullAuditLog(params: {
    */
   readonly identityIssuerDid?: string;
   readonly resolveIssuer?: (did: string) => Promise<DidWebDocument>;
+  /** The operator key, sent to the audit service's `/records` (ADR 0022 §3). */
+  readonly operatorKey?: string;
 }): Promise<AuditLogResult> {
   const accepted = params.acceptKeys ?? [];
   for (const key of accepted) {
@@ -143,6 +145,7 @@ export async function pullAuditLog(params: {
 
   const pulled = await pullAuditLedger({
     auditUrl: params.auditUrl,
+    ...(params.operatorKey === undefined ? {} : { apiKey: params.operatorKey }),
     ...(params.agentDid === undefined ? {} : { agentDid: params.agentDid }),
     heldSeals: (log) => {
       const seal = remembered[log]?.seal;

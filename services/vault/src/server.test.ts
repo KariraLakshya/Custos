@@ -1007,6 +1007,14 @@ describe("vault service", () => {
       const response = await app.inject({ method: "GET", url: "/revocations" });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ revokedCount: 0, freshAsOf: null, stale: true });
+      // ADR 0022 §3: a revocations:read key sent before the route closes does no harm.
+      const keyed = await app.inject({
+        method: "GET",
+        url: "/revocations",
+        headers: bearer(await controlPlane.key("operator", ["revocations:read"])),
+      });
+      expect(keyed.statusCode).toBe(200);
+      expect(keyed.json()).toEqual({ revokedCount: 0, freshAsOf: null, stale: true });
     });
 
     it(
