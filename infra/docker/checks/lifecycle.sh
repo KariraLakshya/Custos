@@ -49,7 +49,7 @@ run() { name=$1; shift; "$@" >"$name.out" 2>"$name.err"; rc=$?; }
 first() { head -n1 "$1" | cut -c1-160; }
 
 run key custos-admin key create --kind operator --name images-lifecycle-check \
-  --scopes credentials:write,policies:write,agents:revoke,agents:register --expires-in 1h
+  --scopes credentials:write,policies:write,agents:revoke,agents:register,audit:read,revocations:read,policies:read,agents:read --expires-in 1h
 key_id=$(sed -n 's/^id: *//p' key.out)
 CUSTOS_OPERATOR_KEY=$(sed -n 's/^key: *//p' key.out)
 rm -f key.out

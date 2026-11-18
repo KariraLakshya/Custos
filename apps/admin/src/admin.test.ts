@@ -196,7 +196,16 @@ describe("custos-admin dev-keys", () => {
     };
     expect(await scopesOf("CUSTOS_OPERATOR_KEY")).toEqual({
       kind: "operator",
-      scopes: ["agents:register", "agents:revoke", "credentials:write", "policies:write"],
+      scopes: [
+        "agents:read",
+        "agents:register",
+        "agents:revoke",
+        "audit:read",
+        "credentials:write",
+        "policies:read",
+        "policies:write",
+        "revocations:read",
+      ],
     });
     expect(await scopesOf("IDENTITY_SERVICE_KEY")).toEqual({
       kind: "service",
@@ -209,6 +218,86 @@ describe("custos-admin dev-keys", () => {
     expect(await scopesOf("VAULT_SERVICE_KEY")).toEqual({
       kind: "service",
       scopes: ["audit:write"],
+    });
+  });
+
+  describe("--check (ADR 0022 §3: recreate keys that lack a scope)", () => {
+    async function check(env: Record<string, string | undefined>) {
+      const lines: string[] = [];
+      let stderr = "";
+      vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+        stderr += String(chunk);
+        return true;
+      });
+      await runAdminCli(["node", "custos-admin", "dev-keys", "--check"], {
+        store,
+        clock,
+        out: (line) => lines.push(line),
+        env,
+      });
+      const exitCode = process.exitCode;
+      process.exitCode = undefined;
+      return { lines, stderr, exitCode };
+    }
+
+    it("passes a fresh set, prints no key and creates nothing", async () => {
+      const keys = Object.fromEntries(await devKeys());
+      const before = (await store.list()).length;
+      const { lines, stderr, exitCode } = await check(keys);
+      expect(exitCode).toBeUndefined();
+      expect(lines).toEqual([
+        "# CUSTOS_OPERATOR_KEY: ok",
+        "# IDENTITY_SERVICE_KEY: ok",
+        "# REVOCATION_SERVICE_KEY: ok",
+        "# VAULT_SERVICE_KEY: ok",
+      ]);
+      expect((await store.list()).length).toBe(before);
+      for (const token of Object.values(keys)) {
+        expect(lines.join("\n") + stderr).not.toContain(token);
+      }
+    });
+
+    it("fails an operator key made before the read scopes, naming what it lacks", async () => {
+      const keys = Object.fromEntries(await devKeys());
+      const old = await store.create({
+        kind: "operator",
+        name: `pre-read-scopes-${randomUUID()}`,
+        scopes: ["credentials:write", "policies:write", "agents:revoke", "agents:register"],
+        expiresAt: new Date(clock.now().getTime() + 86_400_000),
+        now: clock.now(),
+      });
+      if (!old.ok) throw new Error("test setup: key not created");
+      const { lines, stderr, exitCode } = await check({ ...keys, CUSTOS_OPERATOR_KEY: old.token });
+      expect(exitCode).toBe(1);
+      expect(lines[0]).toBe(
+        "# CUSTOS_OPERATOR_KEY: lacks audit:read, revocations:read, policies:read, agents:read",
+      );
+      expect(lines.slice(1).every((line) => line.endsWith(": ok"))).toBe(true);
+      expect(stderr).toContain("dev keys need recreating: CUSTOS_OPERATOR_KEY");
+      expect(lines.join("\n") + stderr).not.toContain(old.token);
+    });
+
+    it("fails a revoked, an unset, an unknown and a wrong-kind key", async () => {
+      const keys = Object.fromEntries(await devKeys());
+      const revoked = keys.VAULT_SERVICE_KEY!;
+      const revokedId = /^custos_service_([0-9a-f]{16})_/.exec(revoked)?.[1];
+      expect(await store.revoke(revokedId!, clock.now())).toBe(true);
+      const { lines, stderr, exitCode } = await check({
+        CUSTOS_OPERATOR_KEY: keys.IDENTITY_SERVICE_KEY,
+        IDENTITY_SERVICE_KEY: undefined,
+        REVOCATION_SERVICE_KEY: "custos_service_0123456789abcdef_" + "x".repeat(43),
+        VAULT_SERVICE_KEY: revoked,
+      });
+      expect(exitCode).toBe(1);
+      expect(lines[0]).toBe("# CUSTOS_OPERATOR_KEY: is a service key, needs operator");
+      expect(lines.slice(1)).toEqual([
+        "# IDENTITY_SERVICE_KEY: not set",
+        "# REVOCATION_SERVICE_KEY: not usable (UNKNOWN_KEY)",
+        "# VAULT_SERVICE_KEY: not usable (REVOKED)",
+      ]);
+      expect(stderr).toContain(
+        "dev keys need recreating: CUSTOS_OPERATOR_KEY, IDENTITY_SERVICE_KEY, REVOCATION_SERVICE_KEY, VAULT_SERVICE_KEY",
+      );
     });
   });
 

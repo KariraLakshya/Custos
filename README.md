@@ -397,7 +397,7 @@ SSO_ALLOW_HTTP_ISSUER=true                     # plain http is accepted only for
 SSO_CLIENT_ID=custos-identity
 SSO_CLIENT_SECRET=custos-dev-sso-client-secret-not-for-production
 SSO_REDIRECT_URL=http://localhost:4001/operator/callback
-SSO_GROUP_SCOPES='{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write"]}'
+SSO_GROUP_SCOPES='{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write","audit:read","revocations:read","policies:read","agents:read"]}'
 ```
 
 Then, in your own terminal:

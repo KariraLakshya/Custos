@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateApiKey, hashApiKeySecret, parseApiKey, secretMatchesHash } from "./api-key.js";
-import { isScope, scopeAllowedFor } from "./scopes.js";
+import { isScope, OPERATOR_SCOPES, scopeAllowedFor, type Scope } from "./scopes.js";
 
 /** Deterministic randomness: byte i of every draw is `seed + i`. */
 function seededBytes(seed: number): (length: number) => Uint8Array {
@@ -64,8 +64,18 @@ describe("secretMatchesHash", () => {
 describe("scopes", () => {
   it("recognises known scopes only", () => {
     expect(isScope("audit:write")).toBe(true);
-    expect(isScope("audit:read")).toBe(false);
+    expect(isScope("audit:admin")).toBe(false);
     expect(isScope("")).toBe(false);
+  });
+
+  it("knows the four read scopes, as operator scopes (ADR 0022 §3)", () => {
+    for (const scope of ["audit:read", "revocations:read", "policies:read", "agents:read"]) {
+      expect(isScope(scope)).toBe(true);
+      expect((OPERATOR_SCOPES as readonly string[]).includes(scope)).toBe(true);
+      expect(scopeAllowedFor("operator", scope as Scope)).toBe(true);
+    }
+    expect(isScope("audit:Read")).toBe(false);
+    expect(isScope("grants:read")).toBe(false);
   });
 
   it("keeps service-only scopes off operator keys", () => {
