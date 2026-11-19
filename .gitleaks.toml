@@ -23,4 +23,7 @@ regexes = [
   # Malformed-key test fixtures in packages/control-plane-auth: a fixed fake
   # key id with no secret attached, so never a usable key.
   '''^custos_operator_0123456789abcdef_$''',
+  # The did:key example from the W3C did:key specification, used as a valid
+  # DID shape in packages/contracts reads.test.ts: a public key, never a secret.
+  '''^z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK$''',
 ]
