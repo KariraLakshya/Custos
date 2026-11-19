@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The README step 4 lifecycle against the running image stack (`pnpm
+# The step 4 lifecycle (docs/getting-started.md) against the running image stack (`pnpm
 # images:up`), entirely inside a custos-tools container that shares the
 # services' network namespace: no host Node, no source mount.
 #   operator key (custos-admin) → store the stand-in tool passwords →
@@ -61,7 +61,7 @@ export CUSTOS_OPERATOR_KEY
 trap 'custos-admin key revoke "$key_id" >/dev/null 2>&1 && echo "  info operator key $key_id revoked"' EXIT
 ok "custos-admin key create: operator key $key_id"
 
-# README step 3: store the stand-in tool passwords (POST /credentials, as the
+# Step 3 of docs/getting-started.md: store the stand-in tool passwords (POST /credentials, as the
 # vault's seed script does; that script is not in the tools image).
 for tool in mock-database mock-slack; do
   status=$(node -e '

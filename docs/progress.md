@@ -20,6 +20,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-18 — The README is short enough to hand to an outsider
+
+**Commits:** `d4ae863`, `acf029c` on branch `docs/readme-outsider`, pushed 2026-11-18 as **pull request #142**.
+
+**What shipped:** the front page of the repository (`README.md`) went from 544 lines to 124. In about two minutes it now tells someone new what Custos is, why it exists, which of its six checks are built (and that data filtering is not), how to run the demo, and where everything lives. Nothing was thrown away. The step-by-step setup moved to `docs/getting-started.md`, the optional extras (company sign-in, certificates between services, cross-company federation, AWS keys) to `docs/optional-setups.md`, and the fixes for common problems to `docs/troubleshooting.md`.
+
+**How it works, in plain words:** the README is now the brochure and the new files are the manual. The brief for the outside tester (`docs/readme-test.md`) points at the manual. While moving the text, a few expected outputs that had drifted from what the tool really prints were corrected.
+
+**Why it matters:** the repository is public and the README is what an investor's technical advisor, a tester or a contributor reads first. It can be shared as it is. Still open: the Phase 5 check says the tester uses "only the README", and they now also need `docs/getting-started.md`, which is your call.
+
+---
+
 ## 2026-11-18 — A new warning about a lint tool is set aside, on the record, until it is fixed
 
 **Commit:** on branch `ci/ignore-picomatch-redos`, pushed 2026-11-18 as **pull request #143**.
