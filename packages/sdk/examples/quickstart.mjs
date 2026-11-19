@@ -1,6 +1,6 @@
 // One agent's full lifecycle through @custos/sdk, against the local stack.
 // Run from the repo root: node packages/sdk/examples/quickstart.mjs
-// Prerequisites (see README): services running, `pnpm build`, a
+// Prerequisites (see docs/getting-started.md): services running, `pnpm build`, a
 // `mock-database` secret stored in the vault, and CUSTOS_OPERATOR_KEY set.
 import { performance } from "node:perf_hooks";
 import { createCustos } from "@custos/sdk";

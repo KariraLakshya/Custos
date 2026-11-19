@@ -4,11 +4,11 @@ Thanks for helping. Custos is a trust layer for AI agents. We need to know wheth
 
 ## The rules
 
-- Follow the **numbered steps by hand**. Skip the "Quick start: one command" section (`pnpm demo`); it is a separate path, not what we are testing here.
-- Use **only** [the README](../README.md), from "Quickstart: zero to a revoked agent" through the end of step 4. Step 5 (the SDK) is optional.
-- **Don't ask the author for help while you're doing it.** If you're stuck for more than 10 minutes, write down where and why, then use the README's Troubleshooting table. If that doesn't get you moving again, stop. That's a valid result.
+- Follow the **numbered steps by hand** in [Running Custos by hand](./getting-started.md). Skip the README's one-command Quickstart (`pnpm demo`); it is a separate path, not what we are testing here.
+- Use **only** [the README](../README.md) and [Running Custos by hand](./getting-started.md), from "What you need" through the end of step 4. Step 5 (the SDK) is optional.
+- **Don't ask the author for help while you're doing it.** If you're stuck for more than 10 minutes, write down where and why, then use the [troubleshooting](./troubleshooting.md) table. If that doesn't get you moving again, stop. That's a valid result.
 - Run commands as written. If you have to change one to make it work, note what you changed.
-- You may instead follow the README's "Run from container images" section in place of steps 1 to 3, then do step 4 inside the tools container. The pass criteria are the same. Say which path you took.
+- You may instead follow the guide's "Run from container images" section in place of steps 1 to 3, then do step 4 inside the tools container. The pass criteria are the same. Say which path you took.
 
 ## What you need
 
@@ -26,11 +26,11 @@ You pass if you see all of these, in order:
 | Step | You should see                                                                                                                                                                                                               |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 4    | `custos verify agent.json` prints `verified: credential is authentic`                                                                                                                                                        |
-| 4    | The first `custos use mock-database …` prints `denied: POLICY_DENIED`                                                                                                                                                        |
+| 4    | The first `custos use mock-database …` prints `Code: POLICY_DENIED`                                                                                                                                                          |
 | 4    | After `custos grant`, the same command returns Ada Lovelace and Alan Turing                                                                                                                                                  |
-| 4    | `custos use mock-slack …` prints `denied: POLICY_DENIED`                                                                                                                                                                     |
-| 4    | `custos deprovision` shows `"delivered": 1`                                                                                                                                                                                  |
-| 4    | `custos use mock-database …` then prints `denied: AGENT_REVOKED`                                                                                                                                                             |
+| 4    | `custos use mock-slack …` prints `Code: POLICY_DENIED`                                                                                                                                                                       |
+| 4    | `custos revoke` shows `Vaults told now: 1.`                                                                                                                                                                                  |
+| 4    | `custos use mock-database …` then prints `Code: AGENT_REVOKED`                                                                                                                                                               |
 | 4    | `custos audit-log` lists your actions and exits without an error (if you restart the audit service with a new `AUDIT_SIGNING_SEED`, it first stops with `KEY_CHANGED`; follow what it says, and note whether that was clear) |
 | 2    | The dashboard at http://localhost:4005 shows the decisions as they happen                                                                                                                                                    |
 
