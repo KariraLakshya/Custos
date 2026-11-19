@@ -50,9 +50,11 @@ function fakeFetch(
   options: { didStatus?: number; recordsStatus?: number; didBody?: unknown } = {},
 ) {
   const asked: string[] = [];
-  const doFetch = (async (input: URL | string) => {
+  const authorizations: (string | null)[] = [];
+  const doFetch = (async (input: URL | string, init?: RequestInit) => {
     const url = String(input);
     asked.push(url);
+    authorizations.push(new Headers(init?.headers).get("authorization"));
     if (url.endsWith("/.well-known/did.json")) {
       return new Response(JSON.stringify(options.didBody ?? did), {
         status: options.didStatus ?? 200,
@@ -60,7 +62,7 @@ function fakeFetch(
     }
     return new Response(JSON.stringify(records), { status: options.recordsStatus ?? 200 });
   }) as typeof fetch;
-  return { doFetch, asked };
+  return { doFetch, asked, authorizations };
 }
 
 describe("pullAuditLedger (ADR 0017)", () => {
@@ -85,6 +87,27 @@ describe("pullAuditLedger (ADR 0017)", () => {
     });
     expect(heldFor).toEqual([did.id]);
     expect(asked[1]).toBe(`${AUDIT_URL}/records?agentId=did%3Aweb%3Ax%3Aagents%3Aa`);
+  });
+
+  it("sends the key on the /records request only, never on the public DID document (ADR 0022 §3)", async () => {
+    const body = await ledger(["a"]);
+    const { doFetch, asked, authorizations } = fakeFetch(body);
+
+    const result = await pullAuditLedger({
+      auditUrl: AUDIT_URL,
+      apiKey: "custos_operator_k",
+      fetch: doFetch,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(asked).toEqual([`${AUDIT_URL}/.well-known/did.json`, `${AUDIT_URL}/records`]);
+    expect(authorizations).toEqual([null, "Bearer custos_operator_k"]);
+  });
+
+  it("sends no key when given none", async () => {
+    const { doFetch, authorizations } = fakeFetch(await ledger(["a"]));
+    expect((await pullAuditLedger({ auditUrl: AUDIT_URL, fetch: doFetch })).ok).toBe(true);
+    expect(authorizations).toEqual([null, null]);
   });
 
   it("verifies a log with no seal yet", async () => {

@@ -39,6 +39,14 @@ export type RegisterAgentError =
     }
   | { readonly code: "KEY_ALREADY_REGISTERED" };
 
+/** The principal that registered an agent, as `principalOf` gave it (like the vault's `GrantedBy`). */
+export interface RegisteredBy {
+  readonly kind: "operator" | "service";
+  readonly id: string;
+  readonly name: string;
+  readonly via?: "custos-admin" | "sso";
+}
+
 /** The identity service's own signing identity, as issuer of every agent credential (ADR 0007). */
 export interface Issuer {
   readonly did: string;
@@ -67,6 +75,8 @@ export async function registerAgent(params: {
   readonly agentId: string;
   /** `name` is already validated by the route; it is stored and shown only. */
   readonly request: { readonly publicKey: string; readonly proof: string; readonly name?: string };
+  /** The principal that registered it (ADR 0022 §2), stored with the agent and never signed. */
+  readonly registeredBy: RegisteredBy;
   readonly now: Date;
   readonly proofMaxSkewSeconds: number;
 }): Promise<Result<RegisteredAgent, RegisterAgentError>> {
@@ -134,6 +144,10 @@ export async function registerAgent(params: {
       did,
       publicKeyMultibase: request.publicKey,
       name: request.name ?? null,
+      registeredByKind: params.registeredBy.kind,
+      registeredById: params.registeredBy.id,
+      registeredByName: params.registeredBy.name,
+      registeredByVia: params.registeredBy.via ?? null,
       didDocument,
       credential: issued.value,
     });

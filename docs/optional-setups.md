@@ -37,7 +37,7 @@ SSO_ALLOW_HTTP_ISSUER=true                     # plain http is accepted only for
 SSO_CLIENT_ID=custos-identity
 SSO_CLIENT_SECRET=custos-dev-sso-client-secret-not-for-production
 SSO_REDIRECT_URL=http://localhost:4001/operator/callback
-SSO_GROUP_SCOPES='{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write"]}'
+SSO_GROUP_SCOPES='{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write","audit:read","revocations:read","policies:read","agents:read"]}'
 ```
 
 Then, in your own terminal:
@@ -46,7 +46,7 @@ Then, in your own terminal:
 custos login      # opens the sign-in page; demo user alice / alice-dev-password
 ```
 
-`custos login` saves a key that lasts 8 hours (`SSO_SESSION_HOURS`) to `~/.custos/operator.key`, owner-only, and never prints it. `register`, `grant` and `revoke` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Only people in a group listed in `SSO_GROUP_SCOPES` can sign in: the demo user `bob` is in none, so he's refused. Everything they do appears in the audit log under their email. The demo realm's passwords and client secret are for local use only.
+`custos login` saves a key that lasts 8 hours (`SSO_SESSION_HOURS`) to `~/.custos/operator.key`, owner-only, and never prints it. `register`, `grant`, `revoke` and `audit-log` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Only people in a group listed in `SSO_GROUP_SCOPES` can sign in: the demo user `bob` is in none, so he's refused. Everything they do appears in the audit log under their email. The demo realm's passwords and client secret are for local use only.
 
 ## Optional: trust another organisation's agents (federation)
 

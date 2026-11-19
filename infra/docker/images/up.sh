@@ -4,6 +4,7 @@
 #   2. postgres, seal store, redis and the network owner
 #   3. migrations, from custos-tools
 #   4. API keys, from custos-tools, unless the file already holds active ones
+#      with every scope they now need
 #   5. the services, in dependency order, waiting until each is healthy
 #   6. the stand-in tools mock-database and mock-slack stored in the vault,
 #      as `pnpm demo` does
@@ -28,23 +29,23 @@ echo "images: migrating"
 compose run --rm --no-deps -T tools custos-migrate
 
 # The keys in the file are usable only if the database still holds them
-# active (a wiped volume, or expiry, leaves them dangling).
-keys_active() {
-  local active ids id
-  ids=""
+# active (a wiped volume, or expiry, leaves them dangling) and each still has
+# every scope `custos-admin dev-keys` now gives it (ADR 0022 §3: a key made
+# before a scope was added would be refused once its route is guarded).
+# `dev-keys --check` decides, from the keys passed in the environment (never
+# on a command line), and prints variable names only. A subshell, so the
+# exported values cannot shadow the file's when compose starts the services.
+keys_usable() (
   for var in $KEY_VARS; do
-    id="$(sed -n "s/^${var}=custos_[a-z]*_\([0-9a-f]\{16\}\)_.*/\1/p" "$ENV_FILE")"
-    [ -n "$id" ] || return 1
-    ids="$ids $id"
+    export "$var=$(sed -n "s/^${var}=//p" "$ENV_FILE")"
   done
-  active="$(compose run --rm --no-deps -T tools custos-admin key list | awk -F'\t' '$3=="active"{print $1}')"
-  for id in $ids; do
-    printf '%s\n' "$active" | grep -qx "$id" || return 1
-  done
-}
+  compose run --rm --no-deps -T \
+    -e CUSTOS_OPERATOR_KEY -e IDENTITY_SERVICE_KEY -e REVOCATION_SERVICE_KEY -e VAULT_SERVICE_KEY \
+    tools custos-admin dev-keys --check
+)
 
-if keys_active; then
-  echo "images: API keys in $ENV_FILE are active"
+if keys_usable; then
+  echo "images: API keys in $ENV_FILE are active and have their scopes"
 else
   echo "images: creating API keys (custos-admin dev-keys)"
   created="$(compose run --rm --no-deps -T tools custos-admin dev-keys --shell bash --expires-in 90d)"

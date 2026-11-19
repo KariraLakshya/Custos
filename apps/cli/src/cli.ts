@@ -622,8 +622,13 @@ Next: custos register
       // s3://<bucket> (part 2b).
       const storeUrl = process.env.CUSTOS_AUDIT_SEAL_STORE_URL;
       const sealStore = storeUrl ? await openSealStore(storeUrl) : undefined;
+      // The operator key reads the log (ADR 0022 §3: audit:read). Sent when
+      // there is one; while GET /records is still open, a run without one
+      // still works. Requiring it lands with the route closing.
+      const operatorKey = await findOperatorKey();
       const result = await pullAuditLog({
         auditUrl: opts.auditUrl,
+        ...(operatorKey === undefined ? {} : { operatorKey }),
         sealFile: opts.sealFile,
         ...(agentDid === undefined ? {} : { agentDid }),
         ...(sealStore === undefined ? {} : { sealStore }),

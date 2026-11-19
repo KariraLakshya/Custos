@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   buildRegistrationRequest,
   createLocalKeyProvider,
@@ -582,5 +583,221 @@ describe("identity registration auditing (ADR 0008 §7)", () => {
         statusAllocator: fakeStatusAllocator(),
       }),
     ).rejects.toThrow("serviceKey or mtlsFetch is required when auditReporter is not injected");
+  });
+});
+
+describe("GET /agents (ADR 0022 §2, §3: agents:read, never open)", () => {
+  // A guard of its own, so this block's refused keys don't count towards
+  // another block's lockout (ADR 0008 §8).
+  const readPlane = createTestControlPlane(db);
+  let readKey: string;
+  let app: App;
+
+  beforeAll(async () => {
+    readKey = await readPlane.key("operator", ["agents:read"]);
+    app = await buildServer({
+      auditReporter: { report: () => {} },
+      db,
+      controlPlaneAuth: readPlane.guard,
+      didDomain: DOMAIN,
+      issuerKey: issuerKey(),
+      statusAllocator: fakeStatusAllocator(),
+    });
+  });
+
+  /** `key: null` sends no key at all (an explicit `undefined` would take the default). */
+  async function list(query = "", key: string | null = readKey) {
+    return app.inject({
+      method: "GET",
+      url: `/agents${query}`,
+      ...(key === null ? {} : { headers: bearer(key) }),
+    });
+  }
+
+  async function registered(name?: string): Promise<{ id: string; did: string }> {
+    const body = (await validRequest()).body;
+    const response = await register(app, name === undefined ? body : { ...body, name });
+    expect(response.statusCode).toBe(201);
+    return response.json() as { id: string; did: string };
+  }
+
+  it.each([
+    ["no key", async () => null],
+    ["a malformed key", async () => "not-a-custos-key"],
+    [
+      "a wrong key (right id, wrong secret)",
+      async () => `${readKey.split("_").slice(0, 3).join("_")}_${"x".repeat(43)}`,
+    ],
+    [
+      "an expired key",
+      async () =>
+        readPlane.key("operator", ["agents:read"], { expiresAt: new Date("2020-01-01T00:00:00Z") }),
+    ],
+    [
+      "a key with every other operator scope but not agents:read",
+      async () =>
+        readPlane.key("operator", [
+          "agents:register",
+          "agents:revoke",
+          "credentials:write",
+          "policies:write",
+          "audit:read",
+          "revocations:read",
+          "policies:read",
+        ]),
+    ],
+  ])("refuses %s with the guard's one 401, showing nothing", async (_label, makeKey) => {
+    const agent = await registered("hidden-bot");
+    const response = await list(`?id=${agent.id}`, await makeKey());
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: { code: "UNAUTHORIZED" } });
+    expect(response.body).not.toContain(agent.did);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("shows an agent by id: id, DID, name, registration time and who registered it", async () => {
+    const before = Date.now();
+    const agent = await registered("billing-bot");
+
+    const response = await list(`?id=${agent.id}`);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+    const page = response.json() as {
+      agents: Record<string, unknown>[];
+      nextCursor: string | null;
+    };
+    expect(page.nextCursor).toBeNull();
+    expect(page.agents).toHaveLength(1);
+    const [shown] = page.agents;
+    // Exactly these fields: never the credential, the DID document or the key.
+    expect(Object.keys(shown!).sort()).toEqual([
+      "did",
+      "id",
+      "name",
+      "registeredAt",
+      "registeredBy",
+    ]);
+    expect(shown).toMatchObject({
+      id: agent.id,
+      did: agent.did,
+      name: "billing-bot",
+      registeredBy: { kind: "operator", id: operatorKey.split("_")[2], name: "test-operator" },
+    });
+    const registeredAt = Date.parse(shown!.registeredAt as string);
+    expect(registeredAt).toBeGreaterThanOrEqual(before - 5_000);
+    expect(registeredAt).toBeLessThanOrEqual(Date.now() + 5_000);
+  });
+
+  it("stores the registering principal in the agent's row", async () => {
+    const agent = await registered();
+    const [row] = await db.select().from(agents).where(eq(agents.id, agent.id));
+    expect(row).toMatchObject({
+      registeredByKind: "operator",
+      registeredById: operatorKey.split("_")[2],
+      registeredByName: "test-operator",
+    });
+  });
+
+  it("shows an agent by DID, and an unnamed agent's name as null", async () => {
+    const agent = await registered();
+    const page = (await list(`?did=${encodeURIComponent(agent.did)}`)).json() as {
+      agents: { id: string; name: unknown }[];
+    };
+    expect(page.agents.map((a) => a.id)).toEqual([agent.id]);
+    expect(page.agents[0]!.name).toBeNull();
+  });
+
+  it("shows an agent registered before migration 0015 with registeredBy null", async () => {
+    const id = randomUUID();
+    await db.insert(agents).values({
+      id,
+      did: `did:web:${DOMAIN}:agents:${id}`,
+      didDocument: {},
+      credential: {},
+    });
+    const page = (await list(`?id=${id}`)).json() as { agents: { registeredBy: unknown }[] };
+    expect(page.agents).toHaveLength(1);
+    expect(page.agents[0]!.registeredBy).toBeNull();
+  });
+
+  it("answers an unknown id or DID with an empty list, not an error", async () => {
+    const unknownId = "00000000-0000-4000-8000-000000000000";
+    for (const query of [
+      `?id=${unknownId}`,
+      `?did=${encodeURIComponent(`did:web:${DOMAIN}:agents:${unknownId}`)}`,
+    ]) {
+      const response = await list(query);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ agents: [], nextCursor: null });
+    }
+  });
+
+  it("pages the whole list by id: bounded pages, each agent once, in order", async () => {
+    const mine = [(await registered()).id, (await registered()).id, (await registered()).id];
+
+    const first = (await list("?limit=2")).json() as {
+      agents: { id: string }[];
+      nextCursor: string | null;
+    };
+    expect(first.agents).toHaveLength(2);
+    expect(first.nextCursor).toBe(first.agents[1]!.id);
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const response = await list(`?limit=200${cursor === null ? "" : `&cursor=${cursor}`}`);
+      expect(response.statusCode).toBe(200);
+      const page = response.json() as { agents: { id: string }[]; nextCursor: string | null };
+      expect(page.agents.length).toBeLessThanOrEqual(200);
+      seen.push(...page.agents.map((a) => a.id));
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+
+    expect(new Set(seen).size).toBe(seen.length);
+    expect([...seen].sort()).toEqual(seen);
+    for (const id of mine) expect(seen).toContain(id);
+  });
+
+  it("starts a page after the cursor", async () => {
+    const a = await registered();
+    const page = (await list(`?cursor=${a.id}&limit=5`)).json() as { agents: { id: string }[] };
+    expect(page.agents.every((agent) => agent.id > a.id)).toBe(true);
+  });
+
+  it.each([
+    ["a malformed id", "?id=not-a-uuid"],
+    ["a malformed DID", "?did=not-a-did"],
+    ["a DID with a newline", `?did=${encodeURIComponent("did:web:x\n")}`],
+    ["an id and a DID together", "?id=00000000-0000-4000-8000-000000000000&did=did:web:x"],
+    ["a page limit over the maximum", "?limit=201"],
+    ["a page limit of 0", "?limit=0"],
+    ["a page limit that is not a number", "?limit=ten"],
+    ["a malformed cursor", "?cursor=abc"],
+    ["an unknown parameter", "?name=billing-bot"],
+    ["a repeated parameter", "?limit=1&limit=2"],
+  ])("refuses %s with 400 INVALID_INPUT", async (_label, query) => {
+    const response = await list(query);
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: { code: "INVALID_INPUT" } });
+  });
+
+  it("is not audited: a read changes nothing (ADR 0022 §3)", async () => {
+    const events: AuditEvent[] = [];
+    const audited = await buildServer({
+      auditReporter: { report: (event) => events.push(event) },
+      db,
+      controlPlaneAuth: readPlane.guard,
+      didDomain: DOMAIN,
+      issuerKey: issuerKey(),
+      statusAllocator: fakeStatusAllocator(),
+    });
+    const response = await audited.inject({
+      method: "GET",
+      url: "/agents?limit=1",
+      headers: bearer(readKey),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(events).toEqual([]);
   });
 });

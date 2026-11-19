@@ -18,6 +18,13 @@ export const agents = pgTable("agents", {
   // to pick an agent, and not in the credential or the audit log. Null for
   // agents registered without one, and for every agent before migration 0014.
   name: text("name"),
+  // Who registered it (ADR 0022 §2), as `principalOf` gave it: mirrors the
+  // vault's `agent_policies.granted_by_*` (migration 0013). Null on agents
+  // registered before migration 0015.
+  registeredByKind: text("registered_by_kind").$type<"operator" | "service">(),
+  registeredById: text("registered_by_id"),
+  registeredByName: text("registered_by_name"),
+  registeredByVia: text("registered_by_via").$type<"custos-admin" | "sso">(),
   didDocument: jsonb("did_document").notNull(),
   credential: jsonb("credential").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -102,6 +102,10 @@ beforeAll(async () => {
     "policies:write",
     "agents:revoke",
     "agents:register",
+    "audit:read",
+    "revocations:read",
+    "policies:read",
+    "agents:read",
   ]);
 
   const auditTls = createEnvoyOnlyTlsListener(identityFor("audit-server"));
@@ -236,7 +240,11 @@ afterAll(async () => {
 });
 
 async function verifiedRecords(agentDid: string): Promise<AuditRecord[]> {
-  const pulled = await pullAuditLedger({ auditUrl: url(PORT.audit), agentDid });
+  const pulled = await pullAuditLedger({
+    auditUrl: url(PORT.audit),
+    agentDid,
+    apiKey: operatorKey,
+  });
   if (!pulled.ok) throw new Error(`audit ledger failed verification: ${pulled.error.code}`);
   return pulled.value.records
     .map((entry) => entry.record)

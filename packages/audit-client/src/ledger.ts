@@ -49,6 +49,12 @@ export async function pullAuditLedger(params: {
    * the service controls what it publishes.
    */
   readonly trustedKeys?: (log: string, publishedKey: string) => readonly string[];
+  /**
+   * A control-plane key with `audit:read` (ADR 0022 §3), sent as a bearer
+   * token on the `/records` request only; the DID document is public and
+   * gets no key. Optional while `GET /records` is still open.
+   */
+  readonly apiKey?: string;
   readonly fetch?: typeof fetch;
 }): Promise<{ ok: true; value: PulledAuditLedger } | { ok: false; error: PullAuditLedgerError }> {
   const doFetch = params.fetch ?? fetch;
@@ -77,7 +83,12 @@ export async function pullAuditLedger(params: {
     }
     const recordsUrl = new URL("/records", params.auditUrl);
     if (params.agentDid !== undefined) recordsUrl.searchParams.set("agentId", params.agentDid);
-    const recordsResponse = await doFetch(recordsUrl);
+    const recordsResponse = await doFetch(
+      recordsUrl,
+      params.apiKey === undefined
+        ? undefined
+        : { headers: { authorization: `Bearer ${params.apiKey}` } },
+    );
     if (!recordsResponse.ok) return bad(`records: HTTP ${recordsResponse.status}`);
     body = (await recordsResponse.json()) as typeof body;
   } catch (error) {

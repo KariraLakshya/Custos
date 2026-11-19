@@ -1,5 +1,6 @@
 import {
   ALL_SCOPES,
+  createApiKeyAuthenticator,
   OPERATOR_SCOPES,
   type ApiKeyStore,
   type PrincipalKind,
@@ -35,6 +36,8 @@ export interface AdminDeps {
   readonly demoFederation?: () => Promise<void>;
   /** What `publish-status` needs from the outside world; absent in tests that don't use it. */
   readonly publisher?: PublisherRuntime;
+  /** Where `dev-keys --check` reads the keys from. Default: `process.env`. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 /**
@@ -140,7 +143,15 @@ export function createAdminCli(deps: AdminDeps): Command {
       parseDuration,
       parseDuration("90d"),
     )
-    .action(async (options: { shell: Shell; expiresIn: number }) => {
+    .option(
+      "--check",
+      "create nothing: exit 1 unless every key above, read from the environment, is active and has its scopes",
+    )
+    .action(async (options: { shell: Shell; expiresIn: number; check?: boolean }) => {
+      if (options.check === true) {
+        await checkDevKeys(deps);
+        return;
+      }
       const now = deps.clock.now();
       const expiresAt = new Date(now.getTime() + options.expiresIn);
       deps.out("# Custos development keys. Each is shown once; set each in the terminal named.");
@@ -203,6 +214,44 @@ export const DEV_KEYS: readonly {
     scopes: ["audit:write"],
   },
 ];
+
+/**
+ * Whether the keys already set for each local process still do their job
+ * (ADR 0022 §3): each must authenticate (known, right secret, not expired,
+ * not revoked), be the right kind, and hold every scope `DEV_KEYS` now gives
+ * it. A key made before a scope was added fails, so `images/up.sh` makes a
+ * new set rather than keep one that a newly guarded route would refuse.
+ * Prints variable names and reasons only, never a key.
+ */
+async function checkDevKeys(deps: AdminDeps): Promise<void> {
+  const env = deps.env ?? process.env;
+  const authenticator = createApiKeyAuthenticator({ keys: deps.store, clock: deps.clock });
+  const stale: string[] = [];
+  for (const key of DEV_KEYS) {
+    const token = env[key.variable];
+    let problem: string | undefined;
+    if (token === undefined || token === "") {
+      problem = "not set";
+    } else {
+      const result = await authenticator.authenticate({
+        headers: { authorization: `Bearer ${token}` },
+      });
+      if (!result.ok) problem = `not usable (${result.error.reason})`;
+      else if (result.value.kind !== key.kind) {
+        problem = `is a ${result.value.kind} key, needs ${key.kind}`;
+      } else {
+        const missing = key.scopes.filter((scope) => !result.value.scopes.has(scope));
+        if (missing.length > 0) problem = `lacks ${missing.join(", ")}`;
+      }
+    }
+    if (problem === undefined) deps.out(`# ${key.variable}: ok`);
+    else {
+      deps.out(`# ${key.variable}: ${problem}`);
+      stale.push(key.variable);
+    }
+  }
+  if (stale.length > 0) throw new Error(`dev keys need recreating: ${stale.join(", ")}`);
+}
 
 function assignment(shell: Shell, variable: string, value: string): string {
   // Keys are [A-Za-z0-9_-] only, so no quoting or escaping is ever needed.

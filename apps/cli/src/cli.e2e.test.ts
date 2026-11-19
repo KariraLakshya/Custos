@@ -88,6 +88,10 @@ beforeAll(async () => {
     "policies:write",
     "agents:revoke",
     "agents:register",
+    "audit:read",
+    "revocations:read",
+    "policies:read",
+    "agents:read",
   ]);
   identityServiceKey = await controlPlane.key("service", ["status:allocate", "audit:write"]);
   revocationServiceKey = await controlPlane.key("service", ["audit:write"]);
@@ -653,7 +657,12 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
           // A seal file of its own, so the test never touches ~/.custos.
           const sealFile = join(await mkdtemp(join(tmpdir(), "custos-audit-")), "seal.json");
           const pull = async () => {
-            const result = await pullAuditLog({ auditUrl, agentDid: registered.did, sealFile });
+            const result = await pullAuditLog({
+              auditUrl,
+              agentDid: registered.did,
+              sealFile,
+              operatorKey,
+            });
             if (!result.verified) throw new Error(`audit log failed: ${result.error.code}`);
             return result.records;
           };
@@ -759,6 +768,7 @@ describe("delegation provenance (Phase 8 DONE, ADR 0020)", () => {
         auditUrl,
         agentDid,
         sealFile,
+        operatorKey,
         identityIssuerDid: `did:web:127.0.0.1%3A${identityPort}`,
       });
       const pending = !log.verified && log.error.code === "DELEGATION_UNLINKED";
