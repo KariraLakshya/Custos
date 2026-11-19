@@ -70,7 +70,7 @@ Data stays in a Docker volume between runs.
 
 ## Other ways to run it
 
-- **One service per terminal**, with keys you create yourself: the README's numbered steps, which use `pnpm -s custos-admin dev-keys` to make the keys. See the [custos-admin reference](/reference/admin-cli#dev-keys).
+- **One service per terminal**, with keys you create yourself: the numbered steps in `docs/getting-started.md` in the repository, which use `pnpm -s custos-admin dev-keys` to make the keys. See the [custos-admin reference](/reference/admin-cli#dev-keys).
 - **From container images**, with no Node on your machine: [Run from container images](/how-to/container-images).
 
 If something fails, see [Troubleshooting](/how-to/troubleshooting).

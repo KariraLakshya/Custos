@@ -2,7 +2,7 @@
 
 By default Custos services authenticate to each other with service API keys. This guide switches them to **certificates** instead, through an Envoy proxy, so each service proves who it is with a private key that never leaves its machine. Operators still use their operator key. Background: [Control-plane authentication](/concepts/control-plane-auth#certificates-mtls).
 
-This uses the one-service-per-terminal setup from the README, not `pnpm demo`.
+This uses the one-service-per-terminal setup from `docs/getting-started.md` in the repository, not `pnpm demo`.
 
 ## 1. Make the certificates and start Envoy
 

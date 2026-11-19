@@ -2,7 +2,7 @@
 
 Instead of handing out operator keys, let administrators sign in with their company account through any OpenID Connect provider. Locally, Keycloak stands in for the company. Background: [Control-plane authentication](/concepts/control-plane-auth#operator-sign-in-sso).
 
-This uses the one-service-per-terminal setup from the README; `pnpm demo` does not configure SSO.
+This uses the one-service-per-terminal setup from `docs/getting-started.md` in the repository; `pnpm demo` does not configure SSO.
 
 ## 1. Start the provider
 
