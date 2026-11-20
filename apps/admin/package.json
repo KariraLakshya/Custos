@@ -22,7 +22,7 @@
     "@custos/core": "workspace:*",
     "@custos/federation": "workspace:*",
     "@custos/kms": "workspace:*",
-    "commander": "^12.1.0",
+    "commander": "^15.1.0",
     "drizzle-orm": "^0.45.4",
     "pg": "^8.23.1"
   },
