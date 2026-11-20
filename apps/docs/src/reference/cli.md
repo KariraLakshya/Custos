@@ -8,7 +8,7 @@ The `custos` command registers agents, grants tools, uses them, delegates, revok
 
 **Naming an agent.** `grant --to`, `delegate --to`, `revoke` and `audit-log [agent]` take an agent's **id** (as `register` printed it) or its **DID**. Never its name, which can repeat. An id becomes a DID under `--identity-issuer` (default `did:web:localhost%3A4001`); anything that is neither is refused before a request is sent.
 
-**Operator key.** `register`, `grant` and `revoke` are operator commands. They read the key from `CUSTOS_OPERATOR_KEY`, or else from the file `custos login` wrote (`~/.custos/operator.key`, or `CUSTOS_OPERATOR_KEY_FILE`). Never from a flag.
+**Operator key.** `register`, `grant` and `revoke` are operator commands. They read the key from `CUSTOS_OPERATOR_KEY`, or else from the file `custos login` wrote (`~/.custos/operator.key`, or `CUSTOS_OPERATOR_KEY_FILE`). Never from a flag. `audit-log` sends the same key when it finds one; the audit log can still be read without one today, but it will need `audit:read` once that read closes.
 
 **Refusals.** A refused request prints three lines to stderr and exits 1:
 

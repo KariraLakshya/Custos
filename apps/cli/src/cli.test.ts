@@ -712,10 +712,13 @@ describe("custos CLI", () => {
 
   describe("audit-log", () => {
     let server: Server | undefined;
+    /** What the stub audit service was asked, and with which key. */
+    let requests: { url: string; authorization: string | undefined }[] = [];
 
     afterEach(async () => {
       if (server) await new Promise((resolve) => server?.close(resolve));
       server = undefined;
+      requests = [];
       vi.restoreAllMocks();
     });
 
@@ -755,6 +758,7 @@ describe("custos CLI", () => {
       const served = options.tamper ? payload.replace("allow", "deny") : payload;
 
       server = createServer((req, res) => {
+        requests.push({ url: req.url ?? "", authorization: req.headers.authorization });
         res.setHeader("content-type", "application/json");
         if (req.url?.startsWith("/.well-known/did.json")) {
           res.end(JSON.stringify(didDocument));
@@ -795,6 +799,42 @@ describe("custos CLI", () => {
       expect(exitCode).toBeUndefined();
       expect(out).toContain('"verified": true');
       expect(out).toContain('"sealedThrough": 1');
+    });
+
+    // ADR 0022 §3: audit:read. The key goes to /records only, and is printed nowhere.
+    it("sends the operator key from CUSTOS_OPERATOR_KEY to /records only", async () => {
+      const key = `custos_operator_0123456789abcdef_${"S".repeat(43)}`;
+      vi.stubEnv("CUSTOS_OPERATOR_KEY", key);
+      await serveLedger(4862);
+      const { exitCode, out, err } = await runAuditLog(4862);
+      expect(exitCode).toBeUndefined();
+      expect(requests).toEqual([
+        { url: "/.well-known/did.json", authorization: undefined },
+        { url: "/records", authorization: `Bearer ${key}` },
+      ]);
+      expect(out + err).not.toContain(key);
+    });
+
+    it("sends the key custos login saved when CUSTOS_OPERATOR_KEY is unset", async () => {
+      const key = `custos_operator_fedcba9876543210_${"L".repeat(43)}`;
+      const file = join(await mkdtemp(join(tmpdir(), "custos-login-")), "operator.key");
+      await writeFile(
+        file,
+        `${key}
+`,
+      );
+      vi.stubEnv("CUSTOS_OPERATOR_KEY", "");
+      vi.stubEnv("CUSTOS_OPERATOR_KEY_FILE", file);
+      await serveLedger(4863);
+      expect((await runAuditLog(4863)).exitCode).toBeUndefined();
+      expect(requests.find((r) => r.url === "/records")?.authorization).toBe(`Bearer ${key}`);
+    });
+
+    it("still reads the log without a key while GET /records is open, sending none", async () => {
+      vi.stubEnv("CUSTOS_OPERATOR_KEY", "");
+      await serveLedger(4864);
+      expect((await runAuditLog(4864)).exitCode).toBeUndefined();
+      expect(requests.map((r) => r.authorization)).toEqual([undefined, undefined]);
     });
 
     it("checks delegation chains against the issuer --identity-issuer pins", async () => {

@@ -19,22 +19,26 @@ Callers send the key as `Authorization: Bearer <key>`. The CLI and SDK read the 
 
 ## Scopes
 
-Each key carries scopes. Every control-plane write requires one:
+Each key carries scopes. Every control-plane write requires one, and so do the newer reads:
 
-| Scope               | Allows                               | Route                          | Key kind     |
-| ------------------- | ------------------------------------ | ------------------------------ | ------------ |
-| `agents:register`   | Registering an agent                 | identity `POST /agents`        | operator     |
-| `policies:write`    | Granting a tool                      | vault `POST /policies`         | operator     |
-| `credentials:write` | Storing a tool's credential          | vault `POST /credentials`      | operator     |
-| `agents:revoke`     | Revoking an agent                    | revocation `POST /revocations` | operator     |
-| `audit:write`       | Adding an audit entry                | audit `POST /records`          | service only |
-| `status:allocate`   | Reserving an agent's status-list bit | revocation `POST /agents`      | service only |
+| Scope               | Allows                               | Route                                                      | Key kind     |
+| ------------------- | ------------------------------------ | ---------------------------------------------------------- | ------------ |
+| `agents:register`   | Registering an agent                 | identity `POST /agents`                                    | operator     |
+| `policies:write`    | Granting a tool                      | vault `POST /policies`                                     | operator     |
+| `credentials:write` | Storing a tool's credential          | vault `POST /credentials`                                  | operator     |
+| `agents:revoke`     | Revoking an agent                    | revocation `POST /revocations`                             | operator     |
+| `audit:write`       | Adding an audit entry                | audit `POST /records`                                      | service only |
+| `status:allocate`   | Reserving an agent's status-list bit | revocation `POST /agents`                                  | service only |
+| `agents:read`       | Listing agents                       | identity `GET /agents`                                     | operator     |
+| `policies:read`     | Listing grants                       | vault `GET /policies`                                      | operator     |
+| `audit:read`        | Reading the audit log                | audit `GET /records` (not yet enforced)                    | operator     |
+| `revocations:read`  | Reading the revocation list          | revocation and vault `GET /revocations` (not yet enforced) | operator     |
 
 Service-only scopes are refused on operator keys, both when a key is created and when it is used. The services' own keys: identity holds `status:allocate` and `audit:write`; the vault and revocation hold `audit:write`.
 
 Every refusal is the same `401 UNAUTHORIZED`, whether the key is missing, wrong, revoked, expired or lacks the scope, so a caller learns nothing about why. After **10 failures in 5 minutes** from one address, that address is locked out for **15 minutes**. Every control-plane write is audited with the principal that made it, allowed or refused for a missing scope.
 
-The `GET` routes (DID documents, the status list, `/revocations`, audit `/records`) are open on `main`.
+`GET /agents` and `GET /policies` need their read scope. The older reads (`/revocations`, audit `/records` and `/seals/status`) are still open; `audit:read` and `revocations:read` exist so callers can already send a key, and those reads close in a later step. The DID documents and the signed status list stay open on purpose, so anyone can verify a credential offline.
 
 ## Certificates (mTLS)
 

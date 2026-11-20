@@ -22,7 +22,7 @@ SSO_ALLOW_HTTP_ISSUER=true                     # plain http is accepted only for
 SSO_CLIENT_ID=custos-identity
 SSO_CLIENT_SECRET=custos-dev-sso-client-secret-not-for-production
 SSO_REDIRECT_URL=http://localhost:4001/operator/callback
-SSO_GROUP_SCOPES='{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write"]}'
+SSO_GROUP_SCOPES='{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write","audit:read","revocations:read","policies:read","agents:read"]}'
 ```
 
 Give all of issuer, client id, client secret, redirect URL and group mapping, or none: without them the `/operator/*` routes don't exist.
@@ -45,7 +45,7 @@ signed in as alice@... until <time>; operator key saved to ~/.custos/operator.ke
 Next: custos register
 ```
 
-The key is saved owner-only and never printed. `register`, `grant` and `revoke` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Use `--key-file` (or `CUSTOS_OPERATOR_KEY_FILE`) to keep it elsewhere.
+The key is saved owner-only and never printed. `register`, `grant`, `revoke` and `audit-log` use it whenever `CUSTOS_OPERATOR_KEY` isn't set. Use `--key-file` (or `CUSTOS_OPERATOR_KEY_FILE`) to keep it elsewhere.
 
 The demo user `bob` is in no mapped group, so he is refused (`NO_MAPPED_GROUP`). Everything a signed-in operator does appears in the audit log under their email.
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SignedCredential } from "@custos/core";
 import {
   buildHandOff,
@@ -1006,6 +1007,14 @@ describe("vault service", () => {
       const response = await app.inject({ method: "GET", url: "/revocations" });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ revokedCount: 0, freshAsOf: null, stale: true });
+      // ADR 0022 §3: a revocations:read key sent before the route closes does no harm.
+      const keyed = await app.inject({
+        method: "GET",
+        url: "/revocations",
+        headers: bearer(await controlPlane.key("operator", ["revocations:read"])),
+      });
+      expect(keyed.statusCode).toBe(200);
+      expect(keyed.json()).toEqual({ revokedCount: 0, freshAsOf: null, stale: true });
     });
 
     it(
@@ -1294,3 +1303,216 @@ function testRevocationSigningKey() {
     keyId: "signing",
   };
 }
+
+describe("GET /policies (ADR 0022 §1, §3: policies:read, never open)", () => {
+  // A guard of its own, so this block's refused keys don't count towards
+  // another block's lockout (ADR 0008 §8).
+  const readPlane = createTestControlPlane(vaultDb);
+  let readKey: string;
+  let app: FastifyInstance;
+  const events: AuditEvent[] = [];
+
+  beforeAll(async () => {
+    readKey = await readPlane.key("operator", ["policies:read"]);
+    app = await buildServer({
+      controlPlaneAuth: readPlane.guard,
+      auditReporter: { report: (event) => events.push(event) },
+      db: vaultDb,
+      cipher,
+      revocation: freshEmptyRevocationCache(),
+    });
+  });
+
+  const agentDid = () => `did:web:policies-read.custos.example:agents:${randomUUID()}`;
+
+  async function grant(agent: string, tool: string): Promise<void> {
+    const response = await app.inject({
+      method: "POST",
+      url: "/policies",
+      headers: bearer(operatorKey),
+      payload: { agentId: agent, tool },
+    });
+    expect(response.statusCode).toBe(201);
+  }
+
+  /** `key: null` sends no key at all (an explicit `undefined` would take the default). */
+  async function list(query = "", key: string | null = readKey) {
+    return app.inject({
+      method: "GET",
+      url: `/policies${query}`,
+      ...(key === null ? {} : { headers: bearer(key) }),
+    });
+  }
+
+  type Page = {
+    grants: { agentDid: string; tool: string; grantedBy: unknown; createdAt: string }[];
+    nextCursor: string | null;
+  };
+
+  it.each([
+    ["no key", async () => null],
+    ["a malformed key", async () => "not-a-custos-key"],
+    [
+      "a wrong key (right id, wrong secret)",
+      async () => `${readKey.split("_").slice(0, 3).join("_")}_${"x".repeat(43)}`,
+    ],
+    [
+      "an expired key",
+      async () =>
+        readPlane.key("operator", ["policies:read"], {
+          expiresAt: new Date("2020-01-01T00:00:00Z"),
+        }),
+    ],
+    [
+      "a key with every other operator scope but not policies:read",
+      async () =>
+        readPlane.key("operator", [
+          "agents:register",
+          "agents:revoke",
+          "credentials:write",
+          "policies:write",
+          "audit:read",
+          "revocations:read",
+          "agents:read",
+        ]),
+    ],
+  ])("refuses %s with the guard's one 401, showing nothing", async (_label, makeKey) => {
+    const agent = agentDid();
+    await grant(agent, "mock-database");
+    const response = await list(`?agent=${encodeURIComponent(agent)}`, await makeKey());
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: { code: "UNAUTHORIZED" } });
+    expect(response.body).not.toContain(agent);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("shows an agent's grants: DID, tool, who granted it and when", async () => {
+    const agent = agentDid();
+    const before = Date.now();
+    await grant(agent, "mock-slack");
+    await grant(agent, "mock-database");
+
+    const response = await list(`?agent=${encodeURIComponent(agent)}`);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+    const page = response.json() as Page;
+    expect(page.nextCursor).toBeNull();
+    expect(page.grants.map((g) => g.tool)).toEqual(["mock-database", "mock-slack"]);
+    for (const shown of page.grants) {
+      expect(Object.keys(shown).sort()).toEqual(["agentDid", "createdAt", "grantedBy", "tool"]);
+      expect(shown).toMatchObject({
+        agentDid: agent,
+        grantedBy: { kind: "operator", id: operatorKey.split("_")[2], name: "test-operator" },
+      });
+      const createdAt = Date.parse(shown.createdAt);
+      expect(createdAt).toBeGreaterThanOrEqual(before - 5_000);
+      expect(createdAt).toBeLessThanOrEqual(Date.now() + 5_000);
+    }
+  });
+
+  it("never returns a tool credential, its ciphertext or its nonce", async () => {
+    const tool = `policies-read-hidden-tool-${randomUUID()}`;
+    const secret = `SECRET-MARKER-${randomUUID()}`;
+    const stored = await app.inject({
+      method: "POST",
+      url: "/credentials",
+      headers: bearer(operatorKey),
+      payload: { tool, secret },
+    });
+    expect(stored.statusCode).toBe(201);
+    const agent = agentDid();
+    await grant(agent, tool);
+    const [row] = await vaultDb
+      .select()
+      .from(toolCredentials)
+      .where(eq(toolCredentials.tool, tool));
+    if (!row) throw new Error("test setup: credential not stored");
+
+    const bodies = [
+      (await list(`?agent=${encodeURIComponent(agent)}`)).body,
+      (await list("?limit=200")).body,
+    ];
+
+    expect(JSON.parse(bodies[0]!).grants).toHaveLength(1);
+    for (const body of bodies) {
+      expect(body).not.toContain(secret);
+      expect(body).not.toContain(row.ciphertext);
+      expect(body).not.toContain(row.nonce);
+    }
+    // The agent's own page names nothing about how a credential is stored.
+    expect(bodies[0]).not.toMatch(/secret|ciphertext|nonce/i);
+  });
+
+  it("shows a grant made before migration 0013 with grantedBy null", async () => {
+    const agent = agentDid();
+    await vaultDb.insert(agentPolicies).values({ agentDid: agent, tool: "mock-database" });
+    const page = (await list(`?agent=${encodeURIComponent(agent)}`)).json() as Page;
+    expect(page.grants).toHaveLength(1);
+    expect(page.grants[0]!.grantedBy).toBeNull();
+  });
+
+  it("answers an agent with no grants with an empty list, not an error", async () => {
+    const response = await list(`?agent=${encodeURIComponent(agentDid())}`);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ grants: [], nextCursor: null });
+  });
+
+  it("pages one agent's grants with a limit and a cursor", async () => {
+    const agent = agentDid();
+    for (const tool of ["tool-a", "tool-b", "tool-c"]) await grant(agent, tool);
+    const filter = `?agent=${encodeURIComponent(agent)}`;
+
+    const first = (await list(`${filter}&limit=2`)).json() as Page;
+    expect(first.grants.map((g) => g.tool)).toEqual(["tool-a", "tool-b"]);
+    expect(first.nextCursor).toEqual(expect.any(String));
+
+    const second = (await list(`${filter}&limit=2&cursor=${first.nextCursor}`)).json() as Page;
+    expect(second.grants.map((g) => g.tool)).toEqual(["tool-c"]);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("pages the whole list without an agent: bounded pages, each grant once", async () => {
+    const agent = agentDid();
+    await grant(agent, "mock-database");
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const response = await list(`?limit=200${cursor === null ? "" : `&cursor=${cursor}`}`);
+      expect(response.statusCode).toBe(200);
+      const page = response.json() as Page;
+      expect(page.grants.length).toBeLessThanOrEqual(200);
+      seen.push(...page.grants.map((g) => JSON.stringify([g.agentDid, g.tool])));
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen).toContain(JSON.stringify([agent, "mock-database"]));
+  });
+
+  it.each([
+    ["a malformed DID", "?agent=not-a-did"],
+    ["a DID with a newline", `?agent=${encodeURIComponent("did:web:x\n")}`],
+    ["a page limit over the maximum", "?limit=201"],
+    ["a page limit of 0", "?limit=0"],
+    ["a page limit that is not a number", "?limit=ten"],
+    ["a cursor that is not base64url", "?cursor=%21%21%21"],
+    [
+      "a cursor of the wrong shape",
+      `?cursor=${Buffer.from(JSON.stringify({ agentDid: "did:web:x" })).toString("base64url")}`,
+    ],
+    ["a cursor that is not JSON", `?cursor=${Buffer.from("[nope").toString("base64url")}`],
+    ["an oversized cursor", `?cursor=${"A".repeat(4097)}`],
+    ["an unknown parameter", "?tool=mock-database"],
+    ["a repeated parameter", "?limit=1&limit=2"],
+  ])("refuses %s with 400 INVALID_INPUT", async (_label, query) => {
+    const response = await list(query);
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: { code: "INVALID_INPUT" } });
+  });
+
+  it("is not audited: a read changes nothing (ADR 0022 §3)", async () => {
+    events.length = 0;
+    expect((await list("?limit=1")).statusCode).toBe(200);
+    expect(events).toEqual([]);
+  });
+});

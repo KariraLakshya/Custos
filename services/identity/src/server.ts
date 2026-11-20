@@ -5,7 +5,7 @@ import {
   type AuditEvent,
   type AuditReporter,
 } from "@custos/audit-client";
-import { agentNameSchema } from "@custos/contracts";
+import { agentNameSchema, didSchema, PAGE_LIMIT_DEFAULT, pageLimitSchema } from "@custos/contracts";
 import { principalOf, requireScope, type ControlPlaneGuard } from "@custos/control-plane-auth";
 import { buildDidWebDocument, type KeyProvider } from "@custos/core";
 import { createLogger } from "@custos/observability";
@@ -13,6 +13,7 @@ import Fastify from "fastify";
 import { z } from "zod";
 import { registerAgent, type RegisterAgentError } from "./agents/register.js";
 import { findAgentDidDocumentById } from "./agents/find.js";
+import { listAgents } from "./agents/list.js";
 import { createHttpStatusAllocator, type StatusAllocator } from "./agents/status-allocator.js";
 import type { IdentityDb } from "./db/client.js";
 import type { OperatorSso } from "./sso/sso.js";
@@ -31,6 +32,18 @@ const registerAgentSchema = z.object({
   proof: z.string().min(1).max(4096),
   name: agentNameSchema.optional(),
 });
+
+// `GET /agents` (ADR 0022 §2). Strict: an unknown parameter is refused, and a
+// repeated one arrives as an array and fails its string check. One agent is
+// picked by id or by DID, never both.
+const listAgentsQuerySchema = z
+  .strictObject({
+    id: z.string().uuid().optional(),
+    did: didSchema.optional(),
+    limit: pageLimitSchema.optional(),
+    cursor: z.string().uuid().optional(),
+  })
+  .refine((query) => query.id === undefined || query.did === undefined);
 
 function statusFor(code: RegisterAgentError["code"]): number {
   if (code === "INVALID_PUBLIC_KEY") return 400;
@@ -174,6 +187,7 @@ export async function buildServer(options: {
       domain,
       agentId: randomUUID(),
       request: body.data,
+      registeredBy: principalOf(request),
       now: clock.now(),
       proofMaxSkewSeconds,
     });
@@ -192,6 +206,20 @@ export async function buildServer(options: {
     );
     reply.code(201);
     return result.value;
+  });
+
+  // Reads agents back (ADR 0022 §2). Guarded from its first commit, never
+  // open (§3), and not audited: a read changes nothing. No CORS header: the
+  // dashboard reads through its own server.
+  const agentsReadGuard = requireScope({ ...options.controlPlaneAuth, scope: "agents:read" });
+  app.get("/agents", { preHandler: agentsReadGuard }, async (request, reply) => {
+    const query = listAgentsQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      reply.code(400);
+      return { error: { code: "INVALID_INPUT" } };
+    }
+    const { limit, ...filters } = query.data;
+    return listAgents(db, { ...filters, limit: limit ?? PAGE_LIMIT_DEFAULT });
   });
 
   /**

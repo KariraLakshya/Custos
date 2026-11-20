@@ -410,6 +410,7 @@ describe("group mapping", () => {
     ["not an object", "[]", /must be an object/],
     ["a non-list", '{"g":"agents:register"}', /must be a list/],
     ["an unknown scope", '{"g":["root"]}', /unknown scope root/],
+    ["a misspelt read scope", '{"g":["audit:reads"]}', /unknown scope audit:reads/],
     ["a service-only scope", '{"g":["audit:write"]}', /audit:write is service-only/],
     ["no groups", "{}", /maps no groups/],
   ])("refuses %s", (_label, json, message) => {
@@ -428,6 +429,23 @@ describe("group mapping", () => {
       scopes: ["agents:register", "agents:revoke"],
     });
     expect(scopesForGroups("a", mapping.value)).toEqual({ matched: false, scopes: [] });
+  });
+
+  it("accepts the four read scopes, so a group can be read-only (ADR 0022 §3)", () => {
+    const mapping = parseGroupScopes(
+      '{"auditors":["audit:read"],"admins":["audit:read","revocations:read","policies:read","agents:read"]}',
+    );
+    if (!mapping.ok) throw new Error(mapping.error);
+    expect(scopesForGroups(["auditors"], mapping.value)).toEqual({
+      matched: true,
+      scopes: ["audit:read"],
+    });
+    expect(scopesForGroups(["admins"], mapping.value).scopes).toEqual([
+      "agents:read",
+      "audit:read",
+      "policies:read",
+      "revocations:read",
+    ]);
   });
 });
 

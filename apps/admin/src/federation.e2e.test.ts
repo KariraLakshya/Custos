@@ -213,6 +213,7 @@ describe("Phase 6: B verifies A's agent with A's services and database off", () 
     const bAuditDb = createAuditDb(bDatabaseUrl);
     const bControlPlane = createTestControlPlane(bAuditDb);
     const bAuditServiceKey = await bControlPlane.key("service", ["audit:write"]);
+    const bAuditReadKey = await bControlPlane.key("operator", ["audit:read"]);
     const bAudit = await buildAuditServer({
       db: bAuditDb,
       controlPlaneAuth: bControlPlane.guard,
@@ -378,7 +379,7 @@ describe("Phase 6: B verifies A's agent with A's services and database off", () 
     await vi.waitFor(
       async () => {
         await bAudit.auditLedger.sealOnce();
-        const pulled = await pullAuditLedger({ auditUrl: bAuditUrl });
+        const pulled = await pullAuditLedger({ auditUrl: bAuditUrl, apiKey: bAuditReadKey });
         if (!pulled.ok) throw new Error(`audit ledger failed verification: ${pulled.error.code}`);
         expect(pulled.value.unsealedCount).toBe(0);
         records = pulled.value.records.map((entry) => entry.record);

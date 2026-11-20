@@ -27,7 +27,7 @@ HTTP/1.1 401 Unauthorized
 
 After 10 failures in 5 minutes from one source, that source is locked out for 15 minutes. See [Control-plane authentication](/concepts/control-plane-auth).
 
-Routes without a scope are open: the DID documents, the status list, `GET /revocations` and the audit `GET /records`. The two agent routes on the vault (`/tokens`, `/call`) are authenticated by the agent's credential, proof of possession and token instead of an API key.
+Routes without a scope are open: the DID documents, the status list, `GET /revocations` and the audit `GET /records` and `GET /seals/status`. The last three will need `revocations:read` or `audit:read` in a later step; sending a key to them today does no harm. Identity `GET /agents` and vault `GET /policies` need `agents:read` and `policies:read` now. The two agent routes on the vault (`/tokens`, `/call`) are authenticated by the agent's credential, proof of possession and token instead of an API key.
 
 ## Errors
 

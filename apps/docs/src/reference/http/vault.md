@@ -26,6 +26,31 @@ Grant an agent a tool. **Scope:** `policies:write` (operator).
 
 `agentId` is the agent's **DID**. `201 { "agentId": "...", "tool": "..." }`. The grant records who made it. There is no route to remove a grant.
 
+## `GET /policies`
+
+List grants. **Scope:** `policies:read` (operator). Optional query: `agent` (a DID), `limit`, `cursor`.
+
+```json
+{
+  "grants": [
+    {
+      "agentDid": "did:web:localhost%3A4001:agents:3f2b8c1e-...",
+      "tool": "mock-database",
+      "grantedBy": {
+        "kind": "operator",
+        "id": "a6b2cc20050d6a5d",
+        "name": "alice",
+        "via": "custos-admin"
+      },
+      "createdAt": "2026-11-18T10:01:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+It never returns tool credentials. `grantedBy` is `null` for grants made before it was recorded. The cursor is opaque. Paged: up to `limit` items (1 to 200, default 50); pass the returned `nextCursor` as `cursor` for the next page (`null` on the last page). Unknown or repeated query parameters, a malformed value or a `limit` over 200 get `400 { "error": { "code": "INVALID_INPUT" } }`. Reads are not audited.
+
 ## `POST /tokens`
 
 Ask for a 60-second scoped token. No API key: the agent is authenticated by its credential and proof of possession.

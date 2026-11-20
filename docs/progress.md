@@ -20,6 +20,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-18 — Four "read" permissions, and two new ways to ask Custos what it knows
+
+**Commits:** on branch `feat/read-scopes` (Phase 8b, step 5a). Pushed 2026-11-18 as **pull request #148**.
+
+**What shipped:** four new permissions an operator's key can carry: read the audit log, read the revocation list, read who may use which tool, and read the list of agents. Two new questions Custos can now answer: "which agents exist, what are they called, and who registered them?" (from the identity service) and "which agent may use which tool, and who allowed it?" (from the vault, the part of Custos that keeps tool passwords). Both answers are locked from the first day: without a key that carries the matching read permission, Custos says only "unauthorized".
+
+**How it works, in plain words:** think of the permissions as separate keys on a key ring. Until now an operator's ring had keys to _change_ things (register an agent, grant a tool, cut an agent off). It now also has keys to _look_. A company can hand an auditor a ring with only the "read the audit log" key, so the auditor can check the record but change nothing. The identity service now also writes down who registered each agent, the same way the vault already records who granted each tool. Agents registered before today show that as unknown. The "who may use which tool" answer never includes a tool's password, and a test proves it. Long lists come back a page at a time, so a large company's list cannot overload anything.
+
+**What did not change yet, on purpose:** the audit log and the revocation list can still be read without a key today, as they could before. The order agreed in the design (ADR 0022) is: first every program that reads them learns to send a key (done here: `custos audit-log` and the audit checker now send one), then the doors are locked, in the same change that moves the dashboard behind sign-in. Locking first would have broken the demo and the dashboard in between. Local setups whose keys were made before these permissions existed get new keys automatically the next time the container stack starts.
+
+**Why it matters:** this is the groundwork for `custos status` (next step) and for the dashboard's "who can do what" view. Both need to read this information, and now they can do it with a key that can look but not touch.
+
+---
+
 ## 2026-11-18 — The README is short enough to hand to an outsider
 
 **Commits:** `d4ae863`, `acf029c` on branch `docs/readme-outsider`, pushed 2026-11-18 as **pull request #142**.

@@ -56,6 +56,32 @@ Response `201`:
 
 Each registration, and each refusal for a missing scope, is audited with the principal.
 
+## `GET /agents`
+
+List agents. **Scope:** `agents:read` (operator). Optional query: `id` (a UUID) **or** `did`, not both; `limit`; `cursor`.
+
+```json
+{
+  "agents": [
+    {
+      "id": "3f2b8c1e-...",
+      "did": "did:web:localhost%3A4001:agents:3f2b8c1e-...",
+      "name": "billing-bot",
+      "registeredAt": "2026-11-18T10:00:00.000Z",
+      "registeredBy": {
+        "kind": "operator",
+        "id": "a6b2cc20050d6a5d",
+        "name": "alice",
+        "via": "custos-admin"
+      }
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+`name` is `null` for an agent registered without one. `registeredBy` is `null` for agents registered before this was recorded. An unknown `id` or `did` gives an empty list. Paged: up to `limit` items (1 to 200, default 50); pass the returned `nextCursor` as `cursor` for the next page (`null` on the last page). Unknown or repeated query parameters, a malformed value or a `limit` over 200 get `400 { "error": { "code": "INVALID_INPUT" } }`. Reads are not audited.
+
 ## `GET /agents/:id/did.json`
 
 An agent's DID document. Open. No Custos verifier depends on it: the agent's key is also inside its credential.

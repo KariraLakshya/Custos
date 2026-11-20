@@ -70,7 +70,7 @@ beforeAll(async () => {
     allowHttp: true,
   });
   const groupScopes = parseGroupScopes(
-    '{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write"]}',
+    '{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write","audit:read","revocations:read","policies:read","agents:read"]}',
   );
   if (!groupScopes.ok) throw new Error(groupScopes.error);
   app = await buildServer({
@@ -157,10 +157,14 @@ describe("operator SSO with real Keycloak (ADR 0010)", () => {
       clock: { now: () => new Date() },
     }).authenticate({ headers: { authorization: `Bearer ${operatorKey}` } });
     expect(authenticated.ok && [...authenticated.value.scopes].sort()).toEqual([
+      "agents:read",
       "agents:register",
       "agents:revoke",
+      "audit:read",
       "credentials:write",
+      "policies:read",
       "policies:write",
+      "revocations:read",
     ]);
   });
 
