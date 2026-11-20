@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-21 — `custos status`: one command to check one agent
 
-**Commits:** on branch `feat/custos-status` (Phase 8b, step 5b). **Not pushed yet.**
+**Commits:** on branch `feat/custos-status` (Phase 8b, step 5b), pushed 2026-11-21 as **pull request #150**.
 
 **What shipped:** a new command, `custos status <agent id>`. In one answer it tells an operator the agent's name and who registered it, which tools it may use and who allowed each, whether it has been cut off (when, by whom and why), and the last five things it did, each allowed or refused. It is the "check one agent" step in the walk-through (user-journey moment 7), and `custos revoke` now ends by suggesting it. Two smaller fixes: `custos` on its own now lists this as step 8, and `custos help <command>` works. The walk-through and the error messages told people to run it, but it used to fail.
 
