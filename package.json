@@ -21,6 +21,8 @@
     "images:down": "docker compose -f infra/docker/docker-compose.yml --profile images rm --stop --force custos-net tools dashboard vault identity revocation audit",
     "images:check": "bash infra/docker/checks/all.sh",
     "build": "turbo run build",
+    "docs:dev": "turbo run build --filter=@custos/docs^... && pnpm --filter @custos/docs dev",
+    "docs:build": "turbo run build --filter=@custos/docs",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "lint": "turbo run lint",

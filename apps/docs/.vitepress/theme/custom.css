@@ -1,0 +1,22 @@
+/* Custos colours: ink and brass. Everything else is VitePress's default theme. */
+:root {
+  --vp-c-brand-1: #8a6a1f;
+  --vp-c-brand-2: #a07c26;
+  --vp-c-brand-3: #b58d2e;
+  --vp-c-brand-soft: rgba(181, 141, 46, 0.14);
+}
+
+.dark {
+  --vp-c-bg: #11141a;
+  --vp-c-bg-alt: #0c0f14;
+  --vp-c-brand-1: #d9b45a;
+  --vp-c-brand-2: #c9a24a;
+  --vp-c-brand-3: #b58d2e;
+  --vp-c-brand-soft: rgba(217, 180, 90, 0.16);
+}
+
+/* The generated refusal tables are wide: let them scroll on a phone. */
+.custos-refusals {
+  display: block;
+  overflow-x: auto;
+}
