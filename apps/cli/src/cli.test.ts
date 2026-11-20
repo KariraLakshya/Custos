@@ -1310,6 +1310,36 @@ describe("custos CLI", () => {
       expect(process.exitCode).toBeUndefined();
     });
 
+    // Regression: the lifecycle and INVALID_INPUT's next step say
+    // `custos help <command>`, which failed with "unknown command 'help'".
+    it("custos help <command> prints that command's help, and custos help the general help", async () => {
+      const helpFor = async (args: string[]) => {
+        let out = "";
+        const program = createCli();
+        // Subcommands copy these settings only when created, so set them on each.
+        for (const command of [program, ...program.commands]) {
+          command.exitOverride().configureOutput({
+            writeOut: (str) => {
+              out += str;
+            },
+            writeErr: () => {},
+          });
+        }
+        // Shown, then exit 0: "commander.help" or "commander.helpDisplayed".
+        await expect(program.parseAsync(args, { from: "user" })).rejects.toMatchObject({
+          code: expect.stringMatching(/^commander\.help/),
+          exitCode: 0,
+        });
+        return out;
+      };
+      const grant = await helpFor(["help", "grant"]);
+      expect(grant).toContain("Usage: custos grant [options] <tool>");
+      expect(grant).toContain("--to <agent>");
+      const general = await helpFor(["help"]);
+      expect(general).toContain("Usage: custos");
+      expect(general).toMatch(/Commands:[\s\S]*grant/);
+    });
+
     it("still refuses a command that does not exist", async () => {
       const program = createCli()
         .exitOverride()

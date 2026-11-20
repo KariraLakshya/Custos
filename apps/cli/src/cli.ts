@@ -252,6 +252,9 @@ export function createCli(): Command {
     .name("custos")
     .description("Custos — a trust layer for AI agents")
     .version("0.0.0")
+    // Commander drops its `help` command when the root has an action; the
+    // lifecycle and catalogue next steps say `custos help <command>`.
+    .helpCommand(true)
     // `custos` alone: the lifecycle in order, not commander's alphabetical help.
     .action(() => {
       // A root action also receives a mistyped command: refuse it as before.
