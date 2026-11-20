@@ -146,6 +146,23 @@ describe("pullAuditLedger (ADR 0017)", () => {
     });
   });
 
+  // ADR 0022 §3: a key without audit:read is a 401, which a caller must tell apart.
+  it("carries the HTTP status of a refused read", async () => {
+    const records = await pullAuditLedger({
+      auditUrl: AUDIT_URL,
+      fetch: fakeFetch({}, { recordsStatus: 401 }).doFetch,
+    });
+    expect(records).toEqual({
+      ok: false,
+      error: { code: "BAD_RESPONSE", reason: "records: HTTP 401", status: 401 },
+    });
+    const did = await pullAuditLedger({
+      auditUrl: AUDIT_URL,
+      fetch: fakeFetch({}, { didStatus: 404 }).doFetch,
+    });
+    expect(did).toMatchObject({ ok: false, error: { status: 404 } });
+  });
+
   it("answers UNREACHABLE when the request fails", async () => {
     const failing = (async () => {
       throw new Error("ECONNREFUSED");
