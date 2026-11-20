@@ -31,6 +31,26 @@ describe("createLogger", () => {
     expect(entry.req.headers.authorization).toBe("[REDACTED]");
   });
 
+  it("redacts an SSO login's operator key and a dashboard sign-in's one-time code (ADR 0022 §4)", () => {
+    const { stream, lines } = captureStream();
+    const logger = createLogger({}, stream);
+    logger.info(
+      {
+        operatorKey: "custos_operator_x_y",
+        body: { loginCode: "c".repeat(43) },
+        res: { body: { operatorKey: "custos_operator_x_z" } },
+        code: "INVALID_LOGIN_CODE",
+      },
+      "test",
+    );
+    const [entry] = lines();
+    expect(entry.operatorKey).toBe("[REDACTED]");
+    expect(entry.body.loginCode).toBe("[REDACTED]");
+    expect(entry.res.body.operatorKey).toBe("[REDACTED]");
+    // A refusal code is not a secret and stays readable.
+    expect(entry.code).toBe("INVALID_LOGIN_CODE");
+  });
+
   it("builds a working logger when no destination stream is given", () => {
     const logger = createLogger({ level: "silent" });
     expect(logger).toBeDefined();

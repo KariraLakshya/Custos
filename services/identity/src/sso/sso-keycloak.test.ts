@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "../db/client.js";
 import { buildServer } from "../server.js";
 import { discoverProvider } from "./boot.js";
-import { parseGroupScopes } from "./config.js";
+import { parseGroupScopes, parseReturnUrls } from "./config.js";
 import { createOperatorSso } from "./sso.js";
 import { createLoginTransactions } from "./transactions.js";
 
@@ -28,6 +28,8 @@ const ISSUER = `http://localhost:${PORT}/realms/custos`;
 // Registered in infra/sso/realm-custos.json.
 const REDIRECT = "http://127.0.0.1:5801/operator/callback";
 const CONTAINER = "custos-keycloak-test";
+// The dashboard's sign-in return address (ADR 0022 §4), as the demo configures it.
+const RETURN = "http://localhost:4005/login/done";
 
 const db = createDb(process.env.DATABASE_URL ?? "postgres://custos:custos@localhost:5433/custos");
 const keys = createApiKeyStore(db);
@@ -73,6 +75,8 @@ beforeAll(async () => {
     '{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write","audit:read","revocations:read","policies:read","agents:read"]}',
   );
   if (!groupScopes.ok) throw new Error(groupScopes.error);
+  const returnUrls = parseReturnUrls(JSON.stringify([RETURN]));
+  if (!returnUrls.ok) throw new Error(returnUrls.error);
   app = await buildServer({
     db,
     controlPlaneAuth: controlPlane.guard,
@@ -90,6 +94,7 @@ beforeAll(async () => {
         config,
         redirectUrl: REDIRECT,
         groupScopes: groupScopes.value,
+        returnUrls: returnUrls.value,
         sessionMs: 8 * 3_600_000,
         keys,
         transactions: createLoginTransactions({ clock: { now: () => new Date() } }),
@@ -107,8 +112,14 @@ afterAll(async () => {
 });
 
 /** Plays the browser: Keycloak's login page, credentials, and the redirect back to Custos. */
-async function signIn(username: string, password: string) {
-  const started = (await app.inject({ method: "POST", url: "/operator/login" })).json() as {
+async function signIn(username: string, password: string, returnTo?: string) {
+  const started = (
+    await app.inject({
+      method: "POST",
+      url: "/operator/login",
+      ...(returnTo === undefined ? {} : { payload: { returnTo } }),
+    })
+  ).json() as {
     loginId: string;
     authorizationUrl: string;
   };
@@ -140,7 +151,7 @@ async function signIn(username: string, password: string) {
       ? await app.inject({ method: "GET", url: `/operator/callback${new URL(location).search}` })
       : null;
   const polled = await app.inject({ method: "GET", url: `/operator/login/${started.loginId}` });
-  return { submitted, location, callback, polled };
+  return { loginId: started.loginId, submitted, location, callback, polled };
 }
 
 describe("operator SSO with real Keycloak (ADR 0010)", () => {
@@ -173,6 +184,40 @@ describe("operator SSO with real Keycloak (ADR 0010)", () => {
     expect(callback?.statusCode).toBe(401);
     expect(polled.statusCode).toBe(401);
     expect(polled.json()).toEqual({ error: { code: "NO_MAPPED_GROUP" } });
+  });
+
+  it("signs alice in to the dashboard with a read-only key, released for its one-time code", async () => {
+    const { loginId, callback, polled } = await signIn("alice", "alice-dev-password", RETURN);
+    expect(callback?.statusCode).toBe(303);
+    const location = new URL(String(callback?.headers.location));
+    expect(location.origin + location.pathname).toBe(RETURN);
+    // The terminal's poll never hands out a dashboard login's key.
+    expect(polled.statusCode).toBe(404);
+
+    const released = await app.inject({
+      method: "POST",
+      url: `/operator/login/${loginId}/release`,
+      payload: { loginCode: location.searchParams.get("code") },
+    });
+    expect(released.statusCode).toBe(200);
+    const { operatorKey } = released.json() as { operatorKey: string };
+    const authenticated = await createApiKeyAuthenticator({
+      keys,
+      clock: { now: () => new Date() },
+    }).authenticate({ headers: { authorization: `Bearer ${operatorKey}` } });
+    // alice's group may do everything; her dashboard key may only read.
+    expect(authenticated.ok && [...authenticated.value.scopes].sort()).toEqual([
+      "agents:read",
+      "audit:read",
+      "policies:read",
+      "revocations:read",
+    ]);
+  });
+
+  it("refuses bob at the dashboard too, returning with the reason", async () => {
+    const { callback } = await signIn("bob", "bob-dev-password", RETURN);
+    expect(callback?.statusCode).toBe(303);
+    expect(callback?.headers.location).toBe(`${RETURN}?error=NO_MAPPED_GROUP`);
   });
 
   it("never reaches Custos with a wrong password", async () => {

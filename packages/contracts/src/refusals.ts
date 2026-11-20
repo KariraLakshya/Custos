@@ -189,6 +189,23 @@ export const REFUSALS = {
     "Check that the company login is running, then run: custos login",
   ),
 
+  // --- identity: signing in to the dashboard (ADR 0022 §4) ---
+  RETURN_URL_NOT_ALLOWED: entry(
+    "normal",
+    "The address to return to after signing in is not on the identity service's list.",
+    "Ask whoever runs Custos to add the dashboard's exact sign-in address to SSO_RETURN_URLS.",
+  ),
+  NO_READ_SCOPE: entry(
+    "normal",
+    "You signed in, but your company groups may not view anything in the dashboard.",
+    "Ask whoever runs Custos to give your group a read scope (SSO_GROUP_SCOPES).",
+  ),
+  INVALID_LOGIN_CODE: entry(
+    "normal",
+    "This sign-in could not be finished: its one-time code was wrong, already used or too old.",
+    "Sign in to the dashboard again.",
+  ),
+
   // --- revocation: cutting an agent off (`custos revoke`) ---
   UNKNOWN_AGENT: entry(
     "normal",

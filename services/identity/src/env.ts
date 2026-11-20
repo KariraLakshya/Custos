@@ -1,6 +1,7 @@
 import { baseEnvSchema, loadEnv } from "@custos/config";
 import { parseApiKey } from "@custos/control-plane-auth";
 import { z } from "zod";
+import { parseReturnUrls } from "./sso/config.js";
 
 const fieldsSchema = baseEnvSchema.extend({
   PORT: z.coerce.number().int().positive().default(4001),
@@ -55,6 +56,10 @@ const fieldsSchema = baseEnvSchema.extend({
   SSO_SESSION_HOURS: z.coerce.number().int().min(1).max(24).default(8),
   // Plain-http issuer, for a local development provider only.
   SSO_ALLOW_HTTP_ISSUER: z.enum(["true", "false"]).default("false"),
+  // JSON list of the exact addresses a dashboard sign-in may return to
+  // (ADR 0022 §4), e.g. ["http://localhost:4005/login/done"]. Compared
+  // character for character. Unset: every `returnTo` is refused.
+  SSO_RETURN_URLS: z.string().min(1).optional(),
 });
 
 // The provider selects which key setting is required; a missing one is a
@@ -74,6 +79,18 @@ export const envSchema = fieldsSchema.superRefine((env, ctx) => {
       message:
         "SSO needs all of SSO_ISSUER, SSO_CLIENT_ID, SSO_CLIENT_SECRET, SSO_REDIRECT_URL, SSO_GROUP_SCOPES",
     });
+  }
+  if (env.SSO_RETURN_URLS !== undefined) {
+    if (env.SSO_ISSUER === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SSO_RETURN_URLS"],
+        message: "SSO_RETURN_URLS needs SSO configured (SSO_ISSUER and the rest)",
+      });
+    }
+    const parsed = parseReturnUrls(env.SSO_RETURN_URLS);
+    if (!parsed.ok)
+      ctx.addIssue({ code: "custom", path: ["SSO_RETURN_URLS"], message: parsed.error });
   }
   if (env.SSO_ISSUER?.startsWith("http:")) {
     const host = new URL(env.SSO_ISSUER).hostname;

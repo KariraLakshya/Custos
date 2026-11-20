@@ -3,7 +3,7 @@ import type { ApiKeyStore } from "@custos/control-plane-auth";
 import { err, ok, type Result } from "@custos/core";
 import * as oidc from "openid-client";
 import type { Env } from "../env.js";
-import { parseGroupScopes } from "./config.js";
+import { parseGroupScopes, parseReturnUrls } from "./config.js";
 import { createOperatorSso, type OperatorSso } from "./sso.js";
 import { createLoginTransactions } from "./transactions.js";
 
@@ -61,6 +61,13 @@ export async function createOperatorSsoFromEnv(
   }
   const groupScopes = parseGroupScopes(env.SSO_GROUP_SCOPES);
   if (!groupScopes.ok) return err(groupScopes.error);
+  // Already refused at boot by the env schema when malformed; checked again
+  // here so this function never trusts a caller to have done that.
+  const returnUrls =
+    env.SSO_RETURN_URLS === undefined
+      ? ok(new Set<string>())
+      : parseReturnUrls(env.SSO_RETURN_URLS);
+  if (!returnUrls.ok) return err(returnUrls.error);
   let config: oidc.Configuration;
   try {
     config = await discoverProvider({
@@ -85,6 +92,7 @@ export async function createOperatorSsoFromEnv(
       config,
       redirectUrl,
       groupScopes: groupScopes.value,
+      returnUrls: returnUrls.value,
       sessionMs,
       keys,
       transactions,

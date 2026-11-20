@@ -2,13 +2,14 @@ import { readFile } from "node:fs/promises";
 import { REFUSALS, type RefusalCode } from "@custos/contracts";
 import { describe, expect, it } from "vitest";
 import type { RegisterAgentError } from "./agents/register.js";
+import type { ReleaseFailure } from "./sso/sso.js";
 import type { LoginFailure } from "./sso/transactions.js";
 
 // Type-level: these lines compile only while every code has a catalogue
 // entry (ADR 0022 §6). `pnpm typecheck` covers test files.
 //
-// Covered: `POST /agents` (`RegisterAgentError`) and the sign-in poll
-// (`LoginFailure`); every other route writes its code as a literal, which
+// Covered: `POST /agents` (`RegisterAgentError`), the sign-in poll
+// (`LoginFailure`) and the dashboard sign-in's release (`ReleaseFailure`); every other route writes its code as a literal, which
 // the scan below checks.
 const catalogued = <C extends RefusalCode>(..._codes: C[]): true => true;
 
@@ -16,6 +17,7 @@ describe("the identity service's refusals are all in the catalogue", () => {
   it("every code a registration or a sign-in can be refused with", () => {
     expect(catalogued<RegisterAgentError["code"]>()).toBe(true);
     expect(catalogued<LoginFailure>()).toBe(true);
+    expect(catalogued<ReleaseFailure>()).toBe(true);
   });
 
   it("the check fails for a code with no entry", () => {

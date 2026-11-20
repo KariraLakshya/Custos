@@ -1,4 +1,4 @@
-import { isScope, scopeAllowedFor, type Scope } from "@custos/control-plane-auth";
+import { isScope, READ_SCOPES, scopeAllowedFor, type Scope } from "@custos/control-plane-auth";
 import { err, ok, type Result } from "@custos/core";
 
 /**
@@ -51,4 +51,53 @@ export function scopesForGroups(
     for (const scope of mapped) scopes.add(scope);
   }
   return { matched, scopes: [...scopes].sort() };
+}
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * The addresses a dashboard sign-in may return to (ADR 0022 §4), from
+ * `SSO_RETURN_URLS`: a JSON list of absolute URLs, compared later by exact
+ * string equality only. Each must already be in its canonical form (what
+ * `new URL()` prints), so the string compared is the string redirected to.
+ * No query, fragment or user info; `https`, or `http` for this computer only,
+ * since the one-time code travels in the address.
+ */
+export function parseReturnUrls(json: string): Result<ReadonlySet<string>, string> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return err("SSO_RETURN_URLS is not valid JSON");
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return err("SSO_RETURN_URLS must be a non-empty list of addresses");
+  }
+  const urls = new Set<string>();
+  for (const entry of parsed) {
+    if (typeof entry !== "string") return err("SSO_RETURN_URLS must list strings");
+    let url: URL;
+    try {
+      url = new URL(entry);
+    } catch {
+      return err(`SSO_RETURN_URLS: ${JSON.stringify(entry)} is not an absolute URL`);
+    }
+    if (url.href !== entry) {
+      return err(`SSO_RETURN_URLS: write ${JSON.stringify(entry)} as ${JSON.stringify(url.href)}`);
+    }
+    if (entry.includes("?") || entry.includes("#") || url.username !== "" || url.password !== "") {
+      return err(`SSO_RETURN_URLS: ${entry} must have no query, fragment or user info`);
+    }
+    const local = url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname);
+    if (url.protocol !== "https:" && !local) {
+      return err(`SSO_RETURN_URLS: ${entry} must be https (http only for localhost)`);
+    }
+    urls.add(entry);
+  }
+  return ok(urls);
+}
+
+/** A dashboard sign-in's scopes: only the group's read scopes (ADR 0022 §4). */
+export function readOnly(scopes: readonly Scope[]): readonly Scope[] {
+  return scopes.filter((scope) => (READ_SCOPES as readonly Scope[]).includes(scope));
 }
