@@ -20,7 +20,7 @@
     "@custos/contracts": "workspace:*",
     "@custos/core": "workspace:*",
     "@custos/sdk": "workspace:*",
-    "commander": "^12.1.0"
+    "commander": "^15.1.0"
   },
   "devDependencies": {
     "@custos/audit": "workspace:*",
