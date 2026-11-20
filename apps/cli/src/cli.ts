@@ -1,5 +1,5 @@
 import { open, readFile, rm, writeFile } from "node:fs/promises";
-import { AGENT_NAME_MAX_LENGTH, agentNameSchema, refusalFor } from "@custos/contracts";
+import { AGENT_NAME_MAX_LENGTH, agentNameSchema } from "@custos/contracts";
 import {
   createCustos,
   CustosError,
@@ -10,10 +10,12 @@ import {
 } from "@custos/sdk";
 import { Command } from "commander";
 import { openSealStore } from "@custos/audit-client";
-import { defaultSealFile, pullAuditLog, type AuditLogError } from "./audit-log.js";
-import { explainAuditFailure } from "./audit-words.js";
+import { defaultSealFile, pullAuditLog } from "./audit-log.js";
+import { acceptKeyHelp, explainAuditFailure, untrustedKeyOf } from "./audit-words.js";
 import { restrictToOwner } from "./key-file.js";
 import { defaultOperatorKeyFile, findOperatorKey, login } from "./login.js";
+import { explainRefusal } from "./refusal-words.js";
+import { gatherStatus, renderStatus } from "./status.js";
 import { loadCredentialFile, verifyCredentialIndependently } from "./verify.js";
 
 interface AuditLogOptions {
@@ -21,24 +23,6 @@ interface AuditLogOptions {
   readonly sealFile: string;
   readonly acceptKey?: string[];
   readonly identityIssuer: string;
-}
-
-/** The seal key a failed check is waiting on a person to accept, if that is why it failed. */
-function untrustedKeyOf(error: AuditLogError): string | undefined {
-  if (error.code === "KEY_CHANGED") return error.current;
-  if (error.code === "SEAL_INVALID" && error.error.code === "UNTRUSTED_KEY") return error.error.key;
-  return undefined;
-}
-
-/** What to do about a seal key this machine has not trusted (ADR 0017, key rotation). */
-function acceptKeyHelp(key: string): string {
-  return [
-    `the audit log is sealed with a key this machine has not trusted: ${key}`,
-    "Check it with whoever runs the audit service (`pnpm demo` prints its seal key at start).",
-    "Do not check it against the service's own DID document: the service controls that.",
-    `If it matches, run again with: --accept-key ${key}`,
-    "",
-  ].join("\n");
 }
 
 const DEFAULT_URLS: CustosConfig = {
@@ -61,6 +45,10 @@ function custos(urls: Partial<CustosConfig>): Custos {
  * and process listings (ADR 0008).
  */
 async function operatorCustos(urls: Partial<CustosConfig>): Promise<Custos> {
+  return createCustos({ ...DEFAULT_URLS, ...urls, operatorKey: await requireOperatorKey() });
+}
+
+async function requireOperatorKey(): Promise<string> {
   const operatorKey = await findOperatorKey();
   if (!operatorKey) {
     throw new CliError(
@@ -68,7 +56,7 @@ async function operatorCustos(urls: Partial<CustosConfig>): Promise<Custos> {
       "custos login   (scripts: set CUSTOS_OPERATOR_KEY; create a key with: pnpm custos-admin dev-keys)",
     );
   }
-  return createCustos({ ...DEFAULT_URLS, ...urls, operatorKey });
+  return operatorKey;
 }
 
 /** A mistake the CLI catches itself, with the step that fixes it (ADR 0022 §6). */
@@ -192,35 +180,6 @@ function agentDidOf(credential: { readonly credentialSubject?: unknown }): strin
   return subject.id;
 }
 
-// Codes and reasons come off the wire. Only this shape is printed as-is, so a
-// service cannot write control characters to the terminal.
-const CODE_SHAPE = /^[A-Z][A-Z0-9_]{0,63}$/;
-
-/**
- * A refusal in words (ADR 0022 §6): what it means, what to do next, and the
- * code for scripts and searching. "Refused" is Custos working; "Problem" is
- * something actually wrong. `fill` supplies the `<tool>` and `<agent>` a next
- * step may name; both come from this command's own arguments and files.
- */
-function explainRefusal(
-  code: unknown,
-  reason: unknown,
-  fill: { readonly tool?: string; readonly agent?: string } = {},
-): string {
-  const entry = refusalFor(code, reason);
-  const next = entry.nextStep
-    .replaceAll("<tool>", fill.tool ?? "<tool>")
-    .replaceAll("<agent>", fill.agent ?? "<agent id>");
-  const shownCode = typeof code === "string" && CODE_SHAPE.test(code) ? code : "UNKNOWN";
-  const shownReason = typeof reason === "string" && CODE_SHAPE.test(reason) ? ` (${reason})` : "";
-  return [
-    `${entry.severity === "alarm" ? "Problem" : "Refused"}: ${entry.meaning}`,
-    `Next: ${next}`,
-    `Code: ${shownCode}${shownReason}`,
-    "",
-  ].join("\n");
-}
-
 /** 401/403 are the vault's authorization decisions; anything else is a failure worth its detail. */
 function describeRefusal(
   refusal: CallDenied,
@@ -242,6 +201,7 @@ const LIFECYCLE = `Custos: a trust layer for AI agents. The steps, in order:
   5. Pass work to another agent   custos delegate <tool> <actions...> --to <other agent id>
   6. Cut it off                   custos revoke <agent id>
   7. Check the record             custos audit-log
+  8. Check one agent              custos status <agent id>
 
 Next: custos login
 Details of any step: custos help <command>
@@ -689,10 +649,87 @@ Next: custos register
               : [
                   `Problem: ${failed.length} vault(s) could not be told now. They refuse the agent after their next sync, within seconds of being reachable.`,
                 ]),
-            "Next: custos audit-log   (the record shows the cut-off)",
+            `Next: custos status ${id}   (to confirm)`,
             "",
           ].join("\n"),
         );
+      },
+    );
+
+  program
+    .command("status")
+    .description(
+      "Show one agent: its name, what it may use, whether it is cut off, and what it did recently",
+    )
+    .argument("<agent>", "the agent's id or DID")
+    .option("--identity-url <url>", "identity service base URL", "http://localhost:4001")
+    .option("--vault-url <url>", "vault service base URL", "http://localhost:4002")
+    .option("--revocation-url <url>", "revocation service base URL", "http://localhost:4003")
+    .option("--audit-url <url>", "audit service base URL", "http://localhost:4004")
+    .option(
+      "--identity-issuer <did>",
+      "the identity service's DID; turns an agent id into its DID",
+      DEFAULT_IDENTITY_ISSUER,
+    )
+    .option(
+      "--seal-file <path>",
+      "where the newest verified audit seal is remembered (shared with audit-log)",
+      defaultSealFile(),
+    )
+    .option(
+      "--accept-key <key>",
+      "an audit seal key you have checked (as for audit-log); repeat for several",
+      (key: string, previous: string[]) => [...previous, key],
+      [] as string[],
+    )
+    .option("--json", "print the result as JSON")
+    .action(
+      async (
+        agent: string,
+        opts: AuditLogOptions & {
+          identityUrl: string;
+          vaultUrl: string;
+          revocationUrl: string;
+          json?: boolean;
+        },
+      ) => {
+        const ref = agentRef(agent, opts.identityIssuer);
+        // One key with the four read scopes covers every read (ADR 0022 §3).
+        const operatorKey = await requireOperatorKey();
+        const operator = createCustos({
+          identityUrl: opts.identityUrl,
+          vaultUrl: opts.vaultUrl,
+          revocationUrl: opts.revocationUrl,
+          operatorKey,
+        });
+        const storeUrl = process.env.CUSTOS_AUDIT_SEAL_STORE_URL;
+        const sealStore = storeUrl ? await openSealStore(storeUrl) : undefined;
+        // The same check as `custos audit-log`, seal file and pinned keys included.
+        const status = await gatherStatus({
+          custos: operator,
+          ref,
+          byDid: ref.did === agent,
+          pullAudit: (agentDid) =>
+            pullAuditLog({
+              auditUrl: opts.auditUrl,
+              operatorKey,
+              sealFile: opts.sealFile,
+              agentDid,
+              ...(sealStore === undefined ? {} : { sealStore }),
+              ...(opts.acceptKey === undefined ? {} : { acceptKeys: opts.acceptKey }),
+              identityIssuerDid: opts.identityIssuer,
+            }),
+        }).finally(() => sealStore?.close());
+        if (status === "unknown-agent") {
+          throw new CliError(
+            `no agent ${ref.id} is registered with the identity service at ${opts.identityUrl}`,
+            "check the id `custos register` printed, and --identity-url",
+          );
+        }
+        const shown = renderStatus(status, opts.json === true ? { json: true } : {});
+        process.stdout.write(shown.stdout);
+        process.stderr.write(shown.stderr);
+        if (shown.exitCode !== 0) process.exitCode = shown.exitCode;
       },
     );
 

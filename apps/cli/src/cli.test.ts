@@ -942,7 +942,7 @@ describe("custos CLI", () => {
           [
             "Agent 3f2b8c1e-1111-4111-8111-111111111111 is cut off from every tool. This cannot be undone.",
             "Vaults told now: 1.",
-            "Next: custos audit-log   (the record shows the cut-off)",
+            "Next: custos status 3f2b8c1e-1111-4111-8111-111111111111   (to confirm)",
             "",
           ].join("\n"),
         );
@@ -1302,7 +1302,7 @@ describe("custos CLI", () => {
 
       const written = stdout.mock.calls.join("");
       const order = ["custos login", "custos register", "custos grant", "custos use"];
-      order.push("custos delegate", "custos revoke", "custos audit-log");
+      order.push("custos delegate", "custos revoke", "custos audit-log", "custos status");
       const positions = order.map((command) => written.indexOf(command));
       expect(positions.every((at) => at >= 0)).toBe(true);
       expect([...positions].sort((a, b) => a - b)).toEqual(positions);
@@ -1337,7 +1337,8 @@ describe("custos CLI", () => {
       expect(grant).toContain("--to <agent>");
       const general = await helpFor(["help"]);
       expect(general).toContain("Usage: custos");
-      expect(general).toMatch(/Commands:[\s\S]*grant/);
+      expect(general).toMatch(/Commands:[\s\S]*grant[\s\S]*status/);
+      expect(await helpFor(["help", "status"])).toContain("Usage: custos status [options] <agent>");
     });
 
     it("still refuses a command that does not exist", async () => {
