@@ -753,7 +753,7 @@ describe("custos status (Phase 8b, ADR 0022 §7, user-journey moment 7)", () => 
       "the grant, the cut-off and the verified recent actions",
     async () => {
       await withPhase4Stack(
-        { identity: 4930, revocation: 4931, vault: 4932, audit: 4933 },
+        { identity: 4970, revocation: 4971, vault: 4972, audit: 4973 },
         [createMockDatabaseConnector()],
         async ({ identityUrl, revocationUrl, vaultUrl, auditUrl }) => {
           await fetch(new URL("/credentials", vaultUrl), {
@@ -781,7 +781,7 @@ describe("custos status (Phase 8b, ADR 0022 §7, user-journey moment 7)", () => 
             ]);
             const id = /\(id ([0-9a-f-]{36})\)/.exec(registered.out)?.[1];
             expect(id).toBeDefined();
-            const issuer = `did:web:127.0.0.1%3A4930`;
+            const issuer = `did:web:127.0.0.1%3A4970`;
             const did = `${issuer}:agents:${id}`;
 
             const granted = await cli([
@@ -902,7 +902,7 @@ describe("custos status (Phase 8b, ADR 0022 §7, user-journey moment 7)", () => 
 
   it("a key without the read scopes is told which reads it needs", async () => {
     await withPhase4Stack(
-      { identity: 4934, revocation: 4935, vault: 4936, audit: 4937 },
+      { identity: 4974, revocation: 4975, vault: 4976, audit: 4977 },
       [createMockDatabaseConnector()],
       async ({ identityUrl, revocationUrl, vaultUrl, auditUrl }) => {
         const registered = await sdkAt({ identityUrl }).register();
