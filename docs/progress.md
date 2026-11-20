@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-21 — `custos status`: one command to check one agent
+
+**Commits:** on branch `feat/custos-status` (Phase 8b, step 5b), pushed 2026-11-21 as **pull request #150**.
+
+**What shipped:** a new command, `custos status <agent id>`. In one answer it tells an operator the agent's name and who registered it, which tools it may use and who allowed each, whether it has been cut off (when, by whom and why), and the last five things it did, each allowed or refused. It is the "check one agent" step in the walk-through (user-journey moment 7), and `custos revoke` now ends by suggesting it. Two smaller fixes: `custos` on its own now lists this as step 8, and `custos help <command>` works. The walk-through and the error messages told people to run it, but it used to fail.
+
+**How it works, in plain words:** the command asks the four Custos services, each with the operator's own key: identity ("who is this?"), the vault ("what may it use?"), the revocation service ("is it cut off?") and the audit log ("what did it do?"). The audit answer gets the same tamper check as `custos audit-log`, so the "recent actions" are proven, not just reported. If one service cannot be asked, or refuses because the key lacks the right read permission, that line says "could not check" and names the service and the permission the key needs. It never quietly says "no tools" or "not cut off" when it simply does not know. If the audit log has been tampered with, the command raises an alarm and shows none of it. Anything a service sends back is printed only if it is plain text, so a bad name cannot mess up the operator's terminal.
+
+**Why it matters:** an operator can now answer "is this agent safe, and what has it been doing?" with one command instead of three tools and a README. It is the CLI half of what the dashboard will show, and the next step, the dashboard, reads the same information in the same way.
+
+---
+
 ## 2026-11-18 — Custos gets a documentation website
 
 **Commits:** `159ec6e` (the site package, its tooling and ADR 0023), `15889c0` (the pages), plus this log entry, on branch `docs/site`, pushed 2026-11-18 as **pull request #149**.

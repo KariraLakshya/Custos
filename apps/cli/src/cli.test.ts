@@ -942,7 +942,7 @@ describe("custos CLI", () => {
           [
             "Agent 3f2b8c1e-1111-4111-8111-111111111111 is cut off from every tool. This cannot be undone.",
             "Vaults told now: 1.",
-            "Next: custos audit-log   (the record shows the cut-off)",
+            "Next: custos status 3f2b8c1e-1111-4111-8111-111111111111   (to confirm)",
             "",
           ].join("\n"),
         );
@@ -1302,12 +1302,43 @@ describe("custos CLI", () => {
 
       const written = stdout.mock.calls.join("");
       const order = ["custos login", "custos register", "custos grant", "custos use"];
-      order.push("custos delegate", "custos revoke", "custos audit-log");
+      order.push("custos delegate", "custos revoke", "custos audit-log", "custos status");
       const positions = order.map((command) => written.indexOf(command));
       expect(positions.every((at) => at >= 0)).toBe(true);
       expect([...positions].sort((a, b) => a - b)).toEqual(positions);
       expect(written).toContain("\nNext: custos login\n");
       expect(process.exitCode).toBeUndefined();
+    });
+
+    // Regression: the lifecycle and INVALID_INPUT's next step say
+    // `custos help <command>`, which failed with "unknown command 'help'".
+    it("custos help <command> prints that command's help, and custos help the general help", async () => {
+      const helpFor = async (args: string[]) => {
+        let out = "";
+        const program = createCli();
+        // Subcommands copy these settings only when created, so set them on each.
+        for (const command of [program, ...program.commands]) {
+          command.exitOverride().configureOutput({
+            writeOut: (str) => {
+              out += str;
+            },
+            writeErr: () => {},
+          });
+        }
+        // Shown, then exit 0: "commander.help" or "commander.helpDisplayed".
+        await expect(program.parseAsync(args, { from: "user" })).rejects.toMatchObject({
+          code: expect.stringMatching(/^commander\.help/),
+          exitCode: 0,
+        });
+        return out;
+      };
+      const grant = await helpFor(["help", "grant"]);
+      expect(grant).toContain("Usage: custos grant [options] <tool>");
+      expect(grant).toContain("--to <agent>");
+      const general = await helpFor(["help"]);
+      expect(general).toContain("Usage: custos");
+      expect(general).toMatch(/Commands:[\s\S]*grant[\s\S]*status/);
+      expect(await helpFor(["help", "status"])).toContain("Usage: custos status [options] <agent>");
     });
 
     it("still refuses a command that does not exist", async () => {

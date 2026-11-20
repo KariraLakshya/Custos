@@ -131,3 +131,21 @@ export function explainAuditFailure(error: AuditLogError): string {
     "",
   ].join("\n");
 }
+
+/** The seal key a failed check is waiting on a person to accept, if that is why it failed. */
+export function untrustedKeyOf(error: AuditLogError): string | undefined {
+  if (error.code === "KEY_CHANGED") return error.current;
+  if (error.code === "SEAL_INVALID" && error.error.code === "UNTRUSTED_KEY") return error.error.key;
+  return undefined;
+}
+
+/** What to do about a seal key this machine has not trusted (ADR 0017, key rotation). */
+export function acceptKeyHelp(key: string): string {
+  return [
+    `the audit log is sealed with a key this machine has not trusted: ${key}`,
+    "Check it with whoever runs the audit service (`pnpm demo` prints its seal key at start).",
+    "Do not check it against the service's own DID document: the service controls that.",
+    `If it matches, run again with: --accept-key ${key}`,
+    "",
+  ].join("\n");
+}

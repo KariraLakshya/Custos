@@ -699,3 +699,166 @@ describe("delegate (ADR 0020)", () => {
     expect(tokenBodies).toEqual([delegation, delegation]);
   });
 });
+
+describe("operator reads (ADR 0022 §1–§3)", () => {
+  const registeredBy = { kind: "operator", id: "k1", name: "alice@example.com", via: "sso" };
+  const listed = {
+    id: "abc",
+    did: agent.did,
+    name: "billing-bot",
+    registeredAt: "2026-11-20T10:00:00.000Z",
+    registeredBy,
+  };
+  const grantPage = (tools: string[], nextCursor: string | null) => ({
+    grants: tools.map((tool) => ({
+      agentDid: agent.did,
+      tool,
+      grantedBy: registeredBy,
+      createdAt: "2026-11-20T10:01:00.000Z",
+    })),
+    nextCursor,
+  });
+  const tombstone = (claims: unknown) =>
+    `${Buffer.from(JSON.stringify(claims)).toString("base64url")}.c2lnbmF0dXJl`;
+  const revoked = {
+    agentDid: agent.did,
+    statusListIndex: 7,
+    revokedAt: "2026-11-20T10:05:00.000Z",
+  };
+
+  it("findAgent asks identity by id or by DID, with the operator key, and returns the agent", async () => {
+    const { url, requests, authorizations } = await stubServices({
+      "/agents?id=abc": { body: { agents: [listed], nextCursor: null } },
+      [`/agents?did=${encodeURIComponent(agent.did)}`]: {
+        body: { agents: [listed], nextCursor: null },
+      },
+    });
+    await expect(custosAt(url).findAgent({ id: "abc" })).resolves.toEqual(listed);
+    await expect(custosAt(url).findAgent({ did: agent.did })).resolves.toEqual(listed);
+    expect(requests).toHaveLength(2);
+    expect(authorizations).toEqual([`Bearer ${OPERATOR_KEY}`, `Bearer ${OPERATOR_KEY}`]);
+  });
+
+  it("findAgent returns null when identity has no such agent", async () => {
+    const { url } = await stubServices({
+      "/agents?id=abc": { body: { agents: [], nextCursor: null } },
+    });
+    await expect(custosAt(url).findAgent({ id: "abc" })).resolves.toBeNull();
+  });
+
+  it("listGrants follows every page, at the vault's maximum page size", async () => {
+    const base = `/policies?agent=${encodeURIComponent(agent.did)}&limit=200`;
+    const { url, requests } = await stubServices({
+      [base]: { body: grantPage(["mock-database"], "next-1") },
+      [`${base}&cursor=next-1`]: { body: grantPage(["stripe"], null) },
+    });
+    const grants = await custosAt(url).listGrants(agent);
+    expect(grants.map((grant) => grant.tool)).toEqual(["mock-database", "stripe"]);
+    expect(requests).toHaveLength(2);
+  });
+
+  it("listGrants throws rather than return part of an endless list", async () => {
+    const base = `/policies?agent=${encodeURIComponent(agent.did)}&limit=200`;
+    const routes: Record<string, Reply> = { [base]: { body: grantPage(["t0"], "c1") } };
+    for (let page = 1; page <= 50; page += 1) {
+      routes[`${base}&cursor=c${page}`] = { body: grantPage([`t${page}`], `c${page + 1}`) };
+    }
+    const { url } = await stubServices(routes);
+    await expect(custosAt(url).listGrants(agent)).rejects.toThrow(/more than 50 pages/);
+  });
+
+  it("findRevocation finds this agent's entry among others, reason and all", async () => {
+    const { url } = await stubServices({
+      "/revocations": {
+        body: {
+          tombstones: [
+            tombstone({ ...revoked, agentDid: "did:web:example:agents:other" }),
+            tombstone({ ...revoked, reason: "key leaked" }),
+          ],
+          asOf: "2026-11-20T10:06:00.000Z",
+        },
+      },
+    });
+    await expect(custosAt(url).findRevocation(agent)).resolves.toEqual({
+      ...revoked,
+      reason: "key leaked",
+    });
+  });
+
+  it("findRevocation returns null when the agent is not in the list", async () => {
+    const { url } = await stubServices({
+      "/revocations": { body: { tombstones: [], asOf: "2026-11-20T10:06:00.000Z" } },
+    });
+    await expect(custosAt(url).findRevocation(agent)).resolves.toBeNull();
+  });
+
+  // Never "not revoked" from a list it could not fully read.
+  it("findRevocation throws when any entry cannot be read", async () => {
+    for (const bad of ["not-base64-json.sig", tombstone({ agentDid: agent.did })]) {
+      const { url } = await stubServices({
+        "/revocations": { body: { tombstones: [tombstone(revoked), bad] } },
+      });
+      await expect(custosAt(url).findRevocation(agent)).rejects.toThrow(
+        /unexpected response shape/,
+      );
+      await new Promise((resolve) => server?.close(resolve));
+      server = undefined;
+    }
+  });
+
+  // The vault's and revocation service's older routes answer { error: "CODE" };
+  // the guard and the new reads answer { error: { code } }.
+  it("reads a refusal's code in both error shapes", async () => {
+    const { url } = await stubServices({
+      "/agents?id=abc": { status: 401, body: { error: { code: "UNAUTHORIZED" } } },
+      [`/policies?agent=${encodeURIComponent(agent.did)}&limit=200`]: {
+        status: 400,
+        body: { error: "INVALID_INPUT" },
+      },
+      "/revocations": { status: 503, body: { error: "PUBLISHED_STATE_UNKNOWN" } },
+    });
+    await expect(custosAt(url).findAgent({ id: "abc" })).rejects.toMatchObject({
+      name: "CustosError",
+      code: "UNAUTHORIZED",
+      status: 401,
+    });
+    await expect(custosAt(url).listGrants(agent)).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      status: 400,
+    });
+    await expect(custosAt(url).findRevocation(agent)).rejects.toMatchObject({
+      code: "PUBLISHED_STATE_UNKNOWN",
+      status: 503,
+    });
+  });
+
+  it("throws on a malformed page rather than report no agent or no grants", async () => {
+    const { url } = await stubServices({
+      "/agents?id=abc": { body: { agents: "none" } },
+      [`/policies?agent=${encodeURIComponent(agent.did)}&limit=200`]: { body: { grants: [] } },
+    });
+    await expect(custosAt(url).findAgent({ id: "abc" })).rejects.toThrow(/unexpected response/);
+    await expect(custosAt(url).listGrants(agent)).rejects.toThrow(/unexpected response/);
+  });
+
+  it("refuses every read without an operator key, before any request", async () => {
+    const { url, requests } = await stubServices({});
+    const custos = custosAt(url, null);
+    await expect(custos.findAgent({ id: "abc" })).rejects.toThrow("needs an operator key");
+    await expect(custos.listGrants(agent)).rejects.toThrow("needs an operator key");
+    await expect(custos.findRevocation(agent)).rejects.toThrow("needs an operator key");
+    expect(requests).toEqual([]);
+  });
+
+  it("throws SERVICE_UNREACHABLE when the service does not answer", async () => {
+    const custos = createCustos({
+      identityUrl: "http://127.0.0.1:1",
+      vaultUrl: "http://127.0.0.1:1",
+      revocationUrl: "http://127.0.0.1:1",
+      operatorKey: OPERATOR_KEY,
+    });
+    await expect(custos.findAgent({ id: "abc" })).rejects.toMatchObject({
+      code: "SERVICE_UNREACHABLE",
+    });
+  });
+});
