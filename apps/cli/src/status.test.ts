@@ -356,6 +356,9 @@ describe("custos status (ADR 0022 §7)", () => {
       );
       expect(out).toContain(`The lines below are for ${DID}, worked out from what you typed`);
       expect(out).toContain("mock-database");
+      // An empty answer for a DID identity did not confirm is never stated as fact.
+      expect(out).not.toContain("Cut off: no.");
+      expect(out).toContain("  Cut off: no (not confirmed: identity could not be read).");
       expect(err).toContain(
         "Could not check who this agent is: the identity service refused the read. The key needs agents:read.\nRefused: ",
       );
@@ -517,6 +520,34 @@ describe("custos status (ADR 0022 §7)", () => {
       expect(json.out).not.toContain("\u001b");
       const parsed = JSON.parse(json.out) as { identity: { name: string } };
       expect(parsed.identity.name).toBe(`evil${ESC}`);
+    });
+
+    it("escapes in --json what JSON.stringify leaves raw: DEL, C1 and bidi controls", async () => {
+      // DEL, CSI (C1), right-to-left override, left-to-right isolate, line separator.
+      const codes = [0x7f, 0x9b, 0x202e, 0x2066, 0x2028];
+      const sneaky = codes.map((code) => `x${String.fromCharCode(code)}`).join("");
+      const url = await serve({ revocations: { body: revokedList(sneaky) } });
+      const { out } = await status(url, ["--json"]);
+      for (const code of codes) {
+        expect(out).not.toContain(String.fromCharCode(code));
+        expect(out).toContain(`x\\u${code.toString(16).padStart(4, "0")}`);
+      }
+      expect((JSON.parse(out) as { revocation: { reason: string } }).revocation.reason).toBe(
+        sneaky,
+      );
+    });
+
+    it("says no tools and nothing recorded are unconfirmed when identity could not be read", async () => {
+      const url = await serve({
+        agents: { status: 401, body: { error: { code: "UNAUTHORIZED" } } },
+        policies: { body: grants([]) },
+        actions: [],
+      });
+      const { out } = await status(url);
+      expect(out).toContain("  May use: no tools (not confirmed: identity could not be read).");
+      expect(out).toContain(
+        "  Recent actions: none recorded (not confirmed: identity could not be read).",
+      );
     });
 
     it("does not print a timestamp that is not one", async () => {

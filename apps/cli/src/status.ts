@@ -256,6 +256,8 @@ export function renderStatus(
   const out: string[] = [];
   const err: string[] = [];
   let complete = true;
+  // Without identity, an empty answer may only mean the DID was worked out wrong.
+  const unconfirmed = identity.ok ? "" : " (not confirmed: identity could not be read)";
   const failed = (source: Source, failure: ReadFailure): void => {
     complete = false;
     err.push(explainFailure(source, failure));
@@ -285,7 +287,7 @@ export function renderStatus(
       `  May use: could not check (${cause("grants", grants.failure)}). It may hold grants not shown here.`,
     );
   } else if (grants.value.length === 0) {
-    out.push("  May use: no tools.");
+    out.push(`  May use: no tools${unconfirmed}.`);
   } else {
     out.push("  May use:");
     for (const grant of grants.value) {
@@ -303,7 +305,7 @@ export function renderStatus(
       `  Cut off: could not check (${cause("revocation", revocation.failure)}). Do not assume either way.`,
     );
   } else if (revocation.value === null) {
-    out.push("  Cut off: no.");
+    out.push(`  Cut off: no${unconfirmed}.`);
   } else {
     const by = revokedBy(status.audit);
     const reason = revocation.value.reason;
@@ -323,7 +325,7 @@ export function renderStatus(
   // What it did recently.
   if (audit.state === "verified") {
     if (audit.recent.length === 0) {
-      out.push("  Recent actions: none recorded.");
+      out.push(`  Recent actions: none recorded${unconfirmed}.`);
     } else {
       out.push("  Recent actions, newest first (the audit log verified):");
       out.push(...audit.recent.map(actionWords));
@@ -357,9 +359,22 @@ export function renderStatus(
   );
 
   const stdout = options.json
-    ? `${JSON.stringify(statusJson(status, audit), null, 2)}\n`
+    ? `${jsonForTerminal(statusJson(status, audit))}\n`
     : `${out.join("\n")}\n`;
   return { stdout, stderr: err.join(""), exitCode: complete ? 0 : 1 };
+}
+
+/**
+ * JSON.stringify escapes only U+0000 to U+001F. DEL, the C1 controls (U+009B
+ * starts a terminal command on some terminals), and the line, paragraph and
+ * bidi controls are escaped too, so `--json` on a terminal is as safe as the
+ * words. They can only occur inside strings, so the output stays valid JSON.
+ */
+export function jsonForTerminal(value: unknown): string {
+  return JSON.stringify(value, null, 2).replace(
+    /[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 function failureJson(source: Source, failure: ReadFailure) {
