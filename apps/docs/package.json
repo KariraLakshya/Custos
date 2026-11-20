@@ -1,0 +1,24 @@
+{
+  "name": "@custos/docs",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "The Custos documentation site (static, built with VitePress)",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@custos/contracts": "workspace:*",
+    "@custos/tsconfig": "workspace:*",
+    "@custos/vitest-config": "workspace:*",
+    "typescript": "^5.7.2",
+    "vitepress": "2.0.0-alpha.17",
+    "vitest": "^5.1.0"
+  }
+}

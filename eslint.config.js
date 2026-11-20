@@ -3,7 +3,14 @@ import { baseConfig } from "@custos/eslint-config";
 export default [
   ...baseConfig,
   {
-    ignores: ["**/dist/**", "**/coverage/**", "**/.turbo/**", "**/node_modules/**"],
+    ignores: [
+      "**/dist/**",
+      "**/coverage/**",
+      "**/.turbo/**",
+      "**/node_modules/**",
+      // VitePress dev-server dependency cache (apps/docs)
+      "**/.vitepress/cache/**",
+    ],
   },
   {
     // Plain Node scripts (e.g. services/vault/scripts/*.mjs) run outside the

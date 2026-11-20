@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-18 — Custos gets a documentation website
+
+**Commits:** `159ec6e` (the site package, its tooling and ADR 0023), `15889c0` (the pages), plus this log entry, on branch `docs/site`, pushed 2026-11-18 as **pull request #149**.
+
+**What shipped:** a proper documentation website, in the style of the LangChain and LangGraph docs, built from the repository with one command (`pnpm docs:dev` to read it on your own machine, `pnpm docs:build` to produce the finished site). It has a left-hand menu, a search box, and five kinds of page: an introduction, a "get started" walkthrough (install, run, take one agent from registration to revocation, then the same from code), one page per idea (identity, the vault, revocation, the audit log, delegation, federation and so on), step-by-step guides for the optional set-ups, and a complete reference for every command, every web address the services answer, and every setting.
+
+**How it works, in plain words:** the pages are ordinary text files kept next to the code, turned into a website by a free tool called VitePress. Search runs inside the reader's browser, so nothing is sent to an outside search company, and the tool collects no usage data. One page, the list of every "refused" message Custos can show, is written automatically from the same list the `custos` command uses, so the two can never disagree. I chose VitePress after installing four candidates and checking each for known security problems; the reasons are recorded in ADR 0023.
+
+**What it says honestly:** the introduction lists the six questions Custos answers and says plainly that one of them (filtering or masking the data a tool sends back) is not built. A "what's real and what's planned" section and a "not yet production-hardened" page list the gaps.
+
+**Why it matters:** a developer, investor's technical adviser or design partner can now understand and try Custos without reading a 500-line README or the source. It is not on the internet yet: putting it online (and where) is your decision.
+
+---
+
 ## 2026-11-18 — Four "read" permissions, and two new ways to ask Custos what it knows
 
 **Commits:** on branch `feat/read-scopes` (Phase 8b, step 5a). Pushed 2026-11-18 as **pull request #148**.
