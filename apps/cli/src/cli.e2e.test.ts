@@ -25,7 +25,7 @@ import { mutableClock } from "@custos/testing";
 import { buildServer as buildVaultServer, createDb as createVaultDb } from "@custos/vault";
 import { bearer, createTestControlPlane } from "@custos/testing/control-plane";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createCli } from "./cli.js";
+import { createCli, runCli } from "./cli.js";
 import { buildTokenRequestProof } from "@custos/core";
 import { createCustos, type CustosConfig } from "@custos/sdk";
 import { pullAuditLog } from "./audit-log.js";
@@ -726,6 +726,217 @@ describe("custos grant + audit-log (Phase 4: authorization + audit)", () => {
       );
     },
   );
+});
+
+describe("custos status (Phase 8b, ADR 0022 §7, user-journey moment 7)", () => {
+  /** Runs one CLI command as a person would, capturing what it prints. */
+  async function cli(args: string[]) {
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    process.exitCode = undefined;
+    try {
+      await runCli(["node", "custos", ...args]);
+      return {
+        out: stdout.mock.calls.map(([chunk]) => String(chunk)).join(""),
+        err: stderr.mock.calls.map(([chunk]) => String(chunk)).join(""),
+        exitCode: process.exitCode,
+      };
+    } finally {
+      process.exitCode = undefined;
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+  }
+
+  it(
+    "register --name, grant, use and revoke through the CLI; then status shows the name, " +
+      "the grant, the cut-off and the verified recent actions",
+    async () => {
+      await withPhase4Stack(
+        { identity: 4970, revocation: 4971, vault: 4972, audit: 4973 },
+        [createMockDatabaseConnector()],
+        async ({ identityUrl, revocationUrl, vaultUrl, auditUrl }) => {
+          await fetch(new URL("/credentials", vaultUrl), {
+            method: "POST",
+            headers: { "content-type": "application/json", ...bearer(operatorKey) },
+            body: JSON.stringify({ tool: "mock-database", secret: "unused-by-the-mock" }),
+          });
+          const dir = await mkdtemp(join(tmpdir(), "custos-status-e2e-"));
+          const credential = join(dir, "agent.json");
+          const key = join(dir, "agent.key");
+          const sealFile = join(dir, "seal.json");
+          vi.stubEnv("CUSTOS_OPERATOR_KEY", operatorKey);
+          vi.stubEnv("CUSTOS_AUDIT_SEAL_STORE_URL", "");
+          try {
+            const registered = await cli([
+              "register",
+              "--name",
+              "billing-bot",
+              "--identity-url",
+              identityUrl,
+              "--out",
+              credential,
+              "--key-out",
+              key,
+            ]);
+            const id = /\(id ([0-9a-f-]{36})\)/.exec(registered.out)?.[1];
+            expect(id).toBeDefined();
+            const issuer = `did:web:127.0.0.1%3A4970`;
+            const did = `${issuer}:agents:${id}`;
+
+            const granted = await cli([
+              "grant",
+              "mock-database",
+              "--to",
+              id!,
+              "--identity-issuer",
+              issuer,
+              "--vault-url",
+              vaultUrl,
+            ]);
+            expect(granted.exitCode).toBeUndefined();
+
+            const used = await cli([
+              "use",
+              "mock-database",
+              "query",
+              "--credential",
+              credential,
+              "--key",
+              key,
+              "--vault-url",
+              vaultUrl,
+              "--input",
+              JSON.stringify({ table: "customers" }),
+            ]);
+            expect(used.exitCode).toBeUndefined();
+
+            const revoked = await cli([
+              "revoke",
+              id!,
+              "--revocation-url",
+              revocationUrl,
+              "--reason",
+              "key leaked",
+            ]);
+            expect(revoked.out).toContain(`Next: custos status ${id}   (to confirm)`);
+
+            // Audit writes are fire-and-forget: wait for the revocation's entry.
+            const status = () =>
+              cli([
+                "status",
+                id!,
+                "--identity-url",
+                identityUrl,
+                "--vault-url",
+                vaultUrl,
+                "--revocation-url",
+                revocationUrl,
+                "--audit-url",
+                auditUrl,
+                "--identity-issuer",
+                issuer,
+                "--seal-file",
+                sealFile,
+              ]);
+            let shown = await status();
+            for (let attempt = 0; !shown.out.includes("agents.revoke") && attempt < 40; attempt++) {
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              shown = await status();
+            }
+
+            expect(shown.err).toBe("");
+            expect(shown.exitCode).toBeUndefined();
+            const lines = shown.out.split("\n");
+            expect(lines[0]).toBe(`billing-bot (id ${id})`);
+            expect(lines[1]).toMatch(/^ {2}Registered \S+Z by .+\.$/);
+            expect(lines[2]).toBe("  May use:");
+            expect(lines[3]).toMatch(/^ {4}mock-database, granted \S+Z by .+$/);
+            expect(lines[4]).toMatch(/^ {2}Cut off: yes, at \S+Z by .+\.$/);
+            expect(lines[5]).toBe("  Reason: key leaked");
+            expect(lines[6]).toBe("  Recent actions, newest first (the audit log verified):");
+            const actions = lines.slice(7, -2);
+            expect(actions).toHaveLength(5);
+            expect(actions[0]).toMatch(/ agents\.revoke: allowed$/);
+            expect(
+              actions.some((line) => / the agent query on mock-database: allowed$/.test(line)),
+            ).toBe(true);
+            expect(shown.out).toContain(`Next: custos audit-log ${id}`);
+
+            // The same facts as JSON, the DID identity issued included.
+            const json = JSON.parse(
+              (
+                await cli([
+                  "status",
+                  did,
+                  "--json",
+                  "--identity-url",
+                  identityUrl,
+                  "--vault-url",
+                  vaultUrl,
+                  "--revocation-url",
+                  revocationUrl,
+                  "--audit-url",
+                  auditUrl,
+                  "--identity-issuer",
+                  issuer,
+                  "--seal-file",
+                  sealFile,
+                ])
+              ).out,
+            ) as Record<string, unknown>;
+            expect(json).toMatchObject({
+              agent: { id, did },
+              identity: { ok: true, name: "billing-bot" },
+              grants: { ok: true, grants: [{ agentDid: did, tool: "mock-database" }] },
+              revocation: { ok: true, revoked: true, reason: "key leaked" },
+              audit: { ok: true, verified: true },
+            });
+          } finally {
+            vi.unstubAllEnvs();
+          }
+        },
+      );
+    },
+  );
+
+  it("a key without the read scopes is told which reads it needs", async () => {
+    await withPhase4Stack(
+      { identity: 4974, revocation: 4975, vault: 4976, audit: 4977 },
+      [createMockDatabaseConnector()],
+      async ({ identityUrl, revocationUrl, vaultUrl, auditUrl }) => {
+        const registered = await sdkAt({ identityUrl }).register();
+        const writeOnly = await controlPlane.key("operator", ["agents:register"]);
+        vi.stubEnv("CUSTOS_OPERATOR_KEY", writeOnly);
+        try {
+          const shown = await cli([
+            "status",
+            registered.id,
+            "--identity-url",
+            identityUrl,
+            "--vault-url",
+            vaultUrl,
+            "--revocation-url",
+            revocationUrl,
+            "--audit-url",
+            auditUrl,
+            "--identity-issuer",
+            registered.credential.issuer,
+            "--seal-file",
+            join(await mkdtemp(join(tmpdir(), "custos-status-e2e-")), "seal.json"),
+          ]);
+          expect(shown.exitCode).toBe(1);
+          expect(shown.err).toContain("The key needs agents:read.");
+          expect(shown.err).toContain("The key needs policies:read.");
+          // Revocation and audit reads are still open until the closing step.
+          expect(shown.out).toContain("  May use: could not check");
+          expect(shown.out).not.toContain("no tools");
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      },
+    );
+  });
 });
 
 function testRevocationSigningKey() {
