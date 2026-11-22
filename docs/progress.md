@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-22 — Signing in to the dashboard with the company login: the safe half is built
+
+**Commits:** `4a8db57` and `265b728` on branch `feat/dashboard-sign-in` (Phase 8b, step 6). **Not pushed yet; the step is half done.**
+
+**What shipped so far:** the identity service can now sign a person in for the dashboard through the company login (Keycloak in the demo, with test users `alice` and `bob`). `pnpm demo` now waits for that login to be running and sets it up.
+
+**How it works, in plain words:** three locks, one after the other. First, after signing in, the person is sent back only to an address written on an approved list, matched letter for letter, so nobody can trick Custos into sending a signed-in person to a lookalike site. Second, the dashboard doesn't receive the key directly: it gets a one-time code that works once and expires after a minute, and swaps it for the key. Third, the key handed to the dashboard can only read. Even when an administrator signs in, the dashboard's key can't register, grant or revoke anything, so a stolen dashboard session can look but never change anything. Tests prove each lock, including that a dashboard key is refused by every "change" route.
+
+**What is left:** the same sign-in in the container-image version of the stack, the documentation pages, and the full test run. The work paused when the assistant hit its usage limit and resumes from where it stopped.
+
+**Why it matters:** the dashboard is the next big piece of the usability phase, and the rule is that it must be secure from day one. This is the part that makes that true.
+
+---
+
 ## 2026-11-21 — `custos status`: one command to check one agent
 
 **Commits:** on branch `feat/custos-status` (Phase 8b, step 5b), pushed 2026-11-21 as **pull request #150**.

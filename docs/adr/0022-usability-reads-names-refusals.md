@@ -80,6 +80,8 @@ There are four read scopes, all operator scopes (`packages/control-plane-auth` `
   - Every dashboard route, not only `/api/*`, refuses any `Host` header that is not the dashboard's own address (DNS rebinding), and none sends `access-control-allow-origin`.
   - Each has a negative test.
 
+- _Implementation note (2026-11-22, step 6, identity side):_ the key is released by a separate `POST /operator/login/:loginId/release` that takes the one-time code, rather than by adding the code to `GET /operator/login/:loginId`, so the CLI's existing poll is unchanged and a code is never sent in a URL. The code is 32 random bytes (base64url), lives 60 s (`LOGIN_CODE_TTL_MS`) and is used once. Refusals: `RETURN_URL_NOT_ALLOWED`, `NO_READ_SCOPE` (the group has no read scope, so there is nothing to give the dashboard), `INVALID_LOGIN_CODE`. The logger redacts `operatorKey` and `loginCode`. `pnpm demo` waits for Keycloak from `pnpm dev:sso` and refuses to start without it; whether the demo should start Keycloak itself, and the image stack, are still open in this step.
+
 ### 5. The dashboard verifies the audit log, with the same verdict as `custos audit-log`
 
 - The dashboard's Node process gains GET-only `/api/*` routes. The browser talks only to them, never to the services directly. Every other method gets `405`, except `POST /logout`. Every upstream call has a timeout and a response size cap.
