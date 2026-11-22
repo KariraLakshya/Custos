@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-22 — Signing in to the dashboard with the company login: the safe half is built
 
-**Commits:** `4a8db57` and `265b728` on branch `feat/dashboard-sign-in` (Phase 8b, step 6). **Not pushed yet; the step is half done.**
+**Commits:** `4a8db57` and `265b728` on branch `feat/dashboard-sign-in` (Phase 8b, step 6). Pushed 2026-11-22 as a backup branch; no pull request yet, because the step is half done.
 
 **What shipped so far:** the identity service can now sign a person in for the dashboard through the company login (Keycloak in the demo, with test users `alice` and `bob`). `pnpm demo` now waits for that login to be running and sets it up.
 
