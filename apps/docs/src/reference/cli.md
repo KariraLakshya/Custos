@@ -2,11 +2,11 @@
 
 The `custos` command registers agents, grants tools, uses them, delegates, revokes, and checks the audit log. It is the `@custos/cli` workspace package; after `pnpm build` run it as `node apps/cli/dist/bin.js` (or make an alias, as in [Your first agent](/get-started/first-agent)).
 
-`custos` on its own prints the lifecycle in order. `custos <command> --help` prints a command's options. `custos --version` prints the version.
+`custos` on its own prints the lifecycle in order, eight steps ending with `custos status`. `custos help <command>` or `custos <command> --help` prints a command's options. `custos --version` prints the version.
 
 ## Conventions
 
-**Naming an agent.** `grant --to`, `delegate --to`, `revoke` and `audit-log [agent]` take an agent's **id** (as `register` printed it) or its **DID**. Never its name, which can repeat. An id becomes a DID under `--identity-issuer` (default `did:web:localhost%3A4001`); anything that is neither is refused before a request is sent.
+**Naming an agent.** `grant --to`, `delegate --to`, `revoke`, `status` and `audit-log [agent]` take an agent's **id** (as `register` printed it) or its **DID**. Never its name, which can repeat. An id becomes a DID under `--identity-issuer` (default `did:web:localhost%3A4001`); anything that is neither is refused before a request is sent.
 
 **Operator key.** `register`, `grant` and `revoke` are operator commands. They read the key from `CUSTOS_OPERATOR_KEY`, or else from the file `custos login` wrote (`~/.custos/operator.key`, or `CUSTOS_OPERATOR_KEY_FILE`). Never from a flag. `audit-log` sends the same key when it finds one; the audit log can still be read without one today, but it will need `audit:read` once that read closes.
 
@@ -137,7 +137,29 @@ custos revoke [options] <agent>
 | `--reason <text>`        |                         | Why this agent is being cut off (recorded) |
 | `--json`                 |                         | Print the result as JSON                   |
 
-Prints how many vaults were told straight away (`Vaults told now: N.`), and a `Problem:` line if some could not be reached.
+Prints how many vaults were told straight away (`Vaults told now: N.`), and a `Problem:` line if some could not be reached. Then `Next: custos status <id>` to confirm the cut-off.
+
+## `status`
+
+Show one agent: its name and who registered it, the tools it may use, whether it is cut off (when, by whom and why), and its recent actions from the verified audit log. Needs an operator key with all four read scopes (`agents:read`, `policies:read`, `revocations:read`, `audit:read`).
+
+```text
+custos status [options] <agent>
+```
+
+| Option                    | Default                     | Meaning                                                            |
+| ------------------------- | --------------------------- | ------------------------------------------------------------------ |
+| `<agent>`                 |                             | The agent's id or DID                                              |
+| `--identity-url <url>`    | `http://localhost:4001`     | Identity service base URL                                          |
+| `--vault-url <url>`       | `http://localhost:4002`     | Vault base URL                                                     |
+| `--revocation-url <url>`  | `http://localhost:4003`     | Revocation service base URL                                        |
+| `--audit-url <url>`       | `http://localhost:4004`     | Audit service base URL                                             |
+| `--identity-issuer <did>` | `did:web:localhost%3A4001`  | The identity service's DID; turns an agent id into its DID         |
+| `--seal-file <path>`      | `~/.custos/audit-seal.json` | Shared with `audit-log`                                            |
+| `--accept-key <key>`      |                             | An audit seal key you have checked, as for `audit-log`. Repeatable |
+| `--json`                  |                             | Print the result as JSON                                           |
+
+If one service can't be read, that part says "could not check" and names the service (and, on a `401`, the scope the key needs); it never reports an unchecked part as "not revoked" or "no grants". A tampered audit log is shown as an alarm. Exits 0 only when all four parts were read and the log verified; an unknown agent is an error with a `Next:` line.
 
 ## `audit-log`
 

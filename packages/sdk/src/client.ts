@@ -73,6 +73,44 @@ export interface GrantResult {
   readonly tool: string;
 }
 
+/** Who took a control-plane action: an operator or a service key (ADR 0008 §7). */
+export interface Principal {
+  readonly kind: string;
+  readonly id: string;
+  /** An operator's SSO email or a key's name. Off the wire: check it before printing. */
+  readonly name: string;
+  readonly via?: string;
+}
+
+/** An agent as identity's `GET /agents` shows it (ADR 0022 §2). */
+export interface RegisteredAgent {
+  readonly id: string;
+  readonly did: string;
+  /** Shown only; never use it to pick an agent. Null when none was given. */
+  readonly name: string | null;
+  readonly registeredAt: string;
+  /** Null for agents registered before identity recorded it. */
+  readonly registeredBy: Principal | null;
+}
+
+/** One tool an agent may use, as the vault's `GET /policies` shows it (ADR 0022 §1). */
+export interface Grant {
+  readonly agentDid: string;
+  readonly tool: string;
+  /** Null for grants made before the vault recorded it. */
+  readonly grantedBy: Principal | null;
+  readonly createdAt: string;
+}
+
+/** An agent's revocation, as the revocation service lists it. */
+export interface Revocation {
+  readonly agentDid: string;
+  readonly statusListIndex: number;
+  readonly revokedAt: string;
+  /** Free text the operator gave. Off the wire: check it before printing. */
+  readonly reason?: string;
+}
+
 export interface DeprovisionResult {
   readonly agentId: string;
   readonly agentDid: string;
@@ -147,6 +185,26 @@ export interface Custos {
     agent: Pick<Agent, "id">,
     options?: { readonly reason?: string },
   ): Promise<DeprovisionResult>;
+  /**
+   * Operator read (`agents:read`): the agent with this id or DID, or null when
+   * identity has none.
+   */
+  findAgent(
+    agent: { readonly id: string } | { readonly did: string },
+  ): Promise<RegisteredAgent | null>;
+  /**
+   * Operator read (`policies:read`): every tool the vault lets this agent use,
+   * every page of it. Throws rather than return part of the list.
+   */
+  listGrants(agent: Pick<Agent, "did">): Promise<readonly Grant[]>;
+  /**
+   * Operator read (`revocations:read`): this agent's revocation, or null when
+   * the revocation service lists none. Read over the operator's own channel
+   * and not signature-checked here; the vault checks every tombstone it acts
+   * on. Throws if any listed entry cannot be read, rather than answer "not
+   * revoked" from a list it could not fully read.
+   */
+  findRevocation(agent: Pick<Agent, "did">): Promise<Revocation | null>;
 }
 
 const agentSchema = z.object({
@@ -167,6 +225,47 @@ const deprovisionSchema = z.object({
   alreadyRevoked: z.boolean(),
   broadcast: z.object({ delivered: z.number(), failed: z.array(z.string()) }),
 });
+const principalSchema = z.object({
+  kind: z.string(),
+  id: z.string(),
+  name: z.string(),
+  via: z.string().optional(),
+});
+const agentPageSchema = z.object({
+  agents: z.array(
+    z.object({
+      id: z.string().min(1),
+      did: z.string().min(1),
+      name: z.string().nullable(),
+      registeredAt: z.string(),
+      registeredBy: principalSchema.nullable(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+});
+const grantPageSchema = z.object({
+  grants: z.array(
+    z.object({
+      agentDid: z.string().min(1),
+      tool: z.string().min(1),
+      grantedBy: principalSchema.nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+});
+const revocationListSchema = z.object({ tombstones: z.array(z.string()) });
+// The claims a tombstone carries (`@custos/core` RevocationTombstone).
+const tombstoneClaimsSchema = z.object({
+  agentDid: z.string().min(1),
+  statusListIndex: z.number().int().nonnegative(),
+  revokedAt: z.string(),
+  reason: z.string().optional(),
+});
+
+/** The vault's maximum page; and enough pages that one agent's grants always fit. */
+const GRANT_PAGE_LIMIT = 200;
+const MAX_GRANT_PAGES = 50;
 
 /**
  * Thrown by the operator actions (`register`, `grant`, `deprovision`) when a
@@ -200,14 +299,27 @@ interface JsonResponse {
   readonly body: unknown;
 }
 
-async function postJson(url: URL, body?: unknown, operatorKey?: string): Promise<JsonResponse> {
+function postJson(url: URL, body?: unknown, operatorKey?: string): Promise<JsonResponse> {
+  return requestJson("POST", url, body, operatorKey);
+}
+
+function getJson(url: URL, operatorKey: string): Promise<JsonResponse> {
+  return requestJson("GET", url, undefined, operatorKey);
+}
+
+async function requestJson(
+  method: "GET" | "POST",
+  url: URL,
+  body?: unknown,
+  operatorKey?: string,
+): Promise<JsonResponse> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["content-type"] = "application/json";
   if (operatorKey !== undefined) headers.authorization = `Bearer ${operatorKey}`;
   let response: Response;
   try {
     response = await fetch(url, {
-      method: "POST",
+      method,
       headers,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -464,6 +576,59 @@ export function createCustos(config: CustosConfig): Custos {
       );
       expectOk("deprovision", "revocation service", response);
       return parseOrThrow("deprovision", deprovisionSchema, response.body);
+    },
+
+    async findAgent(agent) {
+      const url = new URL("/agents", identityUrl);
+      if ("id" in agent) url.searchParams.set("id", agent.id);
+      else url.searchParams.set("did", agent.did);
+      const response = await getJson(url, operatorKey("findAgent"));
+      expectOk("findAgent", "identity service", response);
+      const [found] = parseOrThrow("findAgent", agentPageSchema, response.body).agents;
+      return found ?? null;
+    },
+
+    async listGrants(agent) {
+      const key = operatorKey("listGrants");
+      const grants: Grant[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < MAX_GRANT_PAGES; page += 1) {
+        const url = new URL("/policies", vaultUrl);
+        url.searchParams.set("agent", agent.did);
+        url.searchParams.set("limit", String(GRANT_PAGE_LIMIT));
+        if (cursor !== null) url.searchParams.set("cursor", cursor);
+        const response = await getJson(url, key);
+        expectOk("listGrants", "vault", response);
+        const parsed = parseOrThrow("listGrants", grantPageSchema, response.body);
+        grants.push(...parsed.grants);
+        if (parsed.nextCursor === null) return grants;
+        cursor = parsed.nextCursor;
+      }
+      throw new Error(`listGrants failed: more than ${MAX_GRANT_PAGES} pages of grants`);
+    },
+
+    async findRevocation(agent) {
+      const response = await getJson(
+        new URL("/revocations", revocationUrl),
+        operatorKey("findRevocation"),
+      );
+      expectOk("findRevocation", "revocation service", response);
+      const { tombstones } = parseOrThrow("findRevocation", revocationListSchema, response.body);
+      let found: Revocation | null = null;
+      for (const tombstone of tombstones) {
+        let claims: unknown;
+        try {
+          claims = JSON.parse(
+            Buffer.from(tombstone.split(".")[0] ?? "", "base64url").toString("utf8"),
+          );
+        } catch {
+          claims = undefined;
+        }
+        // One unreadable entry could be this agent's: never answer "not revoked" past it.
+        const revocation = parseOrThrow("findRevocation", tombstoneClaimsSchema, claims);
+        if (revocation.agentDid === agent.did) found = revocation;
+      }
+      return found;
     },
   };
 }

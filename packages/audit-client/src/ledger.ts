@@ -8,7 +8,8 @@ import {
 
 export type PullAuditLedgerError =
   | { readonly code: "UNREACHABLE"; readonly reason: string }
-  | { readonly code: "BAD_RESPONSE"; readonly reason: string }
+  /** `status` when the service answered with an error: 401 is a missing key or scope. */
+  | { readonly code: "BAD_RESPONSE"; readonly reason: string; readonly status?: number }
   /** The outside seal store was configured but could not be read: fail closed. */
   | { readonly code: "SEAL_STORE_UNREACHABLE"; readonly reason: string }
   | VerifyAuditLedgerError;
@@ -64,7 +65,7 @@ export async function pullAuditLedger(params: {
   try {
     const didResponse = await doFetch(new URL("/.well-known/did.json", params.auditUrl));
     if (!didResponse.ok) {
-      return bad(`DID document: HTTP ${didResponse.status}`);
+      return bad(`DID document: HTTP ${didResponse.status}`, didResponse.status);
     }
     didDocument = (await didResponse.json()) as DidWebDocument;
     if (typeof didDocument?.id !== "string") return bad("DID document has no id");
@@ -89,7 +90,9 @@ export async function pullAuditLedger(params: {
         ? undefined
         : { headers: { authorization: `Bearer ${params.apiKey}` } },
     );
-    if (!recordsResponse.ok) return bad(`records: HTTP ${recordsResponse.status}`);
+    if (!recordsResponse.ok) {
+      return bad(`records: HTTP ${recordsResponse.status}`, recordsResponse.status);
+    }
     body = (await recordsResponse.json()) as typeof body;
   } catch (error) {
     return {
@@ -133,6 +136,9 @@ export async function pullAuditLedger(params: {
   };
 }
 
-function bad(reason: string): { ok: false; error: PullAuditLedgerError } {
-  return { ok: false, error: { code: "BAD_RESPONSE", reason } };
+function bad(reason: string, status?: number): { ok: false; error: PullAuditLedgerError } {
+  return {
+    ok: false,
+    error: { code: "BAD_RESPONSE", reason, ...(status === undefined ? {} : { status }) },
+  };
 }

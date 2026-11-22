@@ -99,6 +99,16 @@ deprovision(agent: Pick<Agent, "id">, options?: { readonly reason?: string }): P
 
 Operator action (`agents:revoke`). Revokes the agent everywhere. The CLI calls this command `revoke`.
 
+## Operator reads
+
+```ts
+findAgent(agent: { readonly id: string } | { readonly did: string }): Promise<RegisteredAgent | null>;
+listGrants(agent: Pick<Agent, "did">): Promise<readonly Grant[]>;
+findRevocation(agent: Pick<Agent, "did">): Promise<Revocation | null>;
+```
+
+Each needs an operator key with its read scope: `agents:read`, `policies:read` and `revocations:read`. `findAgent` returns `null` for an agent identity doesn't know. `listGrants` follows every page and throws rather than return part of the list. `findRevocation` returns `null` when the agent isn't revoked, and throws if any entry in the list can't be read, rather than answer "not revoked" from a list it couldn't fully read. `custos status` is built on these. The types `RegisteredAgent`, `Grant`, `Revocation` and `Principal` are exported from `@custos/sdk`.
+
 ## Types
 
 ```ts

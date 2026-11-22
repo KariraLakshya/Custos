@@ -12,7 +12,11 @@ export {
   type DelegateOptions,
   type Delegation,
   type DeprovisionResult,
+  type Grant,
   type GrantResult,
+  type Principal,
+  type RegisteredAgent,
+  type Revocation,
   type ToolConnection,
 } from "./client.js";
 export type { Result } from "@custos/contracts";
