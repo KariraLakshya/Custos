@@ -42,3 +42,6 @@ infra/mtls/envoy.yaml
 # generated per machine, never committed.
 infra/docker/images.env
 infra/docker/images.env.tmp
+
+# Founder launch notes (LinkedIn, Show HN, Product Hunt drafts): kept local, never committed
+docs/launch.md
