@@ -123,6 +123,14 @@ describe("custos-admin demo-federation: processes", () => {
     expect(env("revocation")["REVOCATION_SIGNING_SEED"]).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("gives A's identity no company-login settings: this demo runs no Keycloak (ADR 0022)", async () => {
+    const { deps, spawned } = harness();
+    await begin(deps);
+    for (const { env } of spawned) {
+      expect(Object.keys(env).filter((name) => name.startsWith("SSO_"))).toEqual([]);
+    }
+  });
+
   it("refuses to start when the static host's port is taken", async () => {
     const { deps, spawned } = harness({ isPortFree: async (port) => port !== HOST_PORT });
     await expect(startFederationDemo(deps)).rejects.toThrow(`port ${HOST_PORT} already in use`);

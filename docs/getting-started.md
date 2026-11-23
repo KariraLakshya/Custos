@@ -24,7 +24,7 @@ pnpm migrate    # create the database tables
 pnpm build
 ```
 
-`pnpm dev` starts the databases and Keycloak, which stands in for a company's sign-in. `pnpm demo` signs in through it (users `alice` / `alice-dev-password`, and `bob`, who is in no group) and refuses to start until it answers; Keycloak takes a minute on its first start. The services in this guide don't use it unless you add the settings in [optional-setups.md](./optional-setups.md#optional-administrators-sign-in-with-a-company-account-sso).
+`pnpm dev` starts the databases and Keycloak (profile `sso`), which stands in for a company's sign-in. `pnpm demo` signs in through it (users `alice` / `alice-dev-password`, and `bob`, who is in no group) and refuses to start until it answers; Keycloak takes a minute on its first start. The services in this guide don't use it unless you add the settings in [optional-setups.md](./optional-setups.md#optional-administrators-sign-in-with-a-company-account-sso).
 
 Then create your local keys. Custos only accepts admin actions (registering, granting, revoking, storing tool passwords) from someone holding an **operator key**, and its services only accept each other's calls with a **service key**:
 

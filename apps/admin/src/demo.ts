@@ -115,7 +115,6 @@ function ownSettings(service: string, keys: Secrets, seeds: Secrets): Record<str
       return {
         IDENTITY_SERVICE_KEY: keys["IDENTITY_SERVICE_KEY"]!,
         IDENTITY_ISSUER_SEED: seeds["IDENTITY_ISSUER_SEED"]!,
-        ...DEMO_SSO_SETTINGS,
       };
     case "vault":
       return {
@@ -293,12 +292,17 @@ export async function startDemo(deps: DemoDeps): Promise<DemoHandle> {
       let exited = false;
       const child = deps.spawn(`${deps.repoRoot}/${service.dir}/dist/index.js`, {
         cwd: `${deps.repoRoot}/${service.dir}`,
-        env: buildServiceEnv(service, {
-          baseEnv: deps.baseEnv,
-          databaseUrl: deps.databaseUrl,
-          keys,
-          seeds,
-        }),
+        env: {
+          ...buildServiceEnv(service, {
+            baseEnv: deps.baseEnv,
+            databaseUrl: deps.databaseUrl,
+            keys,
+            seeds,
+          }),
+          // This demo only: the federation demo shares buildServiceEnv and
+          // runs no company login, so its identities must not get these.
+          ...(service.name === "identity" ? DEMO_SSO_SETTINGS : {}),
+        },
       });
       children.push(child);
       child.onExit((code) => {

@@ -219,6 +219,9 @@ describe("an admin's dashboard sign-in key (ADR 0022 §4)", () => {
   beforeAll(async () => {
     dashboardKey = await adminSignsIn(RETURN);
     terminalKey = await adminSignsIn();
+    // A broken release would leave the refusals below passing on no key at all.
+    expect(dashboardKey).toMatch(/^custos_operator_/);
+    expect(terminalKey).toMatch(/^custos_operator_/);
   });
 
   it.each(writes.map((write) => [write.name, write] as const))(

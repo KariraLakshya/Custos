@@ -66,11 +66,14 @@ services:
       - ../mtls/certs:/etc/custos-mtls:ro
       - ../mtls/envoy.yaml:/etc/envoy/envoy.yaml:ro
 
-  # Company-login stand-in for operator SSO (ADR 0010). Started by `pnpm dev`
-  # (and still by `pnpm dev:sso`), because `pnpm demo` signs in through it
-  # (ADR 0022). Image digest must match infra/sso/images.json. The realm
-  # (infra/sso/realm-custos.json) holds throwaway local users only.
+  # Company-login stand-in for operator SSO (ADR 0010). Profile `sso`, which
+  # `pnpm dev` passes (and `pnpm dev:sso` still does), because `pnpm demo`
+  # signs in through it (ADR 0022). A profile, so the image stack's own
+  # `up` does not start it next to keycloak-sso. Image digest must match
+  # infra/sso/images.json. The realm (infra/sso/realm-custos.json) holds
+  # throwaway local users only.
   keycloak:
+    profiles: ["sso"]
     image: quay.io/keycloak/keycloak:26.8@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
     command: ["start-dev", "--import-realm", "--http-port=8180"]
     environment:
