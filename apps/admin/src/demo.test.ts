@@ -495,7 +495,7 @@ describe("custos-admin demo: the company login (ADR 0022)", () => {
   it("stops with the fix named when Keycloak never answers, having made no key and started nothing", async () => {
     const { deps, spawned } = harness({ serving: (port) => port !== 8180 });
     idsBefore = new Set((await store.list()).map((k) => k.id));
-    await expect(startDemo(deps)).rejects.toThrow(/pnpm dev:sso/);
+    await expect(startDemo(deps)).rejects.toThrow(/Start it with: pnpm dev \(needs Docker\)/);
     expect(spawned).toEqual([]);
     expect(await demoKeys()).toEqual([]);
   });

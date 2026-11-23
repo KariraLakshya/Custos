@@ -75,7 +75,7 @@ const DEV_SEAL_STORE_AUDITOR_URL =
 
 /**
  * The company login for the demo (ADR 0022, "the demo gains a company
- * login"): local Keycloak from `pnpm dev:sso`, realm `infra/sso/realm-custos.json`,
+ * login"): local Keycloak from `pnpm dev` (or `pnpm dev:sso`), realm `infra/sso/realm-custos.json`,
  * whose users and client secret are throwaway development values. alice
  * (custos-admins) gets every operator scope; bob is in no group.
  */
@@ -240,7 +240,7 @@ export async function startDemo(deps: DemoDeps): Promise<DemoHandle> {
   deps.out("Waiting for the company login (Keycloak, http://localhost:8180) to be ready...");
   if (!(await waitForCompanyLogin(deps))) {
     throw new Error(
-      `the company login did not answer at ${DEMO_SSO_ISSUER}. Start it with: pnpm dev:sso ` +
+      `the company login did not answer at ${DEMO_SSO_ISSUER}. Start it with: pnpm dev ` +
         "(needs Docker), then run the demo again.",
     );
   }

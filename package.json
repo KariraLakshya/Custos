@@ -18,7 +18,7 @@
     "dev:down": "docker compose -f infra/docker/docker-compose.yml --profile mtls --profile sso --profile images down",
     "images:build": "docker compose -f infra/docker/docker-compose.yml --profile images build",
     "images:up": "bash infra/docker/images/up.sh",
-    "images:down": "docker compose -f infra/docker/docker-compose.yml --profile images rm --stop --force custos-net tools dashboard vault identity revocation audit",
+    "images:down": "docker compose -f infra/docker/docker-compose.yml --profile images rm --stop --force custos-net tools dashboard vault identity keycloak-sso revocation audit",
     "images:check": "bash infra/docker/checks/all.sh",
     "build": "turbo run build",
     "docs:dev": "turbo run build --filter=@custos/docs^... && pnpm --filter @custos/docs dev",

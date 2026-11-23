@@ -66,11 +66,11 @@ services:
       - ../mtls/certs:/etc/custos-mtls:ro
       - ../mtls/envoy.yaml:/etc/envoy/envoy.yaml:ro
 
-  # Company-login stand-in for operator SSO (ADR 0010). Opt-in:
-  # `pnpm dev:sso`. Image digest must match infra/sso/images.json. The realm
+  # Company-login stand-in for operator SSO (ADR 0010). Started by `pnpm dev`
+  # (and still by `pnpm dev:sso`), because `pnpm demo` signs in through it
+  # (ADR 0022). Image digest must match infra/sso/images.json. The realm
   # (infra/sso/realm-custos.json) holds throwaway local users only.
   keycloak:
-    profiles: ["sso"]
     image: quay.io/keycloak/keycloak:26.8@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
     command: ["start-dev", "--import-realm", "--http-port=8180"]
     environment:
@@ -105,6 +105,41 @@ services:
       - "4003:4003"
       - "4004:4004"
       - "4005:4005"
+      # The stack's company login (keycloak-sso below). 8280, not 8180, so it
+      # never clashes with the development Keycloak from `pnpm dev`.
+      - "8280:8280"
+
+  # The image stack's company login (ADR 0022: the demo gains a company
+  # login). The same pinned image as `keycloak` (digest must match
+  # infra/sso/images.json) and the same throwaway realm. It joins the stack's
+  # network namespace, so http://localhost:8280 is the same issuer for the
+  # browser and for identity. The realm file is a bind mount: Keycloak is not
+  # a Custos image, so the no-source-mount check does not cover it.
+  keycloak-sso:
+    profiles: ["images"]
+    image: quay.io/keycloak/keycloak:26.8@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+    command: ["start-dev", "--import-realm", "--http-port=8280"]
+    network_mode: "service:custos-net"
+    depends_on:
+      custos-net: { condition: service_started }
+    environment:
+      KC_HOSTNAME: http://localhost:8280
+    volumes:
+      - ../sso/realm-custos.json:/opt/keycloak/data/import/realm-custos.json:ro
+    # Healthy only once the realm is served: identity loads its discovery
+    # document at boot and refuses to start without it.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "exec 3<>/dev/tcp/127.0.0.1/8280 && printf 'GET /realms/custos/.well-known/openid-configuration HTTP/1.0\r\nHost: localhost:8280\r\n\r\n' >&3 && head -n1 <&3 | grep -q ' 200 '",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
 
   audit:
     profiles: ["images"]
@@ -157,11 +192,23 @@ services:
     network_mode: "service:custos-net"
     depends_on:
       revocation: { condition: service_healthy }
+      keycloak-sso: { condition: service_healthy }
     environment:
       PORT: "4001"
       DATABASE_URL: postgres://custos:custos@postgres:5432/custos
       IDENTITY_ISSUER_SEED: ${IDENTITY_ISSUER_SEED:-}
       IDENTITY_SERVICE_KEY: ${IDENTITY_SERVICE_KEY:-}
+      # Operator and dashboard sign-in through keycloak-sso (ADR 0010, ADR
+      # 0022 §4). Here, not in images.env: missing-secret.sh runs the image
+      # alone with that file, where no Keycloak answers. The client secret is
+      # the realm's throwaway development value.
+      SSO_ISSUER: http://localhost:8280/realms/custos
+      SSO_ALLOW_HTTP_ISSUER: "true"
+      SSO_CLIENT_ID: custos-identity
+      SSO_CLIENT_SECRET: custos-dev-sso-client-secret-not-for-production
+      SSO_REDIRECT_URL: http://localhost:4001/operator/callback
+      SSO_GROUP_SCOPES: '{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write","audit:read","revocations:read","policies:read","agents:read"]}'
+      SSO_RETURN_URLS: '["http://localhost:4005/login/done"]'
     healthcheck: *custos-health
 
   vault:
