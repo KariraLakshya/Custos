@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-23 — The guides now show `custos status`
 
-**Commit:** on branch `docs/status-walkthrough`, pushed 2026-11-23 as a pull request.
+**Commit:** on branch `docs/status-walkthrough`, pushed 2026-11-23 as **pull request #151**.
 
 **What changed:** the step-by-step walkthrough on the documentation site gains a ninth step, "Check one agent", with the real output of `custos status`. The `revoke` step now shows the line the command really prints (it suggests `custos status` to confirm the cut-off). The README's quick tour ends with `custos status`. A troubleshooting row about `custos help` not working is gone, because that bug is fixed.
 
