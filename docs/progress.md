@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-23 — Signing in to the dashboard with the company login is built
 
-**Commits:** `4a8db57`, `265b728`, `2f27217` and the docs commits on branch `feat/dashboard-sign-in` (Phase 8b, step 6). **Not pushed yet** beyond the 2026-11-22 backup; no pull request yet.
+**Commits:** `4a8db57`, `265b728`, `2f27217` and the docs commits on branch `feat/dashboard-sign-in` (Phase 8b, step 6). Pushed 2026-11-23 as **pull request #152**. The container-image checks (all 7) passed on the founder's machine before the push.
 
 **What shipped:** the identity service can now sign a person in for the dashboard through the company login (Keycloak locally, with test users `alice` and `bob`). `pnpm dev` now starts that company login together with the databases, so a newcomer still needs one command before `pnpm demo`; the demo sets the sign-in up and tells you to run `pnpm dev` if the company login isn't there. The container-image version of the stack runs its own company login too.
 
