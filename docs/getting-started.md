@@ -19,12 +19,12 @@ Every command runs from the repository root.
 git clone https://github.com/KariraLakshya/Custos.git
 cd Custos
 pnpm install
-pnpm dev        # Postgres (port 5433) and Redis (6379) in Docker
+pnpm dev        # Postgres (port 5433), Redis (6379) and the company login (Keycloak, 8180) in Docker
 pnpm migrate    # create the database tables
 pnpm build
 ```
 
-`pnpm dev` starts only the databases.
+`pnpm dev` starts the databases and Keycloak, which stands in for a company's sign-in. `pnpm demo` signs in through it (users `alice` / `alice-dev-password`, and `bob`, who is in no group) and refuses to start until it answers; Keycloak takes a minute on its first start. The services in this guide don't use it unless you add the settings in [optional-setups.md](./optional-setups.md#optional-administrators-sign-in-with-a-company-account-sso).
 
 Then create your local keys. Custos only accepts admin actions (registering, granting, revoking, storing tool passwords) from someone holding an **operator key**, and its services only accept each other's calls with a **service key**:
 
@@ -336,7 +336,7 @@ pnpm images:build   # build the images: four services, the dashboard, and a tool
 pnpm images:up      # write dev secrets, migrate, create keys, start everything, store the stand-in tools
 ```
 
-When it finishes, the services are on the usual ports and the dashboard is at http://localhost:4005. `mock-database` and `mock-slack` are already in the vault. Do step 4 in a shell inside the tools container, where the operator key and the seal server's read-only user are already set and `custos` is on the path (skip the alias). The files `register` writes stay in that container and go when it is removed:
+When it finishes, the services are on the usual ports, the dashboard is at http://localhost:4005, and the stack's own company login (Keycloak, same throwaway users) is at http://localhost:8280. `mock-database` and `mock-slack` are already in the vault. Do step 4 in a shell inside the tools container, where the operator key and the seal server's read-only user are already set and `custos` is on the path (skip the alias). The files `register` writes stay in that container and go when it is removed:
 
 ```bash
 docker compose --env-file infra/docker/images.env -f infra/docker/docker-compose.yml --profile images exec tools bash
