@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-25 — The dashboard's three screens can now be worked out, and tested against a real record
+
+**Commits:** on branch `feat/dashboard-views` (Phase 8b, step 7). **Not pushed yet.**
+
+**What shipped:** the logic behind the dashboard's three screens ("Is anything wrong right now?", "Who may do what, and for whom?", "What happened, and can I prove it?"), without the page itself. Given what the services answer, it works out every sentence and every colour the page will show: "All clear", "billing-bot cut off 5 min ago by alice@company.com", "Refused in the last hour: 2 (normal, Custos doing its job)", "alice@company.com → billing-bot → helper-bot", "✓ Verified" or "✗ Tampered: entry #4 does not match its seal".
+
+**How it works, in plain words:** the dashboard checks the audit record with exactly the same code `custos audit-log` uses, now shared in one place, so the two can never disagree. To test it, we made four real, sealed audit records with throwaway test keys and a fixed clock: a clean one, one where an entry was changed afterwards, one where the newest entries were deleted, and one where an agent passed work to another. Every screen is checked against all four. Only real problems turn red (a service down, out-of-date revocation information, a record that does not check out). A refusal or a cut-off is the product working, so it stays grey. A name like `<script>` is always shown as text, never run. If a service can't be read, the screen says so; it never shows "nothing" in place of "couldn't check". Someone with no agents yet gets a four-step start screen instead of empty tables.
+
+**What is left:** the dashboard's back end, then the page and its look (the founder is asked about the look first). One gap found: some kinds of refusal, such as a forged pass, are never written to the audit record, so the screen can't count them yet. That needs a decision.
+
+**Why it matters:** this is the part of the dashboard that has to be right, because it decides whether someone glancing at the screen sees a real problem or a false alarm. It is now built and tested before any pixels are drawn.
+
+---
+
 ## 2026-11-23 — Signing in to the dashboard with the company login is built
 
 **Commits:** `4a8db57`, `265b728`, `2f27217` and the docs commits on branch `feat/dashboard-sign-in` (Phase 8b, step 6). Pushed 2026-11-23 as **pull request #152**. The container-image checks (all 7) passed on the founder's machine before the push.
