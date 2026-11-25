@@ -30,7 +30,7 @@ The ledger and its newest seal, exactly as stored; nothing is signed on read. Op
 | --------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `agentId` | Optional: an agent DID. Other agents' entries are returned as `{ seq, payloadHash }` only, so the chain can still be checked |
 
-`200 { "entries": [...], "seal": "<compact seal>" | null }`. Check it with `custos audit-log`, which also checks the outside seal store and the seal it remembered ([The audit ledger](/concepts/audit-ledger)).
+`200 { "entries": [...], "seal": "<compact seal>" | null }`. Check it with `custos audit-log`, which also checks the outside seal store and the seal it remembered.
 
 ::: warning Open read
 On `main`, anyone who can reach this route can read agent DIDs, tools, decisions and operators' names, which for SSO operators are email addresses.

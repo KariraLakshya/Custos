@@ -1,6 +1,6 @@
 # Trust another organisation
 
-This guide lets **organisation B** accept agents issued by **organisation A**, with A able to revoke them even while its own services are off. Read [Federation](/concepts/federation) first for how the pieces fit.
+This guide lets **organisation B** accept agents issued by **organisation A**, with A able to revoke them even while its own services are off. Read Federation first for how the pieces fit.
 
 ## Watch it first
 
@@ -108,5 +108,3 @@ The values above are placeholders. `statusListId` must equal both the `statusLis
 ## A's own revocation service (optional)
 
 So that a revocation made through the publisher while A was off also reaches A's own vault, A's revocation service can merge the published list. Apply migration `0009` first, then set `REVOCATION_PUBLISHED_LIST_URL`, `REVOCATION_PUBLISHED_MAX_AGE_SECONDS` and `REVOCATION_PUBLISHED_POLL_SECONDS` together (no defaults). While it is on and the newest list is too old, A's revocation service answers `503 PUBLISHED_STATE_UNKNOWN` and A's vault refuses calls.
-
-Sources: ADR 0014, ADR 0015, ADR 0016.

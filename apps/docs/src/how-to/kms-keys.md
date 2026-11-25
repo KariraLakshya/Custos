@@ -59,5 +59,3 @@ CUSTOS_TEST_KMS_KEY_ID=<key id or ARN> pnpm --filter @custos/kms test:kms
 ## Seal copies in S3
 
 For the audit ledger's outside copies, point `AUDIT_SEAL_STORE_URL` (on the audit service) and `CUSTOS_AUDIT_SEAL_STORE_URL` (for `custos audit-log`) at `s3://<bucket>`. The bucket needs Object Lock with a default COMPLIANCE retention, or the audit service refuses to start. The IAM policies for the audit service and for auditors are in `infra/seal-store/aws/`.
-
-Sources: ADR 0002, ADR 0007, ADR 0016, ADR 0017.

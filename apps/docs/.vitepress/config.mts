@@ -6,7 +6,8 @@ import { expandRefusals } from "../lib/refusals.js";
 // VitePress has no telemetry.
 export default defineConfig({
   title: "Custos",
-  description: "Custos: a trust layer for AI agents. Identity, scoped access, revocation and audit.",
+  description:
+    "Custos: a trust layer for AI agents. Identity, scoped access, revocation and audit.",
   lang: "en-GB",
   srcDir: "src",
   outDir: "dist",
@@ -28,10 +29,8 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: "Get started", link: "/get-started/installation" },
-      { text: "Concepts", link: "/concepts/architecture" },
-      { text: "How-to", link: "/how-to/troubleshooting" },
+      { text: "Optional setups", link: "/how-to/operator-sso" },
       { text: "Reference", link: "/reference/cli" },
-      { text: "Security", link: "/security/" },
     ],
     sidebar: [
       {
@@ -50,31 +49,18 @@ export default defineConfig({
         ],
       },
       {
-        text: "Concepts",
-        items: [
-          { text: "Architecture: hot path and cold path", link: "/concepts/architecture" },
-          { text: "Agent identity", link: "/concepts/agent-identity" },
-          { text: "Proof of possession", link: "/concepts/proof-of-possession" },
-          { text: "Scoped tokens", link: "/concepts/scoped-tokens" },
-          { text: "The vault", link: "/concepts/vault" },
-          { text: "Policy and grants", link: "/concepts/policy-and-grants" },
-          { text: "Revocation", link: "/concepts/revocation" },
-          { text: "The audit ledger", link: "/concepts/audit-ledger" },
-          { text: "Delegation", link: "/concepts/delegation" },
-          { text: "Federation", link: "/concepts/federation" },
-          { text: "Control-plane authentication", link: "/concepts/control-plane-auth" },
-        ],
-      },
-      {
-        text: "How-to guides",
+        text: "Optional setups",
         items: [
           { text: "Run with mTLS", link: "/how-to/mtls" },
           { text: "Operator sign-in (SSO)", link: "/how-to/operator-sso" },
           { text: "Trust another organisation", link: "/how-to/federation" },
           { text: "Keep keys in AWS KMS", link: "/how-to/kms-keys" },
           { text: "Run from container images", link: "/how-to/container-images" },
-          { text: "Troubleshooting", link: "/how-to/troubleshooting" },
         ],
+      },
+      {
+        text: "Help",
+        items: [{ text: "Troubleshooting", link: "/how-to/troubleshooting" }],
       },
       {
         text: "Reference",
@@ -94,14 +80,6 @@ export default defineConfig({
           },
           { text: "Configuration", link: "/reference/configuration" },
           { text: "Refusal codes", link: "/reference/refusals" },
-        ],
-      },
-      {
-        text: "Security",
-        items: [
-          { text: "Threat model summary", link: "/security/" },
-          { text: "Not yet production-hardened", link: "/security/limits" },
-          { text: "Reporting a vulnerability", link: "/security/disclosure" },
         ],
       },
     ],

@@ -35,6 +35,8 @@ Each candidate was installed in a scratch directory and audited (2026-11-18), th
 
 VitePress has no telemetry (no reference to it in the package). Its default theme bundles its fonts, so the built site loads no web fonts. The built site references no search service: `@docsearch/*` is installed with VitePress but only used when `search.provider` is `algolia`. The one external URL in the theme bundle (`api.iconify.design`) is a fallback for social-link icons, which this site does not configure.
 
+_Update (2026-11-25, founder):_ the public site shows only what Custos is and how to run it. The Concepts pages (architecture and internals) and the Security section are removed, and the site no longer links to the ADRs, the build plan or the threat model; those stay in the repository. The site's content is to be revisited after the dashboard is live.
+
 ## Consequences
 
 - **A pre-release generator.** VitePress 2 has been in alpha since 2025, and alpha.17 (2026-03) is not the newest alpha. Configuration may change before 2.0. The exit is cheap: content is plain Markdown with VitePress containers, and only one page uses generated content. Moving to VitePress 2.0 stable once its vite range is compatible with the root override, or to Starlight, would mean rewriting `config.mts` and the generator hook, not the pages.

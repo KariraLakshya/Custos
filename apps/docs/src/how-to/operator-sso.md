@@ -1,6 +1,6 @@
 # Operator sign-in (SSO)
 
-Instead of handing out operator keys, let administrators sign in with their company account through any OpenID Connect provider. Locally, Keycloak stands in for the company. Background: [Control-plane authentication](/concepts/control-plane-auth#operator-sign-in-sso).
+Instead of handing out operator keys, let administrators sign in with their company account through any OpenID Connect provider. Locally, Keycloak stands in for the company. Background: Control-plane authentication.
 
 `pnpm demo` already does steps 1 and 2: `pnpm dev` starts Keycloak, and the demo gives identity these settings. Follow them by hand only for the one-service-per-terminal setup in `docs/getting-started.md` in the repository.
 
@@ -68,5 +68,3 @@ pnpm custos-admin key revoke <id>
 ```
 
 The demo realm's passwords and client secret are for local use only.
-
-Source: ADR 0010; dashboard sign-in, ADR 0022 §4.

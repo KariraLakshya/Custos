@@ -19,20 +19,14 @@ hero:
 features:
   - title: An identity for every agent
     details: Each agent gets a did:web identifier and a W3C verifiable credential signed by your identity service. Anyone can check it without asking Custos.
-    link: /concepts/agent-identity
   - title: No tool keys in agents
     details: The vault holds the real tool passwords. An agent gets a 60-second pass for one tool and one action, and never sees the password.
-    link: /concepts/vault
   - title: Cut off in under a second
     details: Revoking an agent pushes a signed notice to every vault at once. A vault that cannot confirm it is up to date refuses rather than guesses.
-    link: /concepts/revocation
   - title: A record you can check
     details: Every decision goes into a hash-chained audit log, sealed every 10 seconds and copied to a store the audit service cannot rewrite.
-    link: /concepts/audit-ledger
   - title: Delegation with provenance
     details: An agent can pass part of its access to a helper agent with a signed hand-off. The log records the whole chain, from the person who granted the tool.
-    link: /concepts/delegation
   - title: Across organisations
     details: Organisation B can accept agents that organisation A issued, and keep refusing A's revoked agents, even while A is switched off.
-    link: /concepts/federation
 ---

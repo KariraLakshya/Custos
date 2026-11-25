@@ -98,7 +98,7 @@ These exist only when SSO is configured ([how-to](/how-to/operator-sso)). They a
 
 ### `POST /operator/login`
 
-Starts a sign-in. No body (the CLI), or `{ "returnTo": "<address>" }` for a dashboard sign-in (ADR 0022 §4). Answers `201 { "loginId": "<32 hex>", "authorizationUrl": "https://..." }`; `503 SSO_BUSY` when too many sign-ins are in progress; `400 RETURN_URL_NOT_ALLOWED` when `returnTo` is not exactly one of `SSO_RETURN_URLS`; `400 INVALID_INPUT` for any other field.
+Starts a sign-in. No body (the CLI), or `{ "returnTo": "<address>" }` for a dashboard sign-in. Answers `201 { "loginId": "<32 hex>", "authorizationUrl": "https://..." }`; `503 SSO_BUSY` when too many sign-ins are in progress; `400 RETURN_URL_NOT_ALLOWED` when `returnTo` is not exactly one of `SSO_RETURN_URLS`; `400 INVALID_INPUT` for any other field.
 
 ### `GET /operator/callback`
 

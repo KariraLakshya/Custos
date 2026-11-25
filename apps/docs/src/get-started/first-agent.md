@@ -131,7 +131,7 @@ Next, as that agent: custos use mock-database query --delegation delegation.json
 custos use mock-database query --credential helper.json --key helper.key --delegation delegation.json
 ```
 
-The helper has no grant of its own: it acts on the first agent's, and only for what was passed on. Anything else is refused with `Code: DELEGATION_DENIED (NOT_COVERED)`. The hand-off lasts 10 minutes by default (`--ttl`), and the helper may not pass it on unless you allow it (`--depth`). See [Delegation](/concepts/delegation).
+The helper has no grant of its own: it acts on the first agent's, and only for what was passed on. Anything else is refused with `Code: DELEGATION_DENIED (NOT_COVERED)`. The hand-off lasts 10 minutes by default (`--ttl`), and the helper may not pass it on unless you allow it (`--depth`).
 
 ## 7. Revoke the agent
 
@@ -203,4 +203,3 @@ One command answers "who is this, what may it do, is it cut off, and what has it
 
 - Do the same from code: [SDK quickstart](/get-started/sdk-quickstart).
 - Every command and option: [custos CLI reference](/reference/cli).
-- What happened at each step, and why: [Concepts](/concepts/architecture).
