@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-25 — The dashboard's three screens can now be worked out, and tested against a real record
 
-**Commits:** on branch `feat/dashboard-views` (Phase 8b, step 7). **Not pushed yet.**
+**Commits:** on branch `feat/dashboard-views` (Phase 8b, step 7), pushed 2026-11-25 as **pull request #161**.
 
 **What shipped:** the logic behind the dashboard's three screens ("Is anything wrong right now?", "Who may do what, and for whom?", "What happened, and can I prove it?"), without the page itself. Given what the services answer, it works out every sentence and every colour the page will show: "All clear", "billing-bot cut off 5 min ago by alice@company.com", "Refused in the last hour: 2 (normal, Custos doing its job)", "alice@company.com → billing-bot → helper-bot", "✓ Verified" or "✗ Tampered: entry #4 does not match its seal".
 
