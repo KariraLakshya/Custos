@@ -74,7 +74,7 @@ services:
   # throwaway local users only.
   keycloak:
     profiles: ["sso"]
-    image: quay.io/keycloak/keycloak:26.8@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+    image: quay.io/keycloak/keycloak:26.8@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
     command: ["start-dev", "--import-realm", "--http-port=8180"]
     environment:
       # Fixed, so the issuer in every token is the URL Custos is configured with.
@@ -120,7 +120,7 @@ services:
   # a Custos image, so the no-source-mount check does not cover it.
   keycloak-sso:
     profiles: ["images"]
-    image: quay.io/keycloak/keycloak:26.8@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+    image: quay.io/keycloak/keycloak:26.8@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
     command: ["start-dev", "--import-realm", "--http-port=8280"]
     network_mode: "service:custos-net"
     depends_on:
