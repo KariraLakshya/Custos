@@ -11,7 +11,7 @@ import {
   type AuditRecord,
   type SignedCredential,
 } from "@custos/core";
-import { checkDelegations, resolvePinnedIssuer } from "./delegation-audit.js";
+import { checkDelegations, resolvePinnedIssuer } from "./delegation.js";
 
 const ISSUER = "did:web:localhost%3A4001";
 const issuerKeys = generateKeyPair();
