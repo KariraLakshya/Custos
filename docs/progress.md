@@ -8,7 +8,7 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ## 2026-11-25 — The documentation website shows only what Custos is and how to run it
 
-**Commit:** on branch `docs/trim-site`, pushed 2026-11-25 as a pull request.
+**Commit:** on branch `docs/trim-site`, pushed 2026-11-25 as **pull request #160**.
 
 **What changed (founder's decision):** the docs site no longer explains how Custos is built inside. The eleven "Concepts" pages (the architecture and how each part works) and the Security section (the threat model and the known gaps) are gone from the site, and it no longer links to the internal design decisions or the build plan. What stays: what Custos is, how to install and run it, the walkthrough, the optional setups (company sign-in, certificates, federation, AWS keys, container images), troubleshooting, and the full reference for the commands, the developer library and the services. Security problems are still reported through `SECURITY.md`.
 
