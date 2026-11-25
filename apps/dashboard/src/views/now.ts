@@ -179,6 +179,11 @@ export function nowView(input: NowInput): NowView {
     input.freshness.state === "ok" && isoTime(input.freshness.data.checkedAt) !== undefined
       ? ` · revocation list checked ${ago(input.freshness.data.checkedAt, now)}`
       : "";
+  const unseen = [
+    ...(input.freshness.state === "forbidden" ? ["how fresh the revocation list is"] : []),
+    ...(input.revocations.state === "forbidden" ? ["cut-off agents"] : []),
+    ...(verdict.kind === "forbidden" ? ["the audit record"] : []),
+  ];
   const headline: NowView["headline"] =
     problems.length > 0
       ? {
@@ -191,12 +196,20 @@ export function nowView(input: NowInput): NowView {
         }
       : loading
         ? { tone: "grey", text: CHECKING, detail: undefined, problems }
-        : {
-            tone: "green",
-            text: escapeHtml("✓ All clear"),
-            detail: escapeHtml(`Every service answering${freshnessWords}`),
-            problems,
-          };
+        : unseen.length > 0
+          ? {
+              // Never a green "All clear" over data the person cannot see.
+              tone: "grey",
+              text: escapeHtml("Your group cannot see everything needed to say all is clear."),
+              detail: escapeHtml(`It cannot see ${unseen.join(" or ")}. Ask whoever runs Custos.`),
+              problems,
+            }
+          : {
+              tone: "green",
+              text: escapeHtml("✓ All clear"),
+              detail: escapeHtml(`Every service answering${freshnessWords}`),
+              problems,
+            };
 
   // --- cut off recently ---
   const by = verified === undefined ? undefined : revokers(verified.records);

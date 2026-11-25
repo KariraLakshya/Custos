@@ -350,7 +350,7 @@ describe("each source failing alone", () => {
 });
 
 describe("a missing scope and loading", () => {
-  it("a group without revocations:read or audit:read is told so, and it is not red", () => {
+  it("a group without revocations:read or audit:read is told so, in grey words, not red", () => {
     const view = nowView({
       ...cleanInput,
       revocations: { state: "forbidden", service: "revocation" },
@@ -364,7 +364,39 @@ describe("a missing scope and loading", () => {
       state: "forbidden",
       text: "Your group cannot see refusals. Ask whoever runs Custos.",
     });
-    expect(view.headline.tone).toBe("green");
+    expect(view.headline).toEqual({
+      tone: "grey",
+      text: "Your group cannot see everything needed to say all is clear.",
+      detail: "It cannot see cut-off agents or the audit record. Ask whoever runs Custos.",
+      problems: [],
+    });
+  });
+
+  it("a missing scope is never shown as All clear, and never red", () => {
+    for (const overrides of [
+      { freshness: { state: "forbidden", service: "vault" } } as const,
+      { revocations: { state: "forbidden", service: "revocation" } } as const,
+      { ledger: { state: "forbidden", service: "audit" } } as const,
+      {
+        ledger: ok<LedgerCheck>({
+          ok: false,
+          error: { code: "BAD_RESPONSE", reason: "x", status: 401 },
+        }),
+      },
+    ]) {
+      const view = nowView({ ...cleanInput, ...overrides });
+      expect(view.headline.tone).toBe("grey");
+      expect(view.headline.text).not.toContain("All clear");
+    }
+  });
+
+  it("a problem still shows red when a scope is also missing", () => {
+    const view = nowView({
+      ...cleanInput,
+      health: { ...ALL_UP, vault: "down" },
+      ledger: { state: "forbidden", service: "audit" },
+    });
+    expect(view.headline.tone).toBe("red");
   });
 
   it("loading: Checking… in place of the headline and panels, never empty tables", () => {
