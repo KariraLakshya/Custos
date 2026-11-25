@@ -20,13 +20,13 @@ Each term is explained once here; the other pages link back.
 
 **Ed25519.** The signature algorithm every Custos key uses. Signing and checking take microseconds.
 
-**Proof of possession.** A fresh signature, made with the agent's private key, that shows the caller holds the key named in the credential. A copied `agent.json` without the key is useless. See [Proof of possession](/concepts/proof-of-possession).
+**Proof of possession.** A fresh signature, made with the agent's private key, that shows the caller holds the key named in the credential. A copied `agent.json` without the key is useless.
 
-**Scoped token.** The short-lived pass (60 seconds) the vault issues for one agent, one tool and one action. See [Scoped tokens](/concepts/scoped-tokens).
+**Scoped token.** The short-lived pass (60 seconds) the vault issues for one agent, one tool and one action.
 
 **Grant.** An operator's permission for one agent to use one tool. Without a grant every call is refused ("deny by default").
 
-**Revocation.** Cutting an agent off from every tool, permanently. See [Revocation](/concepts/revocation).
+**Revocation.** Cutting an agent off from every tool, permanently.
 
 **Tombstone.** The signed notice "agent X is revoked" that the revocation service pushes to every vault.
 
@@ -36,15 +36,15 @@ Each term is explained once here; the other pages link back.
 
 **Bounded staleness.** The explicit limit on how out of date a local copy may be before Custos stops trusting it. For the vault's revocation view the default is 30 seconds.
 
-**Audit ledger.** The audit log, kept as a hash chain: each entry includes the hash of the one before, so an edit anywhere breaks every later link. See [The audit ledger](/concepts/audit-ledger).
+**Audit ledger.** The audit log, kept as a hash chain: each entry includes the hash of the one before, so an edit anywhere breaks every later link.
 
 **Seal.** A signature over the newest entry of the ledger, made every 10 seconds when the log has moved. A seal vouches for every entry up to it.
 
 **Seal store.** A separate place every seal is copied to, which the audit service can add to but not change: a separate Postgres server in development, an S3 bucket with Object Lock in production.
 
-**Hand-off.** A signed note in which one agent passes some of its access to another. A chain of hand-offs is a **delegation**. See [Delegation](/concepts/delegation).
+**Hand-off.** A signed note in which one agent passes some of its access to another. A chain of hand-offs is a **delegation**.
 
-**Federation.** One organisation accepting agents another organisation issued. See [Federation](/concepts/federation).
+**Federation.** One organisation accepting agents another organisation issued.
 
 **Trust anchor.** The public keys and list address that organisation B writes down once for organisation A, out of band, so B can check A's agents without calling A.
 
@@ -57,7 +57,5 @@ Each term is explained once here; the other pages link back.
 **SSO (single sign-on).** Signing in with a company account through an OpenID Connect provider. `custos login` uses it.
 
 **KMS (key management service).** A cloud service that holds a private key and signs with it, but never lets anyone read the key. Custos can use AWS KMS.
-
-**Hot path and cold path.** The hot path runs on every tool call and must be fast; the cold path (issuing, granting, revoking, writing audit) can be slower. See [Architecture](/concepts/architecture).
 
 **Control plane.** The administrative side of Custos: registering, granting, revoking, storing tool passwords.

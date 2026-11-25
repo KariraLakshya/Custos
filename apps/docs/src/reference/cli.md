@@ -103,7 +103,7 @@ custos delegate [options] <tool> <actions...>
 | `--extending <path>`      |                            | A delegation this agent received and is passing on          |
 | `--out <path>`            | `delegation.json`          | Where to write it, for the other agent's `use --delegation` |
 
-`--ttl` and `--depth` must be whole numbers. See [Delegation](/concepts/delegation).
+`--ttl` and `--depth` must be whole numbers.
 
 ## `grant`
 
@@ -181,4 +181,4 @@ custos audit-log [options] [agent]
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `CUSTOS_AUDIT_SEAL_STORE_URL` | The outside seal store, as a read-only user: `postgres://…` or `s3://<bucket>`. Environment only, because it can hold a password |
 
-Prints the verified log as JSON on stdout (`verified`, `headSeq`, `sealedThrough`, `unsealedCount`, `records`, `outsideSealsChecked`, …), each verified delegation chain on stderr as `#<seq> <issued|call>: <chain>`, and exits 1 if verification fails. See [The audit ledger](/concepts/audit-ledger).
+Prints the verified log as JSON on stdout (`verified`, `headSeq`, `sealedThrough`, `unsealedCount`, `records`, `outsideSealsChecked`, …), each verified delegation chain on stderr as `#<seq> <issued|call>: <chain>`, and exits 1 if verification fails.

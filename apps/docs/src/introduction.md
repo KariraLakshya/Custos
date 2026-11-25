@@ -22,12 +22,12 @@ Custos is designed to answer six questions on every agent request. Five are buil
 
 | Question                                     | What answers it today                                                                                                                                                           | Built? |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| **Who are you?** (identity)                  | A `did:web` identifier and a credential signed by your identity service. See [Agent identity](/concepts/agent-identity).                                                        | Yes    |
-| **Can I trust you?** (authentication)        | Every request for a pass is signed with the agent's own private key. See [Proof of possession](/concepts/proof-of-possession).                                                  | Yes    |
-| **What may you do?** (authorization)         | Deny by default; an operator grants one tool at a time. See [Policy and grants](/concepts/policy-and-grants).                                                                   | Yes    |
+| **Who are you?** (identity)                  | A `did:web` identifier and a credential signed by your identity service.                                                                                                        | Yes    |
+| **Can I trust you?** (authentication)        | Every request for a pass is signed with the agent's own private key.                                                                                                            | Yes    |
+| **What may you do?** (authorization)         | Deny by default; an operator grants one tool at a time.                                                                                                                         | Yes    |
 | **What data may you receive?** (data policy) | **Not built.** Each tool declares a fixed list of data categories, which is written into the audit record, but Custos does not filter, mask or inspect the data a tool returns. | **No** |
-| **Can I revoke you?** (lifecycle)            | A signed revocation pushed to every vault, with a status list as the durable record. See [Revocation](/concepts/revocation).                                                    | Yes    |
-| **Can I prove what happened?** (audit)       | A hash-chained, sealed ledger that `custos audit-log` re-checks. See [The audit ledger](/concepts/audit-ledger).                                                                | Yes    |
+| **Can I revoke you?** (lifecycle)            | A signed revocation pushed to every vault, with a status list as the durable record.                                                                                            | Yes    |
+| **Can I prove what happened?** (audit)       | A hash-chained, sealed ledger that `custos audit-log` re-checks.                                                                                                                | Yes    |
 
 ## What you get today
 
@@ -39,7 +39,7 @@ Custos is designed to answer six questions on every agent request. Five are buil
 ## What's real and what's planned {#real-vs-planned}
 
 ::: warning A development build
-Custos is early-stage. It runs end to end on one machine and every security control has a test that proves it fails safely, but **nothing here is hardened for production** and nothing is hosted yet. [Not yet production-hardened](/security/limits) lists the gaps.
+Custos is early-stage. It runs end to end on one machine and every security control has a test that proves it fails safely, but **nothing here is hardened for production** and nothing is hosted yet. Not yet production-hardened lists the gaps.
 :::
 
 Built and on `main`:
@@ -55,9 +55,8 @@ Not built:
 - A way to remove a single grant: today you revoke the agent instead.
 - Agent names are shown only; nothing looks an agent up by name.
 
-The order of work and what "done" means for each phase are in the [build plan](https://github.com/KariraLakshya/Custos/blob/main/docs/build-plan.md). The reasons behind each design decision are in the [architecture decision records](https://github.com/KariraLakshya/Custos/tree/main/docs/adr) (ADRs).
-
 ## Next
 
 - [Install and run Custos](/get-started/installation), then [walk an agent through its life](/get-started/first-agent).
 - New to the vocabulary? The [glossary](/glossary) explains each term once.
+- Found a security problem? Please report it privately, as described in [SECURITY.md](https://github.com/KariraLakshya/Custos/blob/main/SECURITY.md).

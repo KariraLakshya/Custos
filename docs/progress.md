@@ -6,6 +6,16 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-25 — The documentation website shows only what Custos is and how to run it
+
+**Commit:** on branch `docs/trim-site`, pushed 2026-11-25 as **pull request #160**.
+
+**What changed (founder's decision):** the docs site no longer explains how Custos is built inside. The eleven "Concepts" pages (the architecture and how each part works) and the Security section (the threat model and the known gaps) are gone from the site, and it no longer links to the internal design decisions or the build plan. What stays: what Custos is, how to install and run it, the walkthrough, the optional setups (company sign-in, certificates, federation, AWS keys, container images), troubleshooting, and the full reference for the commands, the developer library and the services. Security problems are still reported through `SECURITY.md`.
+
+**Why it matters:** the site is about to go public. Readers get what they need to use Custos, without the internal reasoning that is meant for the team. Everything removed is still in the repository's history and can come back after the dashboard is live.
+
+---
+
 ## 2026-11-23 — Signing in to the dashboard with the company login is built
 
 **Commits:** `4a8db57`, `265b728`, `2f27217` and the docs commits on branch `feat/dashboard-sign-in` (Phase 8b, step 6). Pushed 2026-11-23 as **pull request #152**. The container-image checks (all 7) passed on the founder's machine before the push.

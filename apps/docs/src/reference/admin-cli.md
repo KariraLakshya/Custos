@@ -21,7 +21,7 @@ Create an API key. The key is printed once and can't be retrieved again.
 | `--scopes <scopes>`       | **required** | Comma-separated: `credentials:write`, `policies:write`, `agents:revoke`, `agents:register`, `audit:write`, `status:allocate` |
 | `--expires-in <duration>` | `90d`        | Lifetime, such as `90d` or `12h`                                                                                             |
 
-Service-only scopes (`audit:write`, `status:allocate`) are refused on operator keys. See [Control-plane authentication](/concepts/control-plane-auth#scopes).
+Service-only scopes (`audit:write`, `status:allocate`) are refused on operator keys.
 
 ## `key list`
 
@@ -50,7 +50,7 @@ Two organisations on this machine: A's agents checked by B, A switched off, one 
 
 ## `publish-status`
 
-Sign and publish organisation A's revocation status list from this machine, for other organisations to read ([Federation](/concepts/federation)). The signing key comes from the environment only: `CUSTOS_PUBLISHER_SIGNING_SEED` (development, the same seed as A's `REVOCATION_SIGNING_SEED`), or `CUSTOS_PUBLISHER_KEY_PROVIDER=kms` with `CUSTOS_PUBLISHER_KMS_KEY_ID` (the revocation service's KMS key).
+Sign and publish organisation A's revocation status list from this machine, for other organisations to read. The signing key comes from the environment only: `CUSTOS_PUBLISHER_SIGNING_SEED` (development, the same seed as A's `REVOCATION_SIGNING_SEED`), or `CUSTOS_PUBLISHER_KEY_PROVIDER=kms` with `CUSTOS_PUBLISHER_KMS_KEY_ID` (the revocation service's KMS key).
 
 `init`, `once`, `run` and `revoke` share these options:
 
