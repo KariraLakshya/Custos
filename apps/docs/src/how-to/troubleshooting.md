@@ -25,7 +25,6 @@ Find the message you see. For any `Code:` line the CLI prints, [Refusal codes](/
 | `custos register` fails with `refusing to overwrite existing key file` (or `credential file`) | An `agent.key` or `agent.json` from an earlier registration is in the way. Run it in an empty directory, or pass `--key-out <path>` and `--out <path>`.                                                                                                                  |
 | `custos register` fails with `STATUS_ALLOCATION_FAILED` or a 502                              | The revocation service isn't running. Identity needs it to reserve the agent's revocation slot, and refuses to create an agent that couldn't be revoked.                                                                                                                 |
 | `custos grant` says `say which agent gets the tool, one way only`                             | Give exactly one of `--to <agent id>` and `--credential <file>`.                                                                                                                                                                                                         |
-| `error: unknown command 'help'`                                                               | Use `custos <command> --help` to see a command's options.                                                                                                                                                                                                                |
 
 ## Using a tool
 
