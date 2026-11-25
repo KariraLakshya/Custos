@@ -4,7 +4,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { runAdminCli } from "./admin.js";
 import {
+  DEMO_DASHBOARD_RETURN_URL,
   DEMO_KEY_LIFETIME_MS,
+  DEMO_SSO_ISSUER,
   buildServiceEnv,
   startDemo,
   type DemoChild,
@@ -437,5 +439,64 @@ describe("custos-admin demo", () => {
       expect(stderr).toContain("the demo is not available here");
       expect(process.exitCode).toBe(1);
     });
+  });
+});
+
+describe("custos-admin demo: the company login (ADR 0022)", () => {
+  it("waits for Keycloak's discovery document before making keys or starting anything", async () => {
+    const { deps, events } = harness();
+    const handle = await begin(deps);
+    const firstKeycloakPoll = events.indexOf("poll 8180");
+    expect(firstKeycloakPoll).toBeGreaterThanOrEqual(0);
+    expect(firstKeycloakPoll).toBeLessThan(events.indexOf("spawn audit"));
+    await handle.stop();
+  });
+
+  it("gives identity the SSO settings, including the dashboard's exact return address", async () => {
+    const { deps, spawned } = harness();
+    const handle = await begin(deps);
+    const envOf = (name: string) => spawned.find((s) => s.script.includes(`/${name}/`))!.env;
+    const identity = envOf("identity");
+    expect(identity["SSO_ISSUER"]).toBe(DEMO_SSO_ISSUER);
+    expect(identity["SSO_ALLOW_HTTP_ISSUER"]).toBe("true");
+    expect(identity["SSO_REDIRECT_URL"]).toBe("http://localhost:4001/operator/callback");
+    expect(JSON.parse(identity["SSO_RETURN_URLS"]!)).toEqual([DEMO_DASHBOARD_RETURN_URL]);
+    expect(JSON.parse(identity["SSO_GROUP_SCOPES"]!)["custos-admins"]).toEqual(
+      expect.arrayContaining(["audit:read", "revocations:read", "policies:read", "agents:read"]),
+    );
+    // Only identity is a relying party.
+    for (const name of ["audit", "revocation", "vault", "dashboard"]) {
+      expect(Object.keys(envOf(name)).filter((k) => k.startsWith("SSO_"))).toEqual([]);
+    }
+    await handle.stop();
+  });
+
+  it("replaces SSO settings left in the shell with its own", async () => {
+    const { deps, spawned } = harness({
+      baseEnv: { SSO_ISSUER: "https://elsewhere.example/realms/x", SSO_RETURN_URLS: '["x"]' },
+    });
+    const handle = await begin(deps);
+    const identity = spawned.find((s) => s.script.includes("/identity/"))!.env;
+    expect(identity["SSO_ISSUER"]).toBe(DEMO_SSO_ISSUER);
+    expect(JSON.parse(identity["SSO_RETURN_URLS"]!)).toEqual([DEMO_DASHBOARD_RETURN_URL]);
+    await handle.stop();
+  });
+
+  it("still prints the operator key, and names the throwaway sign-in users", async () => {
+    const { deps, lines } = harness();
+    const handle = await begin(deps);
+    const text = lines.join("\n");
+    expect(text).toMatch(/CUSTOS_OPERATOR_KEY=custos_operator_/);
+    expect(text).toContain("alice / alice-dev-password");
+    expect(text).toContain("bob   / bob-dev-password");
+    await handle.stop();
+  });
+
+  it("stops with the fix named when Keycloak never answers, having made no key and started nothing", async () => {
+    const { deps, spawned } = harness({ serving: (port) => port !== 8180 });
+    idsBefore = new Set((await store.list()).map((k) => k.id));
+    await expect(startDemo(deps)).rejects.toThrow(/Start it with: pnpm dev \(needs Docker\)/);
+    expect(spawned).toEqual([]);
+    expect(await demoKeys()).toEqual([]);
   });
 });

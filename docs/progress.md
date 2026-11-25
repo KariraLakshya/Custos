@@ -6,6 +6,20 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-23 — Signing in to the dashboard with the company login is built
+
+**Commits:** `4a8db57`, `265b728`, `2f27217` and the docs commits on branch `feat/dashboard-sign-in` (Phase 8b, step 6). Pushed 2026-11-23 as **pull request #152**. The container-image checks (all 7) passed on the founder's machine before the push.
+
+**What shipped:** the identity service can now sign a person in for the dashboard through the company login (Keycloak locally, with test users `alice` and `bob`). `pnpm dev` now starts that company login together with the databases, so a newcomer still needs one command before `pnpm demo`; the demo sets the sign-in up and tells you to run `pnpm dev` if the company login isn't there. The container-image version of the stack runs its own company login too.
+
+**How it works, in plain words:** three locks, one after the other. First, after signing in, the person is sent back only to an address written on an approved list, matched letter for letter, so nobody can trick Custos into sending a signed-in person to a lookalike site. Second, the dashboard doesn't receive the key directly: it gets a one-time code that works once and expires after a minute, and swaps it for the key. Third, the key handed to the dashboard can only read. Even when an administrator signs in, the dashboard's key can't register, grant or revoke anything, so a stolen dashboard session can look but never change anything. Tests prove each lock, including that a dashboard key is refused by every "change" route.
+
+**What is left:** the dashboard's own sign-in pages, which are the next step. Until then, a dashboard sign-in in the demo ends on a "not found" page. The container-image checks are run by the lead before the pull request.
+
+**Why it matters:** the dashboard is the next big piece of the usability phase, and the rule is that it must be secure from day one. This is the part that makes that true.
+
+---
+
 ## 2026-11-23 — The guides now show `custos status`
 
 **Commit:** on branch `docs/status-walkthrough`, pushed 2026-11-23 as **pull request #151**.

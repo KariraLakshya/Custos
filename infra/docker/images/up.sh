@@ -5,7 +5,8 @@
 #   3. migrations, from custos-tools
 #   4. API keys, from custos-tools, unless the file already holds active ones
 #      with every scope they now need
-#   5. the services, in dependency order, waiting until each is healthy
+#   5. the services, in dependency order, waiting until each is healthy,
+#      including the stack's company login (keycloak-sso, before identity)
 #   6. the stand-in tools mock-database and mock-slack stored in the vault,
 #      as `pnpm demo` does
 # Needs `pnpm images:build` first. Prints no secret.
@@ -83,6 +84,8 @@ images: Custos is up from its images.
   dashboard   http://localhost:4005
   identity    http://localhost:4001   vault       http://localhost:4002
   revocation  http://localhost:4003   audit       http://localhost:4004
+  company login (Keycloak)  http://localhost:8280   users alice / alice-dev-password,
+                            bob / bob-dev-password (throwaway, infra/sso/realm-custos.json)
 Run the CLI inside the stack (operator key already set there):
   docker compose --env-file infra/docker/images.env -f infra/docker/docker-compose.yml --profile images exec tools custos --help
 Stop: pnpm images:down

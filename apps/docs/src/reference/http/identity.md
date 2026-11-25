@@ -98,11 +98,11 @@ These exist only when SSO is configured ([how-to](/how-to/operator-sso)). They a
 
 ### `POST /operator/login`
 
-Starts a sign-in. `201 { "loginId": "<32 hex>", "authorizationUrl": "https://..." }`, or `503 SSO_BUSY` when too many sign-ins are in progress.
+Starts a sign-in. No body (the CLI), or `{ "returnTo": "<address>" }` for a dashboard sign-in (ADR 0022 §4). Answers `201 { "loginId": "<32 hex>", "authorizationUrl": "https://..." }`; `503 SSO_BUSY` when too many sign-ins are in progress; `400 RETURN_URL_NOT_ALLOWED` when `returnTo` is not exactly one of `SSO_RETURN_URLS`; `400 INVALID_INPUT` for any other field.
 
 ### `GET /operator/callback`
 
-Where the provider sends the browser back (`SSO_REDIRECT_URL`). Answers plain text: success, or `400` for an unknown sign-in, `401` for a failed one.
+Where the provider sends the browser back (`SSO_REDIRECT_URL`). For a CLI sign-in it answers plain text: success, or `400` for an unknown sign-in, `401` for a failed one. For a dashboard sign-in it answers `303` to that sign-in's own `returnTo`, with `?code=<one-time code>` on success or `?error=<reason>` (such as `NO_READ_SCOPE`) on failure.
 
 ### `GET /operator/login/:loginId`
 
@@ -115,3 +115,16 @@ Polled by `custos login` until the sign-in finishes.
 | 401    | `{ "error": { "code": "<reason>" } }`, such as `NO_MAPPED_GROUP` or `TOKEN_REJECTED`     |
 | 404    | `UNKNOWN_LOGIN`                                                                          |
 | 400    | `INVALID_INPUT`: `:loginId` is not 32 hex characters                                     |
+
+A dashboard sign-in is never released here: it answers `404 UNKNOWN_LOGIN`.
+
+### `POST /operator/login/:loginId/release`
+
+Releases a dashboard sign-in's key once, for its one-time code. Body: `{ "loginCode": "<43 characters>" }`. The code lasts a minute, and any attempt with a well-formed code ends the sign-in, right or wrong. The key holds only the person's read scopes.
+
+| Status | Body                                                                                                      |
+| ------ | --------------------------------------------------------------------------------------------------------- |
+| 200    | `{ "operatorKey": "custos_operator_...", "name": "<email>", "expiresAt": "<ISO time>", "scopes": [...] }` |
+| 401    | `INVALID_LOGIN_CODE`: wrong, already used, too old, or no such dashboard sign-in                          |
+| 400    | `INVALID_INPUT`: malformed `:loginId` or body                                                             |
+| 502    | `PROVIDER_ERROR`: the key could not be stored                                                             |

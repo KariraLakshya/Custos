@@ -10,6 +10,17 @@ export const OPERATOR_SCOPES = [
   "agents:read",
 ] as const;
 
+/**
+ * The four read scopes (ADR 0022 §3). A dashboard sign-in's key holds only
+ * these, whatever else the person's group may do (ADR 0022 §4).
+ */
+export const READ_SCOPES = [
+  "audit:read",
+  "revocations:read",
+  "policies:read",
+  "agents:read",
+] as const satisfies readonly (typeof OPERATOR_SCOPES)[number][];
+
 /** Scopes only a service key may hold: Custos components calling each other. */
 export const SERVICE_ONLY_SCOPES = ["audit:write", "status:allocate"] as const;
 

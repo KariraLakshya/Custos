@@ -14,6 +14,10 @@
     "./control-plane": {
       "types": "./dist/control-plane.d.ts",
       "default": "./dist/control-plane.js"
+    },
+    "./oidc-provider": {
+      "types": "./dist/oidc-provider.d.ts",
+      "default": "./dist/oidc-provider.js"
     }
   },
   "scripts": {

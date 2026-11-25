@@ -25,7 +25,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` starts only the databases, in Docker: Postgres on port **5433** (not the usual 5432, on purpose), Redis on 6379, and a separate Postgres on 5434 that holds copies of the audit log's seals. Wait a few seconds for Postgres to be ready.
+`pnpm dev` starts the databases in Docker: Postgres on port **5433** (not the usual 5432, on purpose), Redis on 6379, and a separate Postgres on 5434 that holds copies of the audit log's seals. It also starts Keycloak on 8180, a stand-in for a company login that `pnpm demo` signs in through ([SSO](/how-to/operator-sso)); it takes up to a minute on its first start.
 
 ## Start Custos with one command
 

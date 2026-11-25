@@ -38,7 +38,7 @@ Clone the repository, then run everything from its root:
 git clone https://github.com/KariraLakshya/Custos.git
 cd Custos
 pnpm install
-pnpm dev        # starts the databases in Docker; wait a few seconds for them
+pnpm dev        # starts the databases and the company login (Keycloak) in Docker
 pnpm demo       # migrates, builds, creates keys, starts the four services and the dashboard
 ```
 

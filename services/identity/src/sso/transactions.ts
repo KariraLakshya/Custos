@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import type { Scope } from "@custos/control-plane-auth";
 
 /** What an operator's terminal gets back once, after a successful login. */
 export interface CompletedLogin {
@@ -7,7 +8,8 @@ export interface CompletedLogin {
   readonly expiresAt: Date;
 }
 
-export type LoginFailure = "NO_MAPPED_GROUP" | "TOKEN_REJECTED" | "PROVIDER_ERROR";
+export type LoginFailure =
+  "NO_MAPPED_GROUP" | "NO_READ_SCOPE" | "TOKEN_REJECTED" | "PROVIDER_ERROR";
 
 export type LoginStatus =
   | { readonly state: "pending" }
@@ -15,13 +17,26 @@ export type LoginStatus =
   | { readonly state: "failed"; readonly reason: LoginFailure }
   | { readonly state: "unknown" };
 
+/**
+ * A dashboard login (ADR 0022 §4) the company login has accepted, waiting
+ * for its one-time code. Only the code's SHA-256 is kept; no key exists yet.
+ */
+export interface AwaitingRelease {
+  readonly codeHash: Buffer;
+  readonly codeExpiresAt: number;
+  readonly name: string;
+  readonly scopes: readonly Scope[];
+}
+
 interface Transaction {
   readonly loginId: string;
   readonly state: string;
   readonly nonce: string;
   readonly codeVerifier: string;
-  readonly expiresAt: number;
+  readonly returnTo: string | undefined;
+  expiresAt: number;
   outcome: LoginStatus;
+  release?: AwaitingRelease;
 }
 
 export interface PendingLogin {
@@ -29,6 +44,8 @@ export interface PendingLogin {
   readonly state: string;
   readonly nonce: string;
   readonly codeVerifier: string;
+  /** Set only for a dashboard login; fixed when the login starts. */
+  readonly returnTo?: string;
 }
 
 /**
@@ -42,8 +59,23 @@ export interface LoginTransactions {
   /** The pending login a provider redirect names, by its `state`. */
   findByState(state: string): PendingLogin | null;
   finish(loginId: string, outcome: LoginStatus): void;
-  /** A completed login is returned once, then forgotten. */
+  /**
+   * A terminal login's completed outcome is returned once, then forgotten.
+   * A dashboard login is never released here: it answers `unknown` and is
+   * left as it was.
+   */
   take(loginId: string): LoginStatus;
+  /** A dashboard login accepted by the company login: waits for its code until `codeExpiresAt`. */
+  awaitRelease(loginId: string, release: AwaitingRelease): void;
+  /**
+   * One attempt per login: the login is forgotten whatever the outcome, so
+   * a wrong, replayed or expired code can never be retried. Returns the
+   * accepted login's name and scopes only when `codeHash` matches.
+   */
+  release(
+    loginId: string,
+    codeHash: Buffer,
+  ): { readonly name: string; readonly scopes: readonly Scope[] } | null;
 }
 
 export function createLoginTransactions(options: {
@@ -67,8 +99,11 @@ export function createLoginTransactions(options: {
       if (byId.size >= maxPending) return null;
       const loginId = randomBytes(16).toString("hex");
       byId.set(loginId, {
-        ...values,
         loginId,
+        state: values.state,
+        nonce: values.nonce,
+        codeVerifier: values.codeVerifier,
+        returnTo: values.returnTo,
         expiresAt: now() + ttlMs,
         outcome: { state: "pending" },
       });
@@ -78,12 +113,13 @@ export function createLoginTransactions(options: {
     findByState(state) {
       sweep();
       for (const tx of byId.values()) {
-        if (tx.state === state && tx.outcome.state === "pending") {
+        if (tx.state === state && tx.outcome.state === "pending" && tx.release === undefined) {
           return {
             loginId: tx.loginId,
             state: tx.state,
             nonce: tx.nonce,
             codeVerifier: tx.codeVerifier,
+            ...(tx.returnTo === undefined ? {} : { returnTo: tx.returnTo }),
           };
         }
       }
@@ -98,9 +134,33 @@ export function createLoginTransactions(options: {
     take(loginId) {
       sweep();
       const tx = byId.get(loginId);
-      if (!tx) return { state: "unknown" };
+      if (!tx || tx.returnTo !== undefined) return { state: "unknown" };
       if (tx.outcome.state !== "pending") byId.delete(loginId);
       return tx.outcome;
+    },
+
+    awaitRelease(loginId, release) {
+      const tx = byId.get(loginId);
+      if (!tx || tx.returnTo === undefined) return;
+      tx.release = release;
+      // The login lives exactly as long as its code.
+      tx.expiresAt = release.codeExpiresAt;
+    },
+
+    release(loginId, codeHash) {
+      sweep();
+      const tx = byId.get(loginId);
+      if (!tx) return null;
+      byId.delete(loginId);
+      const awaiting = tx.release;
+      if (awaiting === undefined || awaiting.codeExpiresAt <= now()) return null;
+      if (
+        codeHash.length !== awaiting.codeHash.length ||
+        !timingSafeEqual(codeHash, awaiting.codeHash)
+      ) {
+        return null;
+      }
+      return { name: awaiting.name, scopes: awaiting.scopes };
     },
   };
 }

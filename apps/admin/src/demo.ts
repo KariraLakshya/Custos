@@ -73,6 +73,37 @@ const DEV_SEAL_STORE_SEALER_URL =
 const DEV_SEAL_STORE_AUDITOR_URL =
   "postgres://custos_auditor:custos_auditor@localhost:5434/custos_seals";
 
+/**
+ * The company login for the demo (ADR 0022, "the demo gains a company
+ * login"): local Keycloak from `pnpm dev` (or `pnpm dev:sso`), realm `infra/sso/realm-custos.json`,
+ * whose users and client secret are throwaway development values. alice
+ * (custos-admins) gets every operator scope; bob is in no group.
+ */
+export const DEMO_SSO_ISSUER = "http://localhost:8180/realms/custos";
+const DEMO_SSO_ATTEMPTS = 600;
+/** The dashboard's sign-in return address (ADR 0022 §4); its page comes in a later step. */
+export const DEMO_DASHBOARD_RETURN_URL = "http://localhost:4005/login/done";
+const DEMO_SSO_SETTINGS: Readonly<Record<string, string>> = {
+  SSO_ISSUER: DEMO_SSO_ISSUER,
+  SSO_ALLOW_HTTP_ISSUER: "true",
+  SSO_CLIENT_ID: "custos-identity",
+  SSO_CLIENT_SECRET: "custos-dev-sso-client-secret-not-for-production",
+  SSO_REDIRECT_URL: "http://localhost:4001/operator/callback",
+  SSO_GROUP_SCOPES: JSON.stringify({
+    "custos-admins": [
+      "agents:register",
+      "agents:revoke",
+      "credentials:write",
+      "policies:write",
+      "audit:read",
+      "revocations:read",
+      "policies:read",
+      "agents:read",
+    ],
+  }),
+  SSO_RETURN_URLS: JSON.stringify([DEMO_DASHBOARD_RETURN_URL]),
+};
+
 function ownSettings(service: string, keys: Secrets, seeds: Secrets): Record<string, string> {
   switch (service) {
     case "revocation":
@@ -168,6 +199,24 @@ export async function waitUntilReady(
 }
 
 /**
+ * Waits for the company login's discovery document: identity loads it at
+ * boot and refuses to start without it. Keycloak takes a while to import
+ * its realm on a first start.
+ */
+async function waitForCompanyLogin(deps: Pick<DemoDeps, "fetch" | "sleep">): Promise<boolean> {
+  for (let attempt = 0; attempt < DEMO_SSO_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await deps.fetch(`${DEMO_SSO_ISSUER}/.well-known/openid-configuration`);
+      if (response.ok) return true;
+    } catch {
+      // not up yet
+    }
+    await deps.sleep(READY_POLL_MS);
+  }
+  return false;
+}
+
+/**
  * `custos-admin demo`: starts the five local services with generated keys
  * and seeded stand-in tools, so the README walkthrough works with one
  * command. Everything generated lives in memory and in the database only:
@@ -184,6 +233,14 @@ export async function startDemo(deps: DemoDeps): Promise<DemoHandle> {
       `port${busy.length > 1 ? "s" : ""} ${[...busy].sort((a, b) => a - b).join(", ")} already in use. Stop whatever is ` +
         "running there (an earlier demo or README run); on Windows, a port reserved by WinNAT " +
         "fails the same way (see docs/state.md, Gotchas).",
+    );
+  }
+
+  deps.out("Waiting for the company login (Keycloak, http://localhost:8180) to be ready...");
+  if (!(await waitForCompanyLogin(deps))) {
+    throw new Error(
+      `the company login did not answer at ${DEMO_SSO_ISSUER}. Start it with: pnpm dev ` +
+        "(needs Docker), then run the demo again.",
     );
   }
 
@@ -235,12 +292,17 @@ export async function startDemo(deps: DemoDeps): Promise<DemoHandle> {
       let exited = false;
       const child = deps.spawn(`${deps.repoRoot}/${service.dir}/dist/index.js`, {
         cwd: `${deps.repoRoot}/${service.dir}`,
-        env: buildServiceEnv(service, {
-          baseEnv: deps.baseEnv,
-          databaseUrl: deps.databaseUrl,
-          keys,
-          seeds,
-        }),
+        env: {
+          ...buildServiceEnv(service, {
+            baseEnv: deps.baseEnv,
+            databaseUrl: deps.databaseUrl,
+            keys,
+            seeds,
+          }),
+          // This demo only: the federation demo shares buildServiceEnv and
+          // runs no company login, so its identities must not get these.
+          ...(service.name === "identity" ? DEMO_SSO_SETTINGS : {}),
+        },
       });
       children.push(child);
       child.onExit((code) => {
@@ -322,6 +384,12 @@ function printBanner(deps: DemoDeps, operatorKey: string, auditKey: string): voi
     "",
     "3. Type:  custos",
     "   It lists the steps in order (register, grant, use, revoke, audit-log).",
+    "",
+    "Company login (Keycloak, a stand-in for your company's sign-in):  http://localhost:8180",
+    "  alice / alice-dev-password   in custos-admins: may do everything",
+    "  bob   / bob-dev-password     in no group: refused",
+    "  `custos login` signs in as one of them instead of using the key above.",
+    "  Signing in to the dashboard comes in a later step.",
     "",
     "For `custos audit-log` to also check the seals copied to the separate seal store:",
     "",

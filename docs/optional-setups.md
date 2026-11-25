@@ -26,7 +26,7 @@ A service refuses to start if its certificate is for another service, has expire
 Instead of handing out operator keys, administrators can sign in with their company login, through any OpenID Connect provider (ADR 0010). Locally, Keycloak stands in for the company:
 
 ```bash
-pnpm dev:sso      # starts Keycloak on http://localhost:8180 (Docker) with a demo realm
+pnpm dev:sso      # starts Keycloak on http://localhost:8180 (Docker) with a demo realm; pnpm dev also does
 ```
 
 Start identity with these settings, as well as its usual ones:
@@ -38,9 +38,10 @@ SSO_CLIENT_ID=custos-identity
 SSO_CLIENT_SECRET=custos-dev-sso-client-secret-not-for-production
 SSO_REDIRECT_URL=http://localhost:4001/operator/callback
 SSO_GROUP_SCOPES='{"custos-admins":["agents:register","agents:revoke","credentials:write","policies:write","audit:read","revocations:read","policies:read","agents:read"]}'
+SSO_RETURN_URLS='["http://localhost:4005/login/done"]'   # optional: where a dashboard sign-in may return
 ```
 
-Then, in your own terminal:
+`pnpm demo` sets all of these itself. `SSO_RETURN_URLS` is compared character for character; a dashboard sign-in's key can only read (ADR 0022 §4). Then, in your own terminal:
 
 ```bash
 custos login      # opens the sign-in page; demo user alice / alice-dev-password

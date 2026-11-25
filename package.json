@@ -10,7 +10,7 @@
   },
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev": "docker compose -f infra/docker/docker-compose.yml up -d",
+    "dev": "docker compose -f infra/docker/docker-compose.yml --profile sso up -d",
     "dev:mtls": "node infra/mtls/certs.mjs && node infra/mtls/render-envoy.mjs && docker compose -f infra/docker/docker-compose.yml --profile mtls up -d envoy",
     "dev:sso": "docker compose -f infra/docker/docker-compose.yml --profile sso up -d keycloak",
     "demo": "pnpm migrate && pnpm build && node apps/admin/dist/bin.js demo",
@@ -18,7 +18,7 @@
     "dev:down": "docker compose -f infra/docker/docker-compose.yml --profile mtls --profile sso --profile images down",
     "images:build": "docker compose -f infra/docker/docker-compose.yml --profile images build",
     "images:up": "bash infra/docker/images/up.sh",
-    "images:down": "docker compose -f infra/docker/docker-compose.yml --profile images rm --stop --force custos-net tools dashboard vault identity revocation audit",
+    "images:down": "docker compose -f infra/docker/docker-compose.yml --profile images rm --stop --force custos-net tools dashboard vault identity keycloak-sso revocation audit",
     "images:check": "bash infra/docker/checks/all.sh",
     "build": "turbo run build",
     "docs:dev": "turbo run build --filter=@custos/docs^... && pnpm --filter @custos/docs dev",

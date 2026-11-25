@@ -22,6 +22,12 @@ import type { OperatorSso } from "./sso/sso.js";
 // service in-process (CLAUDE.md's "packages declare explicit exports" rule:
 // this is the one sanctioned surface, not a deep import into ./db/client.js).
 export { createDb } from "./db/client.js";
+// The same, for the dashboard sign-in's cross-service test (ADR 0022 §4): a
+// real SSO login against an in-test provider, its key tried on other services.
+export { discoverProvider } from "./sso/boot.js";
+export { parseGroupScopes, parseReturnUrls } from "./sso/config.js";
+export { createOperatorSso } from "./sso/sso.js";
+export { createLoginTransactions } from "./sso/transactions.js";
 
 const agentIdParamsSchema = z.object({ id: z.string().uuid() });
 
@@ -53,6 +59,16 @@ function statusFor(code: RegisterAgentError["code"]): number {
 }
 
 const LOGIN_ID = /^[0-9a-f]{32}$/;
+
+// `POST /operator/login`: no body (the CLI), or only `returnTo` (a dashboard,
+// ADR 0022 §4). Strict, so nothing else, such as scopes, can be asked for.
+const startLoginSchema = z.strictObject({ returnTo: z.string().max(2048).optional() });
+
+// A dashboard sign-in's one-time code: 32 random bytes, base64url. Sent in
+// the body, never the URL, so no access log or proxy records it.
+const releaseLoginSchema = z.strictObject({
+  loginCode: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
 
 function defaultStatusAllocator(options: {
   readonly revocationUrl?: string;
@@ -233,9 +249,21 @@ export async function buildServer(options: {
       report: (event) => auditReporter.report(event),
       log: (fields, message) => app.log.warn(fields, message),
     });
-    app.post("/operator/login", async (_request, reply) => {
+    app.post("/operator/login", async (request, reply) => {
       reply.header("cache-control", "no-store");
-      const started = await sso.start();
+      const body = startLoginSchema.safeParse(request.body ?? {});
+      if (!body.success) {
+        reply.code(400);
+        return { error: { code: "INVALID_INPUT" } };
+      }
+      const { returnTo } = body.data;
+      // Exact string equality with SSO_RETURN_URLS, before anything starts:
+      // identity is never an open redirect.
+      if (returnTo !== undefined && !sso.allowsReturnTo(returnTo)) {
+        reply.code(400);
+        return { error: { code: "RETURN_URL_NOT_ALLOWED" } };
+      }
+      const started = await sso.start(returnTo === undefined ? {} : { returnTo });
       if (started === null) {
         reply.code(503);
         return { error: { code: "SSO_BUSY" } };
@@ -250,6 +278,14 @@ export async function buildServer(options: {
         ? request.url.slice(request.url.indexOf("?") + 1)
         : "";
       const outcome = await sso.callback(query);
+      if (outcome.state === "return" || outcome.state === "return-failed") {
+        // The address is the one the login was started with, already checked.
+        const target = new URL(outcome.returnTo);
+        if (outcome.state === "return") target.searchParams.set("code", outcome.code);
+        else target.searchParams.set("error", outcome.reason);
+        reply.header("referrer-policy", "no-referrer").redirect(target.href, 303);
+        return reply;
+      }
       if (outcome.state === "complete") {
         return `Signed in to Custos as ${outcome.login.name}. You can close this tab and return to your terminal.`;
       }
@@ -282,6 +318,32 @@ export async function buildServer(options: {
       }
       reply.code(404);
       return { error: { code: "UNKNOWN_LOGIN" } };
+    });
+
+    /**
+     * A dashboard login's key (ADR 0022 §4), released once for the one-time
+     * code its browser brought back. Every refusal looks the same, and any
+     * attempt with a well-formed code ends the login, right or wrong.
+     */
+    app.post("/operator/login/:loginId/release", async (request, reply) => {
+      reply.header("cache-control", "no-store");
+      const { loginId } = request.params as { loginId: string };
+      const body = releaseLoginSchema.safeParse(request.body);
+      if (!LOGIN_ID.test(loginId) || !body.success) {
+        reply.code(400);
+        return { error: { code: "INVALID_INPUT" } };
+      }
+      const released = await sso.release(loginId, body.data.loginCode);
+      if (!released.ok) {
+        reply.code(released.reason === "INVALID_LOGIN_CODE" ? 401 : 502);
+        return { error: { code: released.reason } };
+      }
+      return {
+        operatorKey: released.login.operatorKey,
+        name: released.login.name,
+        expiresAt: released.login.expiresAt.toISOString(),
+        scopes: released.login.scopes,
+      };
     });
   }
 

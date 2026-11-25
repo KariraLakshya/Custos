@@ -840,7 +840,12 @@ describe("custos status (Phase 8b, ADR 0022 §7, user-journey moment 7)", () => 
                 sealFile,
               ]);
             let shown = await status();
-            for (let attempt = 0; !shown.out.includes("agents.revoke") && attempt < 40; attempt++) {
+            // Audit writes are asynchronous (CLAUDE.md §3), so the vault's record
+            // of the call and revocation's record of the cut-off can land in
+            // either order: wait for both, and assert no order between them.
+            const bothRecorded = (out: string): boolean =>
+              out.includes("agents.revoke") && out.includes("the agent query on mock-database");
+            for (let attempt = 0; !bothRecorded(shown.out) && attempt < 40; attempt++) {
               await new Promise((resolve) => setTimeout(resolve, 50));
               shown = await status();
             }
@@ -857,7 +862,7 @@ describe("custos status (Phase 8b, ADR 0022 §7, user-journey moment 7)", () => 
             expect(lines[6]).toBe("  Recent actions, newest first (the audit log verified):");
             const actions = lines.slice(7, -2);
             expect(actions).toHaveLength(5);
-            expect(actions[0]).toMatch(/ agents\.revoke: allowed$/);
+            expect(actions.some((line) => / agents\.revoke: allowed$/.test(line))).toBe(true);
             expect(
               actions.some((line) => / the agent query on mock-database: allowed$/.test(line)),
             ).toBe(true);

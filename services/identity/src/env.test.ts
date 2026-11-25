@@ -207,3 +207,54 @@ describe("identity env: operator SSO (ADR 0010)", () => {
     );
   });
 });
+
+describe("identity env: dashboard return addresses (ADR 0022 §4)", () => {
+  const base = { IDENTITY_ISSUER_SEED: "ab".repeat(32), IDENTITY_SERVICE_KEY: SERVICE_KEY };
+  const sso = {
+    SSO_ISSUER: "https://login.acme.test/realms/custos",
+    SSO_CLIENT_ID: "custos-identity",
+    SSO_CLIENT_SECRET: "s",
+    SSO_REDIRECT_URL: "https://custos.acme.test/operator/callback",
+    SSO_GROUP_SCOPES: '{"custos-admins":["agents:read"]}',
+  };
+
+  it("accepts exact https addresses, and http ones for this computer only", () => {
+    const urls = '["https://dash.acme.test/login/done","http://localhost:4005/login/done"]';
+    expect(loadIdentityEnv({ ...base, ...sso, SSO_RETURN_URLS: urls }).SSO_RETURN_URLS).toBe(urls);
+  });
+
+  it.each([
+    ["not JSON", "http://localhost:4005/login/done", /not valid JSON/],
+    ["an empty list", "[]", /non-empty list/],
+    ["not a list", '{"a":"http://localhost:4005/login/done"}', /non-empty list/],
+    ["a non-string entry", "[4005]", /must list strings/],
+    ["an empty entry", '[""]', /not an absolute URL/],
+    ["a relative address", '["/login/done"]', /not an absolute URL/],
+    ["a missing path slash", '["http://localhost:4005"]', /write .* as .*4005\//],
+    ["upper-case scheme and host", '["HTTP://LOCALHOST:4005/login/done"]', /write/],
+    ["a percent-encodable character", '["http://localhost:4005/login/dône"]', /write/],
+    ["a query", '["http://localhost:4005/login/done?next=/"]', /no query, fragment/],
+    ["an empty query", '["http://localhost:4005/login/done?"]', /no query, fragment/],
+    ["a fragment", '["http://localhost:4005/login/done#x"]', /no query, fragment/],
+    ["user info", '["https://user:pw@dash.acme.test/login/done"]', /user info/],
+    ["plain http off this computer", '["http://dash.acme.test/login/done"]', /must be https/],
+    ["another scheme", '["javascript:alert(1)"]', /must be https/],
+  ])("refuses to boot on %s", (_label, value, message) => {
+    expect(() => loadIdentityEnv({ ...base, ...sso, SSO_RETURN_URLS: value })).toThrow(message);
+    expect(() => loadIdentityEnv({ ...base, ...sso, SSO_RETURN_URLS: value })).toThrow(
+      /SSO_RETURN_URLS/,
+    );
+  });
+
+  it("refuses to boot with return addresses but no SSO", () => {
+    expect(() =>
+      loadIdentityEnv({ ...base, SSO_RETURN_URLS: '["http://localhost:4005/login/done"]' }),
+    ).toThrow(/SSO_RETURN_URLS needs SSO configured/);
+  });
+
+  it("refuses an empty value rather than reading it as unset", () => {
+    expect(() => loadIdentityEnv({ ...base, ...sso, SSO_RETURN_URLS: "" })).toThrow(
+      /SSO_RETURN_URLS/,
+    );
+  });
+});
