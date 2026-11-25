@@ -62,6 +62,7 @@ custos use mock-database query --input '{"table":"customers"}'
 # Refused: This agent ... has been cut off from every tool.   Code: AGENT_REVOKED
 
 custos audit-log                    # every step above, with the signed chain checked
+custos status <id>                  # one agent: name, grants, cut off or not, recent actions
 ```
 
 The agent never saw the database's password: the vault made the call for it. `agent.key` is the agent's private key; keep it private. If `custos audit-log` stops with `KEY_CHANGED` (each demo run signs with a new audit key), check the key it shows against the `audit seal key` line `pnpm demo` printed, then run `custos audit-log --accept-key <that key>`.

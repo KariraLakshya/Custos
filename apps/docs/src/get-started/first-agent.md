@@ -142,7 +142,7 @@ custos revoke <id> --reason "compromised"
 ```text
 Agent 3f2b8c1e-... is cut off from every tool. This cannot be undone.
 Vaults told now: 1.
-Next: custos audit-log   (the record shows the cut-off)
+Next: custos status <id>   (to confirm)
 ```
 
 "Vaults told now: 1" means the signed revocation notice reached the vault straight away. The dashboard shows the agent as cut off. (`deprovision` is the older name of this command and still works.)
@@ -178,6 +178,26 @@ Without it the CLI prints a note and `"outsideSealsChecked": false`.
 ::: tip After a restart: KEY_CHANGED
 Each `pnpm demo` run seals with a new audit key. The first `custos audit-log` after a restart stops with `KEY_CHANGED` and shows the new key. Compare it with the `audit seal key` line `pnpm demo` printed (never with the audit service's own `/.well-known/did.json`, which the service controls), then accept it once: `custos audit-log --accept-key <key>`.
 :::
+
+## 9. Check one agent
+
+```bash
+custos status <id>
+```
+
+```text
+billing-bot (id 3f2b8c1e-...)
+  Registered 2026-11-20T10:00:00.000Z by demo-dev-operator.
+  May use:
+    mock-database, granted 2026-11-20T10:01:00.000Z by demo-dev-operator
+  Cut off: yes, at 2026-11-20T10:05:00.000Z by demo-dev-operator.
+  Reason: compromised
+  Recent actions, newest first (the audit log verified):
+  ...
+Next: custos audit-log 3f2b8c1e-...   (every recorded action, verified)
+```
+
+One command answers "who is this, what may it do, is it cut off, and what has it done?" It asks identity, the vault, the revocation service and the audit log, each with your operator key, and checks the audit log the same way `custos audit-log` does. If one of them can't be read, that part says "could not check" and names the service; it never shows an unchecked part as "not revoked". A tampered audit log is shown as an alarm. See the [`status` reference](/reference/cli#status).
 
 ## Next
 
