@@ -89,7 +89,7 @@ interface Delegation {
 }
 ```
 
-Signs a hand-off locally with the agent's key. Nothing is sent anywhere; Custos first sees it when the receiver uses it with `connect(..., { delegation })`. Throws on a hand-off the vault would refuse anyway: extending a delegation made out to another agent, one whose depth is 0, one that has expired, a depth not less than the parent's, or tools and actions the agent was not itself given. See [Delegation](/concepts/delegation).
+Signs a hand-off locally with the agent's key. Nothing is sent anywhere; Custos first sees it when the receiver uses it with `connect(..., { delegation })`. Throws on a hand-off the vault would refuse anyway: extending a delegation made out to another agent, one whose depth is 0, one that has expired, a depth not less than the parent's, or tools and actions the agent was not itself given.
 
 ## `custos.deprovision(agent, options?)`
 

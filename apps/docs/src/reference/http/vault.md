@@ -70,7 +70,7 @@ Ask for a 60-second scoped token. No API key: the agent is authenticated by its 
 | `tool`, `action` | 1 to 128 characters each                                                                                                 |
 | `credential`     | The agent's credential exactly as issued                                                                                 |
 | `proof`          | Signed by the agent's key, addressed to `<VAULT_PUBLIC_URL>/tokens`, bound to this tool and action. 1 to 4096 characters |
-| `delegation`     | Optional: a chain the agent acts under ([Delegation](/concepts/delegation))                                              |
+| `delegation`     | Optional: a chain the agent acts under                                                                                   |
 
 `200 { "token": "..." }`.
 
@@ -91,7 +91,7 @@ Refusals of an authenticated agent (not a bad credential or proof) are audited.
 
 ## `POST /call`
 
-Use a token. This is the hot path.
+Use a token: the agent calls the tool through the vault.
 
 ```json
 { "token": "...", "action": "query", "input": { "table": "customers" } }

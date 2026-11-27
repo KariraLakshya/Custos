@@ -39,5 +39,3 @@ pnpm dev:down       # stop everything, databases included
 The image stack uses the same databases and ports as `pnpm demo`, so run one at a time (`pnpm images:down` first). It also seals the audit log with its own key, so the first `custos audit-log` after a switch asks you to confirm the new key with `--accept-key`. A tools container that has never checked the log asks once for each key already in it.
 
 `pnpm images:check` runs the checks CI runs against the image stack.
-
-Source: ADR 0019.

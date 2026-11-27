@@ -1,6 +1,6 @@
 # Run with mTLS
 
-By default Custos services authenticate to each other with service API keys. This guide switches them to **certificates** instead, through an Envoy proxy, so each service proves who it is with a private key that never leaves its machine. Operators still use their operator key. Background: [Control-plane authentication](/concepts/control-plane-auth#certificates-mtls).
+By default Custos services authenticate to each other with service API keys. This guide switches them to **certificates** instead, through an Envoy proxy, so each service proves who it is with a private key that never leaves its machine. Operators still use their operator key. Background: Control-plane authentication.
 
 This uses the one-service-per-terminal setup from `docs/getting-started.md` in the repository, not `pnpm demo`.
 
@@ -57,5 +57,3 @@ A service refuses to start if its certificate is for another service, has expire
 
 - The certificate authority is generated locally and has no revocation list; short certificate lifetimes bound the risk.
 - The certificates are valid from one hour before generation, to allow for clock differences between Docker and the host.
-
-Source: ADR 0009.
