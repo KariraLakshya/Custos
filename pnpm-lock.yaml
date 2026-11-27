@@ -172,10 +172,19 @@ importers:
       '@custos/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@custos/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       zod:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@custos/audit-client':
+        specifier: workspace:*
+        version: link:../../packages/audit-client
+      '@custos/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@custos/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig

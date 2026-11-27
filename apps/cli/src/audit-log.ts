@@ -1,14 +1,16 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { pullAuditLedger, type PullAuditLedgerError, type SealStore } from "@custos/audit-client";
-import { multibaseToPublicKey, type AuditRecord, type DidWebDocument } from "@custos/core";
+import type { SealStore } from "@custos/audit-client";
 import {
   checkDelegations,
+  pullAuditLedger,
   resolvePinnedIssuer,
   type CheckedDelegation,
   type DelegationAuditError,
-} from "./delegation-audit.js";
+  type PullAuditLedgerError,
+} from "@custos/audit-client/ledger";
+import { multibaseToPublicKey, type AuditRecord, type DidWebDocument } from "@custos/core";
 
 /**
  * Where `audit-log` remembers, per audit log, the newest seal it verified and

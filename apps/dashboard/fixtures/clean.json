@@ -1,0 +1,144 @@
+{
+  "name": "clean",
+  "description": "billing-bot registered, granted mock-database, one allowed call, one refusal, cut off, one refusal after.",
+  "note": "Recorded by apps/dashboard/scripts/record-fixtures.mjs with TEST KEYS from fixed seeds and a fixed clock. Not secrets; never use these keys elsewhere.",
+  "now": "2026-11-20T14:10:00.000Z",
+  "auditDid": "did:web:localhost%3A4004",
+  "identityDid": "did:web:localhost%3A4001",
+  "revocationDid": "did:web:localhost%3A4003",
+  "didDocuments": {
+    "audit": {
+      "@context": [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/suites/ed25519-2020/v1"
+      ],
+      "id": "did:web:localhost%3A4004",
+      "verificationMethod": [
+        {
+          "id": "did:web:localhost%3A4004#z6MksgdTeyaZhZuXD6UYiM4xQdw37No7C9YVQebAegiRPq8w",
+          "type": "Ed25519VerificationKey2020",
+          "controller": "did:web:localhost%3A4004",
+          "publicKeyMultibase": "z6MksgdTeyaZhZuXD6UYiM4xQdw37No7C9YVQebAegiRPq8w"
+        }
+      ],
+      "assertionMethod": [
+        "did:web:localhost%3A4004#z6MksgdTeyaZhZuXD6UYiM4xQdw37No7C9YVQebAegiRPq8w"
+      ]
+    },
+    "identity": {
+      "@context": [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/suites/ed25519-2020/v1"
+      ],
+      "id": "did:web:localhost%3A4001",
+      "verificationMethod": [
+        {
+          "id": "did:web:localhost%3A4001#z6Mkoe9C6rq1DfzC4yGR9BmAvRtx5vT9XJFgNwzEJqam2jaw",
+          "type": "Ed25519VerificationKey2020",
+          "controller": "did:web:localhost%3A4001",
+          "publicKeyMultibase": "z6Mkoe9C6rq1DfzC4yGR9BmAvRtx5vT9XJFgNwzEJqam2jaw"
+        }
+      ],
+      "assertionMethod": [
+        "did:web:localhost%3A4001#z6Mkoe9C6rq1DfzC4yGR9BmAvRtx5vT9XJFgNwzEJqam2jaw"
+      ]
+    },
+    "revocation": {
+      "@context": [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/suites/ed25519-2020/v1"
+      ],
+      "id": "did:web:localhost%3A4003",
+      "verificationMethod": [
+        {
+          "id": "did:web:localhost%3A4003#z6Mknz5WUVrpPn2GesU15KVs2SSaiAp6dPwuZD8k2RmXm4La",
+          "type": "Ed25519VerificationKey2020",
+          "controller": "did:web:localhost%3A4003",
+          "publicKeyMultibase": "z6Mknz5WUVrpPn2GesU15KVs2SSaiAp6dPwuZD8k2RmXm4La"
+        }
+      ],
+      "assertionMethod": [
+        "did:web:localhost%3A4003#z6Mknz5WUVrpPn2GesU15KVs2SSaiAp6dPwuZD8k2RmXm4La"
+      ]
+    }
+  },
+  "audit": {
+    "entries": [
+      {
+        "seq": 1,
+        "payloadHash": "d0358e29660782463e12851f137c127829210714a1499d6071f92421d7f9f726",
+        "payload": "{\"agentDid\":\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\",\"principal\":{\"kind\":\"service\",\"id\":\"1d00000000000001\",\"name\":\"identity\"},\"authorityChain\":[],\"action\":\"status.allocate\",\"dataCategories\":[],\"policy\":{\"rule\":\"control-plane-scope:status:allocate\",\"decision\":\"allow\"},\"recordedAt\":\"2026-11-20T14:00:00.000Z\",\"reportedBy\":{\"kind\":\"service\",\"id\":\"1d00000000000003\",\"name\":\"revocation\"}}"
+      },
+      {
+        "seq": 2,
+        "payloadHash": "5d91656808cd6e547fa9bd60507f4e6d224c2fa5cfe85fee5ab6368cf154b546",
+        "payload": "{\"agentDid\":\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\",\"principal\":{\"kind\":\"operator\",\"id\":\"0a1b2c3d4e5f6071\",\"name\":\"alice@company.com\"},\"authorityChain\":[],\"action\":\"agents.register\",\"dataCategories\":[],\"policy\":{\"rule\":\"control-plane-scope:agents:register\",\"decision\":\"allow\"},\"recordedAt\":\"2026-11-20T14:00:01.000Z\",\"reportedBy\":{\"kind\":\"service\",\"id\":\"1d00000000000001\",\"name\":\"identity\"}}"
+      },
+      {
+        "seq": 3,
+        "payloadHash": "8877d9cf45176b0457fdcb0a832d302da29de89523e43ccaf7f4445ac4caf0c8",
+        "payload": "{\"agentDid\":\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\",\"principal\":{\"kind\":\"operator\",\"id\":\"0a1b2c3d4e5f6071\",\"name\":\"alice@company.com\"},\"authorityChain\":[],\"tool\":\"mock-database\",\"action\":\"policies.grant\",\"dataCategories\":[],\"policy\":{\"rule\":\"control-plane-scope:policies:write\",\"decision\":\"allow\"},\"recordedAt\":\"2026-11-20T14:01:00.000Z\",\"reportedBy\":{\"kind\":\"service\",\"id\":\"1d00000000000002\",\"name\":\"vault\"}}"
+      },
+      {
+        "seq": 4,
+        "payloadHash": "29b3c956eb891ce2e46b200c77618cc2f78635c559a8782d179c88b40ed07e50",
+        "payload": "{\"agentDid\":\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\",\"authorityChain\":[\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\"],\"tool\":\"mock-database\",\"action\":\"query\",\"dataCategories\":[\"internal-records\"],\"policy\":{\"rule\":\"scoped-token\",\"decision\":\"allow\"},\"recordedAt\":\"2026-11-20T14:02:00.000Z\",\"reportedBy\":{\"kind\":\"service\",\"id\":\"1d00000000000002\",\"name\":\"vault\"}}"
+      },
+      {
+        "seq": 5,
+        "payloadHash": "7180a6dfd837a0a436b2ea28c9e3e0f019333e760dff37ebea669aa7c58288d9",
+        "payload": "{\"agentDid\":\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\",\"authorityChain\":[\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\"],\"tool\":\"stripe\",\"action\":\"list-customers\",\"dataCategories\":[],\"policy\":{\"rule\":\"agent-tool-allowlist\",\"decision\":\"deny\"},\"reason\":\"no policy grant for this agent/tool pair\",\"recordedAt\":\"2026-11-20T14:03:00.000Z\",\"reportedBy\":{\"kind\":\"service\",\"id\":\"1d00000000000002\",\"name\":\"vault\"}}"
+      },
+      {
+        "seq": 6,
+        "payloadHash": "7303b2a2c2b7bbf494a78044a161ce30c057e010ff0b9818b494e11ff4bc6484",
+        "payload": "{\"agentDid\":\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\",\"principal\":{\"kind\":\"operator\",\"id\":\"0a1b2c3d4e5f6071\",\"name\":\"alice@company.com\"},\"authorityChain\":[],\"action\":\"agents.revoke\",\"dataCategories\":[],\"policy\":{\"rule\":\"control-plane-scope:agents:revoke\",\"decision\":\"allow\"},\"reason\":\"key leaked\",\"recordedAt\":\"2026-11-20T14:05:00.000Z\",\"reportedBy\":{\"kind\":\"service\",\"id\":\"1d00000000000003\",\"name\":\"revocation\"}}"
+      },
+      {
+        "seq": 7,
+        "payloadHash": "9293ff96e6186f810dd4b1e150ea13dcf98a94f1e29064a5482f947fe3eb71c9",
+        "payload": "{\"agentDid\":\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\",\"authorityChain\":[\"did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2\"],\"tool\":\"mock-database\",\"action\":\"query\",\"dataCategories\":[],\"policy\":{\"rule\":\"revocation\",\"decision\":\"deny\"},\"reason\":\"agent is revoked\",\"recordedAt\":\"2026-11-20T14:06:00.000Z\",\"reportedBy\":{\"kind\":\"service\",\"id\":\"1d00000000000002\",\"name\":\"vault\"}}"
+      }
+    ],
+    "seal": "eyJ0eXAiOiJjdXN0b3MtYXVkaXQtc2VhbCt2MiIsImxvZyI6ImRpZDp3ZWI6bG9jYWxob3N0JTNBNDAwNCIsInNlcSI6NiwiaGVhZEhhc2giOiI4YjU5OGU4YjgzMzI2NWQwMDNlZTIwMzMzMzc4NzFiZDlkMTZiMWUwZDQyOThiN2NmMzBkM2VmMmFjOTljNjkzIiwia2V5IjoiejZNa3NnZFRleWFaaFp1WEQ2VVlpTTR4UWR3MzdObzdDOVlWUWViQWVnaVJQcTh3Iiwic2VhbGVkQXQiOiIyMDI2LTExLTIwVDE0OjA1OjAwLjAwMFoifQ.JxzKtVXmFSRu_eG5I6T3mWBIVbel2ymkyTAOqWwC38irRfyr67j_FVKG9rssBljvgeO-pr75ilZbTm95oBfMBg"
+  },
+  "agents": {
+    "agents": [
+      {
+        "id": "6f1d2c3b-0000-4000-8000-00000000a1b2",
+        "did": "did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2",
+        "name": "billing-bot",
+        "registeredAt": "2026-11-20T14:00:00.000Z",
+        "registeredBy": {
+          "kind": "operator",
+          "id": "0a1b2c3d4e5f6071",
+          "name": "alice@company.com",
+          "via": "sso"
+        }
+      }
+    ],
+    "nextCursor": null
+  },
+  "policies": {
+    "grants": [
+      {
+        "agentDid": "did:web:localhost%3A4001:agents:6f1d2c3b-0000-4000-8000-00000000a1b2",
+        "tool": "mock-database",
+        "grantedBy": {
+          "kind": "operator",
+          "id": "0a1b2c3d4e5f6071",
+          "name": "alice@company.com",
+          "via": "sso"
+        },
+        "createdAt": "2026-11-20T14:01:00.000Z"
+      }
+    ],
+    "nextCursor": null
+  },
+  "revocations": {
+    "tombstones": [
+      "eyJhZ2VudERpZCI6ImRpZDp3ZWI6bG9jYWxob3N0JTNBNDAwMTphZ2VudHM6NmYxZDJjM2ItMDAwMC00MDAwLTgwMDAtMDAwMDAwMDBhMWIyIiwic3RhdHVzTGlzdEluZGV4IjowLCJyZXZva2VkQXQiOiIyMDI2LTExLTIwVDE0OjA1OjAwLjAwMFoiLCJyZWFzb24iOiJrZXkgbGVha2VkIn0.zmDTql8bSSlB7YnYkFdd9NJCsKH67PIe1k06h5ItpPmtuSApyAY29cpGFEVye58BPM_mz2YiLvykmH5NonydDw"
+    ],
+    "asOf": "2026-11-20T14:10:00.000Z"
+  }
+}
