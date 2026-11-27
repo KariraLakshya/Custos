@@ -63,9 +63,9 @@ A thin strip under the header turns red only when a service is down. It says whi
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-- **The headline is the five-second answer.** It reads "✓ All clear", or "⚠ 2 problems need attention", followed by one line per problem with its next step. For example: "Revocation service not answering for 40 s. Check that it is running."
+- **The headline is the five-second answer.** It reads "✓ All clear", or "⚠ 2 problems need attention", followed by one line per problem with its next step. For example: "Revocation service not answering for 40 s. Check that it is running." When an agent was cut off in the last 24 hours, a grey line under the headline names the newest one: "billing-bot was cut off 5 s ago by alice@company.com" (founder, 2026-11-27). The headline stays "All clear", because a cut-off is intended.
 - **"Cut off recently"** lists revoked agents, newest first, each with who did it, when, and the reason given. A new entry is highlighted for 10 seconds (it replaces today's toast). It is grey: a cut-off is intended.
-- **Refusals** are a grey count with a sentence for each, taken from the catalogue. Forged or broken passes are counted here too (founder, 2026-11-13).
+- **Refusals** are a grey count with a sentence for each, taken from the catalogue. Forged or broken passes are counted here too (founder, 2026-11-13), as one line, over the same last hour: "12 forged or broken passes". If the vault started less than an hour ago, the line adds "since the vault started at 14:01". They come from the vault's in-memory count, not the audit log, so they have no proof link and no agent name (ADR 0022 §6, founder 2026-11-27), and they stay grey however many there are. Clicking any other refusal opens Proof filtered to that agent, with the entry marked (founder, 2026-11-27).
 - **Updates:** about every 2 seconds, as today.
 - **The federation panel** is today's "Across organisations", moved here. Its content is unchanged in this phase.
 
@@ -150,6 +150,7 @@ Someone who signs in before registering any agent must never see empty tables. T
 
 - **Each step ticks itself** from the real reads (an agent exists, a grant exists, an allowed call is in the audit log, a revocation exists). After step 1 the normal views appear and the checklist shrinks to a strip at the top until step 4 is ticked or dismissed.
 - **⧉ copies the command.** Still read-only: the page shows commands, it never runs them.
+- **Registering from code.** Under the four steps: "Registering many agents? Your own code can do it with the SDK: `custos.register()`." with a link to the docs site's SDK quickstart. Each agent's key is then made where the agent runs. There is no Register button: the dashboard stays read-only in Phase 8b, so an agent's key never passes through a browser and a stolen dashboard session can only look (founder, 2026-11-27). A button, or the registration assistant, is reconsidered after the stranger runs.
 - **The example is labelled EXAMPLE on the panel itself**, faded, and never mixed into the real views. A security screen must not show a made-up "All clear" or a made-up agent that could be mistaken for a real one.
 - **Shown only when the answer really is "none".** If the agent read was refused (the group may not see agents) or the identity service is not answering, the person sees that state instead. "No agents" must never hide "cannot see agents".
 - **Per view, after the first agent:** Now with nothing refused says "Nothing refused in the last hour"; Proof with an empty log says "No entries yet. The first one appears when an agent makes a call."
@@ -185,6 +186,7 @@ Tests: the start screen appears only for an empty, successful agent read; a refu
 
 - **"Recent" on Now (founder, 2026-11-16):** the last hour for refusals, the last 24 hours for cut-offs. Older items stay in Proof and in "Who can do what".
 - **The first preview was rejected as too AI-looking (founder, 2026-11-16).** It applied the landing page's colours and fonts to rounded panels. The look is redone when the dashboard page is built, alongside the other Phase 8b steps.
+- **The dashboard journey, step by step (founder reviewed 2026-11-27).** Ten main-path steps and ten "something went wrong" branches, in `docs/user-journey.md` under "On the dashboard". The founder chose, all as recommended: the headline names a cut-off for 24 hours; forged passes are counted by the vault in memory and stay grey (ADR 0022 §6); clicking a refusal opens Proof for that agent; the dashboard stays read-only, with a line pointing to the SDK for registering from code.
 
 ## Decisions for the founder
 

@@ -6,6 +6,18 @@ This is not the technical handover (that's section 0 of `CLAUDE.md`, written for
 
 ---
 
+## 2026-11-27 — The dashboard's journey is agreed, step by step
+
+**Commit:** on branch `docs/dashboard-journey`, pushed 2026-11-27 as a pull request (documents only).
+
+**What changed:** before building the dashboard's server, the founder clicked through a sketch of every step a newcomer takes on the dashboard: ten steps on the normal path, from opening it to proving a cut-off, and ten for when something goes wrong (a service down, a changed record, a sign-in that ran out, and so on). Each step now says what the person does, what the screen says, and what the server behind it must supply. That last part is the to-do list for the next build step.
+
+**Decisions the founder made:** an agent cut off in the last day is named in the top line, so a newcomer can say which agent was cut off within five seconds. Forged access passes are counted by the vault in its memory over the last hour and shown in grey (they are kept out of the evidence log so nobody can flood it). Clicking a refusal jumps to its proof. And the dashboard stays look-only: agents are registered in the terminal or by the customer's own code, so an agent's secret key is never handled by a web page.
+
+**Why it matters:** the server is now built to a journey the founder has already walked through, instead of the journey being fitted to whatever the server happens to provide. It also settles what Phase 8b's test with strangers will check on the dashboard.
+
+---
+
 ## 2026-11-25 — The dashboard's three screens can now be worked out, and tested against a real record
 
 **Commits:** on branch `feat/dashboard-views` (Phase 8b, step 7), pushed 2026-11-25 as **pull request #161**.
